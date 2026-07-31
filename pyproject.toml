@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polars-lance"
+version = "0.1.0"
+description = "Lazy, streaming Lance <-> Polars integration: scan_lance() and sink_lance()"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    # 1.42.1 is the floor because it is the newest polars that polars-cloud 0.9
+    # pins, and it already has every API this package needs: collect_batches,
+    # sink_batches, defer, and PyLazyFrame.new_from_dataset_object.
+    "polars>=1.42.1",
+    "pylance>=9",
+    "pyarrow",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "numpy"]
+# polars-cloud pins an exact polars version, so installing this extra will hold
+# polars back to whatever that release tracks.
+cloud = ["polars-cloud>=0.9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polars_lance"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # scan_lance and sink_lance are built on polars APIs marked unstable; that is
+    # a documented property of this package, not something to be warned about.
+    "ignore::polars.exceptions.UnstableWarning",
+]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests", "bench"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"bench/*" = ["T201"]
