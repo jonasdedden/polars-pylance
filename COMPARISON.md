@@ -62,7 +62,8 @@ and it inherits every Lance feature `pylance` exposes.
 | `_rowid` / `_rowaddr` | no | yes |
 | Per-fragment scans, sharding | no | yes (`scan_lance_fragments`) |
 | Reader tuning (`io_buffer_size`, readahead) | no | yes (`LanceScanOptions`) |
-| Scan-plan serialization (Polars Cloud) | untested | yes, ~1 kB, round-trip tested |
+| Scan-plan serialization (Polars Cloud) | untested | yes, 2–6 kB, round-trip tested |
+| Distributed write to Lance (Polars Cloud) | no | yes (`cloud.sink_lance_remote`) |
 
 Their `scan_lance` takes exactly two arguments (`source`, `storage_options`).
 The Lance-specific capabilities — vector search, versioning, fragments — are the

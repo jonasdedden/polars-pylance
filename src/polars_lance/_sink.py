@@ -258,9 +258,7 @@ def write_lance_fragments(
 
     uri = str(target)
     schema = arrow_schema or shards[0].collect_schema().to_arrow()
-    # Fragments are written before the dataset exists, so they must be assigned
-    # field ids as a fresh schema unless we are appending to an existing one.
-    fragment_mode = "append" if mode == "append" else "create"
+    fragment_mode = fragment_write_mode(mode)
 
     def write_shard(shard: pl.LazyFrame) -> list[Any]:
         reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
@@ -272,11 +270,68 @@ def write_lance_fragments(
         written = list(pool.map(write_shard, shards))
 
     fragments = [f for shard in written for f in shard]
+    storage_options = lance_write_kwargs.get("storage_options")
+    return commit_lance_fragments(
+        uri, fragments, schema=schema, mode=mode, storage_options=storage_options
+    )
 
+
+def fragment_write_mode(mode: Literal["create", "overwrite", "append"]) -> str:
+    """The ``write_fragments`` mode that matches a dataset write mode.
+
+    ``"append"`` reuses the existing dataset's field ids, which is what adding
+    to it needs. Everything else installs a fresh schema, and that is spelled
+    ``"overwrite"`` rather than ``"create"``: ``write_fragments(mode="create")``
+    refuses outright if the dataset already exists, before we ever reach the
+    commit that would have decided what to do about it.
+    """
+    return "append" if mode == "append" else "overwrite"
+
+
+def commit_lance_fragments(
+    uri: str,
+    fragments: list[Any],
+    *,
+    schema: pa.Schema,
+    mode: Literal["create", "overwrite", "append"] = "create",
+    storage_options: dict[str, str] | None = None,
+) -> lance.LanceDataset:
+    """Publish already-written fragments as one dataset version.
+
+    The second half of a distributed write: the fragments' data files are on
+    storage but no manifest references them, so nothing has been published yet.
+    This is the single commit that makes them a version -- whether they were
+    written by threads (:func:`write_lance_fragments`) or by Polars Cloud
+    workers (:func:`~polars_lance.cloud.sink_lance_remote`).
+    """
     if mode == "append":
         operation = lance.LanceOperation.Append(fragments)
-        read_version = lance.dataset(uri).version
-        return lance.LanceDataset.commit(uri, operation, read_version=read_version)
+        read_version = lance.dataset(uri, storage_options=storage_options).version
+        return lance.LanceDataset.commit(
+            uri, operation, read_version=read_version, storage_options=storage_options
+        )
+
+    if mode == "create" and _dataset_exists(uri, storage_options):
+        msg = (
+            f"dataset already exists at {uri!r}; use mode='overwrite' to replace "
+            "its contents or mode='append' to add to it"
+        )
+        raise FileExistsError(msg)
 
     operation = lance.LanceOperation.Overwrite(schema, fragments)
-    return lance.LanceDataset.commit(uri, operation)
+    return lance.LanceDataset.commit(uri, operation, storage_options=storage_options)
+
+
+def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
+    """Advisory: is there already a dataset here?
+
+    Lance reports "not found" and "could not reach the store" as the same
+    ValueError, so an unreachable store reads as absent. That only ever costs a
+    clearer error message -- the commit that follows fails on its own -- and
+    ``Overwrite`` adds a version rather than destroying the old one.
+    """
+    try:
+        lance.dataset(uri, storage_options=storage_options)
+    except (ValueError, OSError):
+        return False
+    return True

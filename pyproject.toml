@@ -10,9 +10,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    # 1.42.1 is the floor because it is the newest polars that polars-cloud 0.9
-    # pins, and it already has every API this package needs: collect_batches,
-    # sink_batches, defer, and PyLazyFrame.new_from_dataset_object.
+    # 1.42.1 is the floor because it already has every API this package needs:
+    # collect_batches, sink_batches, defer, and
+    # PyLazyFrame.new_from_dataset_object. The cloud extra raises it -- see below.
     "polars>=1.42.1",
     "pylance>=9",
     "pyarrow",
@@ -21,8 +21,9 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8", "numpy"]
 # polars-cloud pins an exact polars version, so installing this extra will hold
-# polars back to whatever that release tracks.
-cloud = ["polars-cloud>=0.9"]
+# polars at whatever that release tracks: 1.43.2 for 0.10, 1.42.1 for 0.9.
+# 0.10 is the floor because sink_lance_remote() is built on its sink_batches.
+cloud = ["polars-cloud>=0.10"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/polars_lance"]
