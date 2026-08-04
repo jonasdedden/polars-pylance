@@ -129,6 +129,28 @@ def test_write_fragments_append(tmp_path, lance_uri: str) -> None:
     assert second.count_rows() == 2 * first.count_rows()
 
 
+def test_write_fragments_overwrite_existing(tmp_path, lance_uri: str) -> None:
+    """write_fragments(mode='create') refuses an existing dataset outright, so
+    replacing one has to write its fragments in 'overwrite' mode."""
+    out = str(tmp_path / "frag_overwrite.lance")
+    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
+    write_lance_fragments(shards, out)
+
+    half = [s.filter(pl.col("id") < 10_000) for s in shards]
+    dataset = write_lance_fragments(half, out, mode="overwrite")
+    assert dataset.count_rows() == sum(
+        s.select(pl.len()).collect(engine="streaming").item() for s in half
+    )
+
+
+def test_write_fragments_create_refuses_existing(tmp_path, lance_uri: str) -> None:
+    out = str(tmp_path / "frag_twice.lance")
+    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
+    write_lance_fragments(shards, out)
+    with pytest.raises(FileExistsError):
+        write_lance_fragments(shards, out)
+
+
 def test_write_fragments_needs_input(tmp_path) -> None:
     with pytest.raises(ValueError, match="at least one LazyFrame"):
         write_lance_fragments([], str(tmp_path / "empty.lance"))
