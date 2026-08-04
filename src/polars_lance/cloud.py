@@ -1,24 +1,38 @@
-"""Helpers for running Lance scans on Polars Cloud.
+"""Helpers for running Lance scans and writes on Polars Cloud.
 
-What works and what does not, as of polars-cloud 0.9:
+What works and what does not, as of polars-cloud 0.10:
 
 Reading
-    A ``scan_lance`` plan serializes to ~1-2 kB and can be shipped with
+    A ``scan_lance`` plan serializes to ~2-6 kB and can be shipped with
     ``LazyFrame.remote()``, but the remote workers must be able to ``import
     lance`` and to reach the dataset's storage. Install the dependency with
     ``ComputeContext(requirements=...)``; see :func:`requirements_txt`.
 
-Writing
-    Not possible remotely. Polars Cloud's only sink destinations are Parquet,
-    CSV, IPC and Iceberg. Sink the remote query to Parquet on object storage and
-    convert it in a second step -- see :func:`convert_parquet_to_lance` -- or
-    ``.collect()`` and stream the result into Lance client-side with
-    :func:`~polars_lance.sink_lance`.
+    Both scan implementations survive ``prepare_cloud_plan`` -- ``provider`` and
+    ``io_plugin``, on their own and under ``pl.concat`` of
+    :func:`~polars_lance.scan_lance_fragments` shards. 0.9 added distributed
+    unions of Python scans, so the sharded form is the sanctioned way to fan a
+    read out across workers rather than a fallback.
 
-Untested
-    Whether the *distributed* planner accepts a Python scan node at all. If it
-    refuses, shard the read yourself with
-    :func:`~polars_lance.scan_lance_fragments` and concatenate.
+Writing
+    Possible remotely since 0.10, via :func:`sink_lance_remote`. Polars Cloud's
+    native sink destinations are still Parquet, CSV, IPC and Iceberg, but
+    ``sink_batches`` hands each result batch to a Python callable that is
+    cloudpickled into the query plan and therefore runs *on the workers* -- so
+    the workers write Lance data files directly, and a single client-side commit
+    publishes them. :mod:`polars_lance._remote` documents the arrangement.
+
+    The Parquet-staging route remains as the conservative fallback: sink the
+    remote query to Parquet on object storage and convert it with
+    :func:`convert_parquet_to_lance`. polars-cloud 0.10's
+    ``DirectQuery.delete_result()`` makes cleaning up the intermediate a single
+    call, in direct mode with anonymous storage configured for ``allow_delete``.
+
+The polars pin
+    polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9. The
+    ``collect_batches`` Arrow C stream deadlock that :mod:`polars_lance._sink`
+    works around is still present in 1.43.2 for the default ``provider`` scan,
+    so the workaround stays.
 """
 
 from __future__ import annotations
@@ -29,15 +43,31 @@ from typing import TYPE_CHECKING, Any
 import lance
 import polars as pl
 
+from polars_lance._remote import (
+    StagedLanceSink,
+    sink_lance_remote,
+    stage_lance_sink,
+)
+
 if TYPE_CHECKING:
     from polars_lance._sink import WriteMode
+
+__all__ = [
+    "StagedLanceSink",
+    "convert_parquet_to_lance",
+    "requirements_txt",
+    "sink_lance_remote",
+    "stage_lance_sink",
+]
 
 
 def requirements_txt(extra: list[str] | None = None) -> str:
     """Render a requirements file pinning the versions a cloud worker needs.
 
     Polars Cloud rejects a compute context whose polars version differs from the
-    client's, so both pins are exact.
+    client's, so both pins are exact. ``polars-lance`` itself is on the list
+    because a :func:`sink_lance_remote` callback is pickled by reference: the
+    worker imports it rather than receiving its code.
 
     Examples
     --------

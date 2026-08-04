@@ -23,7 +23,11 @@ from polars_lance._scan import (
     scan_lance,
     scan_lance_fragments,
 )
-from polars_lance._sink import sink_lance, write_lance_fragments
+from polars_lance._sink import (
+    commit_lance_fragments,
+    sink_lance,
+    write_lance_fragments,
+)
 
 __version__ = "0.1.0"
 
@@ -31,6 +35,7 @@ __all__ = [
     "LanceDatasetProvider",
     "LanceScanOptions",
     "LanceScanSpec",
+    "commit_lance_fragments",
     "scan_lance",
     "scan_lance_fragments",
     "sink_lance",
