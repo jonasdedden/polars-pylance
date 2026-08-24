@@ -47,12 +47,13 @@ expression, so Lance's scalar indices and page statistics apply), and — when n
 filter follows the scan — the row limit. `.head()` stops the scan early rather
 than reading to the end.
 
-Two implementations sit behind `impl=`:
-
-| `impl` | Polars hook | Notes |
-| --- | --- | --- |
-| `"provider"` (default) | `PyLazyFrame.new_from_dataset_object` | The hook behind `scan_delta`/`scan_iceberg`. Best pushdown, ~1 kB serialized plans. Private, unstable. |
-| `"io_plugin"` | `polars.io.plugins.register_io_source` | Public API. The predicate arrives as a Polars expression, so it is applied per batch and additionally translated to Lance SQL where possible. |
+The scan goes through `PyLazyFrame.new_from_dataset_object`, the hook behind
+`scan_delta`/`scan_iceberg`: Polars resolves it at IR-resolution time and hands
+Lance a ready-made PyArrow predicate plus a pushed-down limit, in ~1 kB of
+serialized plan. The hook is private and carries no stability guarantee — a
+deliberate trade, since it is measurably the better path (see
+[Why the private hook](#why-the-private-hook)). If a future Polars changes it,
+pin the previous polars-lance rather than expecting a fallback.
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.
@@ -76,6 +77,33 @@ pll.write_lance_fragments([s.filter(pl.col("ok")) for s in shards], "out.lance")
 `commit_lance_fragments()` is that second half on its own — publish fragments
 someone else wrote. It is what the [Polars Cloud](#polars-cloud) path commits
 with once the workers are done.
+
+## Why the private hook
+
+`scan_lance` used to ship a second implementation on the public
+`polars.io.plugins.register_io_source`, as a fallback in case
+`new_from_dataset_object` ever went away. It was removed in favour of the one
+path, because the public route is not merely equivalent-but-safer — it is slower
+and no lighter. Best of 4 runs per case, one process each, on the 527 MB / 1 M-row
+dataset from `bench/`, peak anonymous RSS:
+
+| query | provider | io_plugin | |
+| --- | --- | --- | --- |
+| `head(5)` | 0.005 s / 177 MB | 0.033 s / 245 MB | **5.5× slower, +68 MB** |
+| filter + sort + `head(7)` | 0.098 s / 554 MB | 0.165 s / 659 MB | **1.7× slower, +105 MB** |
+| full scan + aggregate | 0.151 s / 407 MB | 0.234 s / 465 MB | **1.5× slower, +58 MB** |
+| projection-only aggregate | 0.016 s / 182 MB | 0.017 s / 156 MB | par |
+| filter pushdown, count | 0.039 s / 182 MB | 0.040 s / 186 MB | par |
+
+The gap is pushdown, not overhead. The provider receives the filter already
+translated to a PyArrow expression and the row limit as a number, and passes both
+straight to Lance's scanner. The IO plugin receives a Polars expression it has to
+re-apply per batch, and gets no limit it can hand to Lance — so `head(5)` still
+pulls a whole Lance batch. Where neither matters, the two are level.
+
+Keeping the fallback also meant keeping a hand-written Polars-expression → Lance
+SQL translator (~180 lines) whose only job was recovering some of that pushdown.
+Deleting the path deleted the translator with it.
 
 ## Memory behaviour
 
@@ -174,9 +202,8 @@ in direct mode with anonymous storage configured for `allow_delete`.
 
 ### Reading
 
-Both scan implementations survive `prepare_cloud_plan` — `provider` and
-`io_plugin`, on their own and under `pl.concat()` of `scan_lance_fragments()`
-shards. Since 0.9 distributes unions of Python scans, the sharded form is the
+The scan survives `prepare_cloud_plan`, on its own and under `pl.concat()` of
+`scan_lance_fragments()` shards. Since 0.9 distributes unions of Python scans, the sharded form is the
 sanctioned way to fan a read across workers rather than a workaround, and 0.10's
 `pl.collect_all(lazyframes, lazy=True).remote(ctx).distributed().execute()`
 submits N shards as one distributed query instead of N remote ones. Note that

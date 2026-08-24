@@ -23,9 +23,9 @@ from polars_lance._remote import _content_key
 from polars_lance.cloud import StagedLanceSink, stage_lance_sink
 
 
-def _transformed(uri: str, impl: str = "provider") -> pl.LazyFrame:
+def _transformed(uri: str) -> pl.LazyFrame:
     return (
-        scan_lance(uri, impl=impl)
+        scan_lance(uri)
         .filter(pl.col("val") > 0.5)
         .select("id", "cat", (pl.col("val") * 2).alias("val2"))
     )
@@ -39,9 +39,9 @@ def _run(staged: StagedLanceSink, lf: pl.LazyFrame, chunk_size: int = 5_000) -> 
 # -- the happy path ---------------------------------------------------------
 
 
-def test_round_trip(tmp_path: Path, lance_uri: str, impl: str) -> None:
+def test_round_trip(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "out.lance")
-    lf = _transformed(lance_uri, impl)
+    lf = _transformed(lance_uri)
 
     staged = stage_lance_sink(out, lf, max_rows_per_file=5_000)
     _run(staged, lf)

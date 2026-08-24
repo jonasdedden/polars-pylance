@@ -20,7 +20,7 @@ distribution name before it can be published.
 | | theirs (0.5.0) | this package |
 | --- | --- | --- |
 | Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` 9 |
-| Polars hook | `register_io_source` | dataset-provider hook, `register_io_source` fallback |
+| Polars hook | `register_io_source` | dataset-provider hook |
 | Runtime deps | `polars>=1.0.0` only — Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
@@ -42,8 +42,7 @@ scan and write work. The cost is a 60–68 MB platform wheel per Python version
 (15 wheels for 0.5.0) and coupling to polars' internal Rust API.
 
 This package resolves scans through the same hook `pl.scan_delta` and
-`pl.scan_iceberg` use, which yields a richer pushdown surface, and falls back to
-`register_io_source` if that private hook disappears. It needs `pylance`
+`pl.scan_iceberg` use, which yields a richer pushdown surface. It needs `pylance`
 (a 76 MB wheel) but is itself pure Python: no build step, no per-platform wheels,
 and it inherits every Lance feature `pylance` exposes.
 
@@ -113,18 +112,18 @@ Ten predicates over a 12-row dataset containing nulls in both filtered columns,
 checked against polars' own semantics on an eagerly loaded frame
 (`compare_nulls.py`, polars 1.43.1):
 
-| predicate | theirs | mine (provider) | mine (io_plugin) |
-| --- | --- | --- | --- |
-| `col == "a"` | ok | ok | ok |
-| `col != "a"` | ok | ok | ok |
-| `~(col == "a")` | ok | ok | ok |
-| `val > 0.5` | ok | ok | ok |
-| `col.is_null()` | **ComputeError** | ok | ok |
-| `val.is_not_null()` | **ComputeError** | ok | ok |
-| `and`, `or`, `not_or` | ok | ok | ok |
-| nested `and`/`or`/`is_null` | **ComputeError** | ok | ok |
+| predicate | theirs | mine |
+| --- | --- | --- |
+| `col == "a"` | ok | ok |
+| `col != "a"` | ok | ok |
+| `~(col == "a")` | ok | ok |
+| `val > 0.5` | ok | ok |
+| `col.is_null()` | **ComputeError** | ok |
+| `val.is_not_null()` | **ComputeError** | ok |
+| `and`, `or`, `not_or` | ok | ok |
+| nested `and`/`or`/`is_null` | **ComputeError** | ok |
 
-All 20 of this package's results match polars exactly, which is the important
+All 10 of this package's results match polars exactly, which is the important
 result for a package that *does* push predicates down: pushing them into Lance
 does not change which rows come back, including the null cases where SQL and
 polars semantics could have diverged.
@@ -162,11 +161,11 @@ predate that fix; theirs was not re-measured on 1.44.0.
 ## Performance (best of 3, 527 MB source, polars 1.43.1)
 
 | case | theirs | mine (default) | mine (`throughput()`) |
-| --- | --- | --- | --- |
+| --- | --- | --- |
 | full scan + aggregate over payload column | 0.22 s | 0.33 s | 0.23 s |
-| projection-only aggregate | 0.01 s | 0.02 s | 0.02 s |
-| selective filter + aggregate | 0.01 s | 0.02 s | 0.02 s |
-| `select(pl.len())` | 0.01 s | 0.01 s | 0.01 s |
+| projection-only aggregate | 0.01 s | 0.02 s |
+| selective filter + aggregate | 0.01 s | 0.02 s |
+| `select(pl.len())` | 0.01 s | 0.01 s |
 
 On the only case big enough to measure, the 50 % gap closes entirely once this
 package's memory-conservative defaults are swapped for

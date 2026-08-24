@@ -16,7 +16,6 @@ batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
 from __future__ import annotations
 
 from ._options import LanceScanOptions
-from ._predicate import to_lance_filter
 from ._scan import (
     LanceDatasetProvider,
     LanceScanSpec,
@@ -39,6 +38,5 @@ __all__ = [
     "scan_lance",
     "scan_lance_fragments",
     "sink_lance",
-    "to_lance_filter",
     "write_lance_fragments",
 ]

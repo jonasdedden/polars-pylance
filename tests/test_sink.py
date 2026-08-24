@@ -15,20 +15,20 @@ from polars_lance import (
 )
 
 
-def _transformed(uri: str, impl: str = "provider") -> pl.LazyFrame:
+def _transformed(uri: str) -> pl.LazyFrame:
     return (
-        scan_lance(uri, impl=impl)
+        scan_lance(uri)
         .filter(pl.col("val") > 0.5)
         .select("id", "cat", (pl.col("val") * 2).alias("val2"))
     )
 
 
-def test_create_round_trip(tmp_path, lance_uri: str, impl: str) -> None:
+def test_create_round_trip(tmp_path, lance_uri: str) -> None:
     out = str(tmp_path / "out.lance")
-    dataset = sink_lance(_transformed(lance_uri, impl), out, max_rows_per_file=5_000)
+    dataset = sink_lance(_transformed(lance_uri), out, max_rows_per_file=5_000)
     assert isinstance(dataset, lance.LanceDataset)
 
-    want = _transformed(lance_uri, impl).collect(engine="streaming")
+    want = _transformed(lance_uri).collect(engine="streaming")
     got = scan_lance(out).collect(engine="streaming")
     assert_frame_equal(got.sort("id"), want.sort("id"))
     assert len(dataset.get_fragments()) > 1, "expected several fragments"

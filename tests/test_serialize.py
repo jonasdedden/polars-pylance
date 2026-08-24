@@ -6,7 +6,6 @@ import io
 import pickle
 
 import polars as pl
-import pytest
 from polars.testing import assert_frame_equal
 
 from polars_lance import LanceScanOptions, LanceScanSpec, scan_lance
@@ -21,11 +20,7 @@ def test_spec_is_picklable(lance_uri: str) -> None:
 
 
 def test_provider_plan_round_trips(lance_uri: str) -> None:
-    query = (
-        scan_lance(lance_uri, impl="provider")
-        .filter(pl.col("cat") == "b")
-        .select("id", "val")
-    )
+    query = scan_lance(lance_uri).filter(pl.col("cat") == "b").select("id", "val")
     blob = query.serialize()
 
     restored = pl.LazyFrame.deserialize(io.BytesIO(blob))
@@ -37,26 +32,9 @@ def test_provider_plan_round_trips(lance_uri: str) -> None:
 
 def test_provider_plan_is_small(lance_uri: str) -> None:
     """A plan carries a URI and options, never data or an open dataset handle."""
-    blob = scan_lance(lance_uri, impl="provider").select("id").serialize()
+    blob = scan_lance(lance_uri).select("id").serialize()
     assert len(blob) < 8 * 1024, (
         f"serialized plan unexpectedly large: {len(blob)} bytes"
-    )
-
-
-def test_io_plugin_plan_round_trips(lance_uri: str) -> None:
-    query = scan_lance(lance_uri, impl="io_plugin").select("id")
-    try:
-        blob = query.serialize()
-    except Exception as exc:
-        # The io_plugin path serializes a closure, which polars delegates to
-        # cloudpickle; without it installed there is nothing we can do.
-        if "cloudpickle" in str(exc):
-            pytest.skip("cloudpickle not installed; io_plugin plans cannot serialize")
-        raise
-    restored = pl.LazyFrame.deserialize(io.BytesIO(blob))
-    assert (
-        restored.collect(engine="streaming").height
-        == query.collect(engine="streaming").height
     )
 
 
