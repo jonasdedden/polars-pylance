@@ -22,6 +22,8 @@ from polars_pylance import scan_lance
 from polars_pylance._remote import _content_key
 from polars_pylance.cloud import StagedLanceSink, stage_lance_sink
 
+pytestmark = pytest.mark.cloud
+
 
 def _transformed(uri: str) -> pl.LazyFrame:
     return (
@@ -33,7 +35,11 @@ def _transformed(uri: str) -> pl.LazyFrame:
 
 def _run(staged: StagedLanceSink, lf: pl.LazyFrame, chunk_size: int = 5_000) -> None:
     """Stand in for ``lf.remote(ctx).sink_batches(staged.callback, ...)``."""
-    lf.sink_batches(staged.callback, chunk_size=chunk_size, engine="streaming")
+    # `lazy=False` is the implementation default, but polars 1.44.0's overloads
+    # declare `lazy` without one, so omitting it matches no overload.
+    lf.sink_batches(
+        staged.callback, chunk_size=chunk_size, engine="streaming", lazy=False
+    )
 
 
 # -- the happy path ---------------------------------------------------------
@@ -132,7 +138,7 @@ def test_fragment_key_override(tmp_path: Path, lance_uri: str) -> None:
     seen: list[str] = []
 
     def key(df: pl.DataFrame) -> str:
-        k = f"id-{df['id'].min()}"
+        k = f"id-{int(df['id'].min())}"  # type: ignore[arg-type]
         seen.append(k)
         return k
 
@@ -328,7 +334,7 @@ def test_pickled_callback_writes(tmp_path: Path, lance_uri: str) -> None:
 
     staged = stage_lance_sink(out, lf)
     revived = pickle.loads(pickle.dumps(staged.callback))
-    lf.sink_batches(revived, chunk_size=5_000, engine="streaming")
+    lf.sink_batches(revived, chunk_size=5_000, engine="streaming", lazy=False)
 
     assert staged.commit().count_rows() == lf.collect(engine="streaming").height
 

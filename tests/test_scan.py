@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import lance
 import polars as pl
 import pytest
@@ -132,7 +134,7 @@ def test_fragments_n_shards(lance_uri: str, expected: pl.DataFrame) -> None:
     assert got.item() == expected.height
 
 
-def test_dataset_object_pins_version(tmp_path, expected: pl.DataFrame) -> None:
+def test_dataset_object_pins_version(tmp_path: Path, expected: pl.DataFrame) -> None:
     uri = str(tmp_path / "versioned.lance")
     lance.write_dataset(expected.to_arrow(), uri)
     pinned = lance.dataset(uri)
@@ -167,7 +169,7 @@ def test_join_and_group_by(lance_uri: str, expected: pl.DataFrame) -> None:
 
 
 def test_sink_parquet_from_lance(
-    tmp_path, lance_uri: str, expected: pl.DataFrame
+    tmp_path: Path, lance_uri: str, expected: pl.DataFrame
 ) -> None:
     out = tmp_path / "out.parquet"
     scan_lance(lance_uri).select("id", "cat").sink_parquet(out, engine="streaming")

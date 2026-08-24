@@ -6,3 +6,5 @@ __pycache__/
 dist/
 *.egg-info/
 *.lance/
+# Upstream checkouts for patches sent elsewhere; not part of this package.
+upstream/

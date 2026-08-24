@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import lance
@@ -101,11 +102,13 @@ class PeakSampler:
 # cases
 # --------------------------------------------------------------------------
 
+# Every case takes the source dataset's URI and returns a one-line result.
+Case = Callable[[str], str]
 CASES: dict[str, str] = {}
 
 
-def case(doc: str):
-    def register(fn):
+def case(doc: str) -> Callable[[Case], Case]:
+    def register(fn: Case) -> Case:
         CASES[fn.__name__.removeprefix("case_")] = doc
         return fn
 

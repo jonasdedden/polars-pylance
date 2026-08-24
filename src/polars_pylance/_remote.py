@@ -38,7 +38,7 @@ import posixpath
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import lance
 import polars as pl
@@ -161,7 +161,11 @@ def _content_key(df: pl.DataFrame) -> str:
     hashes = df.hash_rows(seed=0).to_arrow()
     if isinstance(hashes, pa.ChunkedArray):
         hashes = hashes.combine_chunks()
-    values = memoryview(hashes.buffers()[1])
+    # buffers() is [validity, values]; the validity buffer is None here because
+    # hash_rows never produces nulls, but the values buffer is always present.
+    values_buffer = hashes.buffers()[1]
+    assert values_buffer is not None
+    values = memoryview(values_buffer)
     digest.update(values[hashes.offset * 8 : (hashes.offset + len(hashes)) * 8])
     return digest.hexdigest()
 
@@ -186,7 +190,7 @@ class _FragmentWriter:
     fragment_key: Callable[[pl.DataFrame], str] | None
 
     def schema(self) -> pa.Schema:
-        return pa.ipc.read_schema(pa.BufferReader(self.schema_ipc))
+        return pa.ipc.read_schema(pa.py_buffer(self.schema_ipc))
 
     def __call__(self, df: pl.DataFrame) -> None:
         if df.height == 0:
@@ -518,7 +522,9 @@ def sink_lance_remote(
                 "output schema; pass `schema=`"
             )
             raise TypeError(msg)
-        schema = lf.collect_schema()
+        # `remote` is untyped, so `lf` is `Any` and assigning from it would
+        # leave `schema` declared-optional; name the type to narrow it.
+        schema = cast("pl.Schema", lf.collect_schema())
 
     staged = stage_lance_sink(
         target,
