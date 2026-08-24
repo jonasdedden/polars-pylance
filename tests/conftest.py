@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
 import lance
@@ -12,17 +13,16 @@ ROWS = 60_000
 PAYLOAD = 64
 CATS = np.array(["a", "b", "c", "d"])
 
-SCHEMA = pa.schema(
-    [
-        pa.field("id", pa.int64()),
-        pa.field("cat", pa.string()),
-        pa.field("val", pa.float64()),
-        pa.field("payload", pa.binary(PAYLOAD)),
-    ]
-)
+_FIELDS: list[pa.Field[Any]] = [
+    pa.field("id", pa.int64()),
+    pa.field("cat", pa.string()),
+    pa.field("val", pa.float64()),
+    pa.field("payload", pa.binary(PAYLOAD)),
+]
+SCHEMA = pa.schema(_FIELDS)
 
 
-def _batches(rows: int, chunk: int, seed: int = 0):
+def _batches(rows: int, chunk: int, seed: int = 0) -> Iterator[pa.RecordBatch]:
     rng = np.random.default_rng(seed)
     for start in range(0, rows, chunk):
         n = min(chunk, rows - start)

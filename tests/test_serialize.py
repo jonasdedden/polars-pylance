@@ -6,6 +6,7 @@ import io
 import pickle
 
 import polars as pl
+import pytest
 from polars.testing import assert_frame_equal
 
 from polars_pylance import LanceScanOptions, LanceScanSpec, scan_lance
@@ -38,6 +39,7 @@ def test_provider_plan_is_small(lance_uri: str) -> None:
     )
 
 
+@pytest.mark.cloud
 def test_requirements_txt_pins_versions() -> None:
     text = requirements_txt(extra=["numpy"])
     assert f"polars=={pl.__version__}" in text

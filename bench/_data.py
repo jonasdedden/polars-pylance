@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import os
 import shutil
+from collections.abc import Iterator
+from typing import Any
 
 import lance
 import numpy as np
@@ -17,17 +19,16 @@ import pyarrow as pa
 PAYLOAD = 512
 CATS = np.array(["a", "b", "c", "d"])
 
-SCHEMA = pa.schema(
-    [
-        pa.field("id", pa.int64()),
-        pa.field("cat", pa.string()),
-        pa.field("val", pa.float64()),
-        pa.field("payload", pa.binary(PAYLOAD)),
-    ]
-)
+_FIELDS: list[pa.Field[Any]] = [
+    pa.field("id", pa.int64()),
+    pa.field("cat", pa.string()),
+    pa.field("val", pa.float64()),
+    pa.field("payload", pa.binary(PAYLOAD)),
+]
+SCHEMA = pa.schema(_FIELDS)
 
 
-def batches(rows: int, chunk: int = 50_000, seed: int = 0):
+def batches(rows: int, chunk: int = 50_000, seed: int = 0) -> Iterator[pa.RecordBatch]:
     rng = np.random.default_rng(seed)
     for start in range(0, rows, chunk):
         n = min(chunk, rows - start)

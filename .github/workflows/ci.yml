@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch makes the in-flight run for that branch pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # `--output-format=github` turns findings into inline annotations on the PR.
+      - name: lint
+        run: uvx ruff check --output-format=github .
+      - name: format
+        run: uvx ruff format --check .
+
+  mypy:
+    name: mypy --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Strictness and the file list live in `[tool.mypy]`, so this matches what
+      # `mypy` does locally. Covers src, tests and bench. The `dev` group is
+      # installed by default, which is where mypy and the stubs come from.
+      - run: uv run mypy
+
+  basedpyright:
+    name: basedpyright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Run through `uv run` rather than `uvx` so basedpyright resolves imports
+      # against the project's environment instead of a bare interpreter.
+      - run: uv run basedpyright
+
+  pytest:
+    name: pytest (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # `-m "not cloud"` deselects the Polars Cloud write path. Those tests pass
+      # on their own, but polars-cloud pins `polars==1.43.2` -- below this
+      # package's floor -- so the dependency it exercises cannot be installed
+      # here. Drop the flag once a polars-cloud release tracks polars 1.44.
+      # Only the `test` group: the type checkers are irrelevant here, and this
+      # job installs five times over.
+      - run: uv run --python ${{ matrix.python-version }} --no-default-groups --group test pytest -q -m "not cloud"

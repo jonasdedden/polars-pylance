@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 import polars as pl
-import pyarrow as pa
+import pyarrow.compute as pc
 
 from polars_pylance import scan_lance
 
@@ -54,7 +54,7 @@ def test_predicate_reaches_lance(
     assert filters, "no filter pushed down"
     # Polars hands the provider a ready-made PyArrow expression, which is
     # exactly what Lance's scanner accepts -- no translation in between.
-    assert all(isinstance(f, pa.compute.Expression) for f in filters)
+    assert all(isinstance(f, pc.Expression) for f in filters)
 
 
 def test_predicate_pushdown_can_be_disabled(

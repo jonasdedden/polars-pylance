@@ -16,7 +16,7 @@ slower than the producer. ``collect_batches`` is marked unstable by Polars.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import lance
 import polars as pl
@@ -26,6 +26,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 WriteMode = Literal["create", "append", "overwrite", "merge"]
+# Mirrors polars' own engine literal, so the value passes through to
+# `collect_batches` without a cast.
+EngineType = Literal["auto", "in-memory", "streaming", "gpu"]
 
 DEFAULT_CHUNK_SIZE = 25_000
 
@@ -38,7 +41,7 @@ def _reader_from_lazyframe(
     lf: pl.LazyFrame,
     *,
     chunk_size: int,
-    engine: str,
+    engine: EngineType,
 ) -> pa.RecordBatchReader:
     """Adopt a LazyFrame's streaming output as an Arrow record-batch reader.
 
@@ -47,8 +50,10 @@ def _reader_from_lazyframe(
     between the engine and Lance's writer, and the reader's schema is the one
     Polars resolves for the plan.
     """
-    batches = lf.collect_batches(chunk_size=chunk_size, engine=engine)  # type: ignore[arg-type]
-    return pa.RecordBatchReader.from_stream(batches)
+    batches = lf.collect_batches(chunk_size=chunk_size, engine=engine)
+    # polars annotates this as `Iterator[DataFrame]`, but the object it returns
+    # also implements `__arrow_c_stream__` -- which is the entire point here.
+    return pa.RecordBatchReader.from_stream(batches)  # type: ignore[arg-type]
 
 
 def sink_lance(
@@ -58,7 +63,7 @@ def sink_lance(
     mode: WriteMode = "create",
     on: str | list[str] | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
-    engine: str = "streaming",
+    engine: EngineType = "streaming",
     lazy: bool = False,
     **lance_write_kwargs: Any,
 ) -> lance.LanceDataset | pl.LazyFrame:
@@ -156,7 +161,7 @@ def _lazy_sink(
     *,
     mode: WriteMode,
     chunk_size: int,
-    engine: str,
+    engine: EngineType,
     lance_write_kwargs: dict[str, Any],
 ) -> pl.LazyFrame:
     """Defer the write until the returned LazyFrame is collected.
@@ -190,7 +195,7 @@ def write_lance_fragments(
     mode: Literal["create", "overwrite", "append"] = "create",
     max_workers: int | None = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
-    engine: str = "streaming",
+    engine: EngineType = "streaming",
     arrow_schema: pa.Schema | None = None,
     **lance_write_kwargs: Any,
 ) -> lance.LanceDataset:
@@ -237,8 +242,11 @@ def write_lance_fragments(
 
     def write_shard(shard: pl.LazyFrame) -> list[Any]:
         reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
-        return lance.fragment.write_fragments(
-            reader, uri, schema=schema, mode=fragment_mode, **lance_write_kwargs
+        return cast(
+            "list[Any]",
+            lance.fragment.write_fragments(
+                reader, uri, schema=schema, mode=fragment_mode, **lance_write_kwargs
+            ),
         )
 
     with ThreadPoolExecutor(max_workers=max_workers or len(shards)) as pool:
@@ -279,6 +287,7 @@ def commit_lance_fragments(
     written by threads (:func:`write_lance_fragments`) or by Polars Cloud
     workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
     """
+    operation: lance.LanceOperation.BaseOperation
     if mode == "append":
         operation = lance.LanceOperation.Append(fragments)
         read_version = lance.dataset(uri, storage_options=storage_options).version

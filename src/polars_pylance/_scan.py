@@ -21,7 +21,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import lance
 import polars as pl
@@ -31,6 +31,10 @@ from ._options import LanceScanOptions
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+
+    # `pyarrow` does not re-export `compute` from its top level, so `pa.compute`
+    # only resolves once something else has imported the submodule.
+    import pyarrow.compute as pc
 
 # Columns Lance synthesises rather than reads. They are appended to the output by
 # the scanner itself and must be kept out of the `columns=` projection.
@@ -71,9 +75,9 @@ class LanceScanSpec:
         dataset: lance.LanceDataset,
         *,
         columns: list[str] | None = None,
-        filter: pa.compute.Expression | str | None = None,
+        filter: pc.Expression | str | None = None,
         limit: int | None = None,
-    ) -> Any:
+    ) -> lance.LanceScanner:
         kwargs: dict[str, Any] = {
             **self.options.to_scan_kwargs(),
             "columns": columns,
@@ -104,7 +108,7 @@ class LanceScanSpec:
 
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
         arrow = self.arrow_schema(dataset)
-        return pl.from_arrow(arrow.empty_table()).schema  # type: ignore[union-attr]
+        return cast("pl.DataFrame", pl.from_arrow(arrow.empty_table())).schema
 
     # -- batch production --------------------------------------------------
 
@@ -113,7 +117,7 @@ class LanceScanSpec:
         dataset: lance.LanceDataset,
         *,
         projection: Sequence[str] | None = None,
-        filter: pa.compute.Expression | str | None = None,
+        filter: pc.Expression | str | None = None,
         limit: int | None = None,
     ) -> Iterator[pl.DataFrame]:
         """Stream `projection` out of Lance as Polars frames.
@@ -142,7 +146,7 @@ class LanceScanSpec:
                 yield pl.DataFrame(height=batch.num_rows)
                 continue
 
-            frame: pl.DataFrame = pl.from_arrow(batch)  # type: ignore[assignment]
+            frame = cast("pl.DataFrame", pl.from_arrow(batch))
             if projection is not None and frame.columns != list(projection):
                 # Lance appends generated columns after the requested ones; the
                 # engine expects exactly the projection, in order.

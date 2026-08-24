@@ -248,7 +248,11 @@ contains callback sink*. The wait is for a polars-cloud release that tracks
 ## Development
 
 ```sh
-uv run --with-editable . --with pytest --with numpy --with cloudpickle python -m pytest
+uv run pytest                    # 69 tests
+uv run pytest -m "not cloud"     # 43 -- what CI runs
+uv run mypy                      # strict, over src, tests and bench
+uv run basedpyright
+uvx ruff check . && uvx ruff format --check .
 uv run bench/mem.py --help
 ```
 

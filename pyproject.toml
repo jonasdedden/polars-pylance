@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
 
 [project]
 name = "polars-pylance"
@@ -22,24 +22,30 @@ dependencies = [
     "pyarrow",
 ]
 
-[project.optional-dependencies]
+# Uncomment once polars-cloud allows polars 1.44.0. It pins `polars==1.43.2`
+# today, which makes `uv lock` fail outright rather than just the extra.
+# [project.optional-dependencies]
+# cloud = ["polars-cloud>=0.10"]
+[dependency-groups]
 # cloudpickle is what polars uses to serialize a callback sink into a cloud
 # plan. It normally arrives with polars-cloud; listed here so the remote-write
-# tests still run now that the cloud extra is gone.
+# tests still run without it.
 test = ["pytest>=8", "numpy", "cloudpickle"]
-# There is deliberately no `cloud` extra, even though polars_pylance.cloud and
-# polars_pylance._remote are written against polars-cloud 0.10 and kept working.
-# polars-cloud pins polars with `==` (0.10.0 -> polars==1.43.2), below the floor
-# above, so declaring the extra would make the project unresolvable rather than
-# merely awkward -- `uv lock` fails, not just `pip install polars-pylance[cloud]`.
-# Restore it as `cloud = ["polars-cloud>=<first release pinning polars 1.44>"]`
-# once such a release exists; tests/test_remote.py skips until then.
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/polars_pylance"]
+# pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
+# stub package, and without it every pyarrow symbol degrades to `Any`.
+typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
+# `dev` is installed by default by `uv run` and `uv sync`, so a bare
+# `uv run pytest` or `uv run mypy` needs no flags. mypy and basedpyright both
+# check `tests/`, which imports pytest, so the two groups are not separable in
+# practice -- hence one `dev` that pulls in both.
+dev = [{ include-group = "test" }, { include-group = "typing" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # Deselected in CI (`-m "not cloud"`) while polars-cloud is uninstallable.
+    "cloud: exercises the Polars Cloud write path",
+]
 filterwarnings = [
     # scan_lance and sink_lance are built on polars APIs marked unstable; that is
     # a documented property of this package, not something to be warned about.
@@ -55,3 +61,14 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "bench/*" = ["T201"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests", "bench"]
+
+[tool.basedpyright]
+include = ["src", "tests", "bench"]
+# "standard" rather than basedpyright's stricter default: the `reportAny` and
+# `reportUnknown*` families fire on every value that passes through pyarrow,
+# which has no stubs, so they report the dependency rather than this code.
+typeCheckingMode = "standard"

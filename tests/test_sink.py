@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import lance
 import polars as pl
 import pytest
@@ -23,7 +25,7 @@ def _transformed(uri: str) -> pl.LazyFrame:
     )
 
 
-def test_create_round_trip(tmp_path, lance_uri: str) -> None:
+def test_create_round_trip(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "out.lance")
     dataset = sink_lance(_transformed(lance_uri), out, max_rows_per_file=5_000)
     assert isinstance(dataset, lance.LanceDataset)
@@ -34,14 +36,14 @@ def test_create_round_trip(tmp_path, lance_uri: str) -> None:
     assert len(dataset.get_fragments()) > 1, "expected several fragments"
 
 
-def test_create_refuses_existing(tmp_path, lance_uri: str) -> None:
+def test_create_refuses_existing(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "twice.lance")
     sink_lance(_transformed(lance_uri), out)
     with pytest.raises(OSError):
         sink_lance(_transformed(lance_uri), out, mode="create")
 
 
-def test_append(tmp_path, lance_uri: str) -> None:
+def test_append(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "appended.lance")
     sink_lance(_transformed(lance_uri), out)
     first = scan_lance(out).select(pl.len()).collect(engine="streaming").item()
@@ -50,7 +52,7 @@ def test_append(tmp_path, lance_uri: str) -> None:
     assert second == 2 * first
 
 
-def test_overwrite(tmp_path, lance_uri: str) -> None:
+def test_overwrite(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "overwritten.lance")
     sink_lance(_transformed(lance_uri), out)
     sink_lance(
@@ -63,7 +65,7 @@ def test_overwrite(tmp_path, lance_uri: str) -> None:
     assert_frame_equal(got.sort("id"), want.sort("id"))
 
 
-def test_merge_upsert(tmp_path, lance_uri: str) -> None:
+def test_merge_upsert(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "merged.lance")
     sink_lance(_transformed(lance_uri), out)
     before = scan_lance(out).collect(engine="streaming")
@@ -76,19 +78,19 @@ def test_merge_upsert(tmp_path, lance_uri: str) -> None:
     assert after.filter(pl.col("val2") == -1.0).height == 10
 
 
-def test_merge_requires_on(tmp_path, lance_uri: str) -> None:
+def test_merge_requires_on(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "nokey.lance")
     sink_lance(_transformed(lance_uri), out)
     with pytest.raises(ValueError, match="requires `on`"):
         sink_lance(_transformed(lance_uri), out, mode="merge")
 
 
-def test_on_rejected_for_non_merge(tmp_path, lance_uri: str) -> None:
+def test_on_rejected_for_non_merge(tmp_path: Path, lance_uri: str) -> None:
     with pytest.raises(ValueError, match="only meaningful for mode='merge'"):
         sink_lance(_transformed(lance_uri), str(tmp_path / "x.lance"), on="id")
 
 
-def test_lazy_sink_defers_until_collect(tmp_path, lance_uri: str) -> None:
+def test_lazy_sink_defers_until_collect(tmp_path: Path, lance_uri: str) -> None:
     out = tmp_path / "deferred.lance"
     plan = sink_lance(_transformed(lance_uri), str(out), lazy=True)
     assert isinstance(plan, pl.LazyFrame)
@@ -102,7 +104,7 @@ def test_lazy_sink_defers_until_collect(tmp_path, lance_uri: str) -> None:
     assert summary["uri"].item().endswith("deferred.lance")
 
 
-def test_write_fragments_parallel(tmp_path, lance_uri: str) -> None:
+def test_write_fragments_parallel(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "fragmented.lance")
     shards = [
         shard.filter(pl.col("val") > 0.5).select("id", "cat")
@@ -121,7 +123,7 @@ def test_write_fragments_parallel(tmp_path, lance_uri: str) -> None:
     assert dataset.count_rows() == want.height
 
 
-def test_write_fragments_append(tmp_path, lance_uri: str) -> None:
+def test_write_fragments_append(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "frag_append.lance")
     shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
     first = write_lance_fragments(shards, out)
@@ -129,7 +131,7 @@ def test_write_fragments_append(tmp_path, lance_uri: str) -> None:
     assert second.count_rows() == 2 * first.count_rows()
 
 
-def test_write_fragments_overwrite_existing(tmp_path, lance_uri: str) -> None:
+def test_write_fragments_overwrite_existing(tmp_path: Path, lance_uri: str) -> None:
     """write_fragments(mode='create') refuses an existing dataset outright, so
     replacing one has to write its fragments in 'overwrite' mode."""
     out = str(tmp_path / "frag_overwrite.lance")
@@ -143,7 +145,9 @@ def test_write_fragments_overwrite_existing(tmp_path, lance_uri: str) -> None:
     )
 
 
-def test_write_fragments_create_refuses_existing(tmp_path, lance_uri: str) -> None:
+def test_write_fragments_create_refuses_existing(
+    tmp_path: Path, lance_uri: str
+) -> None:
     out = str(tmp_path / "frag_twice.lance")
     shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
     write_lance_fragments(shards, out)
@@ -151,12 +155,12 @@ def test_write_fragments_create_refuses_existing(tmp_path, lance_uri: str) -> No
         write_lance_fragments(shards, out)
 
 
-def test_write_fragments_needs_input(tmp_path) -> None:
+def test_write_fragments_needs_input(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="at least one LazyFrame"):
         write_lance_fragments([], str(tmp_path / "empty.lance"))
 
 
-def test_round_trip_preserves_binary_payload(tmp_path, lance_uri: str) -> None:
+def test_round_trip_preserves_binary_payload(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "payload.lance")
     sink_lance(scan_lance(lance_uri), out)
     got = scan_lance(out).select("id", "payload").collect(engine="streaming")
