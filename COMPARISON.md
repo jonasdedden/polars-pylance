@@ -162,12 +162,12 @@ predate that fix; theirs was not re-measured on 1.44.0.
 
 ## Performance (best of 3, 527 MB source, polars 1.43.1)
 
-| case | theirs | mine (default) | mine (`throughput()`) |
-| --- | --- | --- |
+| case | theirs | this package (default) | this package (`throughput()`) |
+| --- | --- | --- | --- |
 | full scan + aggregate over payload column | 0.22 s | 0.33 s | 0.23 s |
-| projection-only aggregate | 0.01 s | 0.02 s |
-| selective filter + aggregate | 0.01 s | 0.02 s |
-| `select(pl.len())` | 0.01 s | 0.01 s |
+| projection-only aggregate | 0.01 s | 0.02 s | not measured |
+| selective filter + aggregate | 0.01 s | 0.02 s | not measured |
+| `select(pl.len())` | 0.01 s | 0.01 s | not measured |
 
 On the only case big enough to measure, the 50 % gap closes entirely once this
 package's memory-conservative defaults are swapped for
