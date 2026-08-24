@@ -18,9 +18,9 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from polars_lance import scan_lance
-from polars_lance._remote import _content_key
-from polars_lance.cloud import StagedLanceSink, stage_lance_sink
+from polars_pylance import scan_lance
+from polars_pylance._remote import _content_key
+from polars_pylance.cloud import StagedLanceSink, stage_lance_sink
 
 
 def _transformed(uri: str) -> pl.LazyFrame:
@@ -303,9 +303,9 @@ def test_custom_staging_uri(tmp_path: Path, lance_uri: str) -> None:
 
 
 def test_callback_pickles_by_reference(tmp_path: Path) -> None:
-    """The plan carries data, not code: workers import polars-lance themselves.
+    """The plan carries data, not code: workers import polars-pylance themselves.
 
-    That is why :func:`polars_lance.cloud.requirements_txt` lists the package.
+    That is why :func:`polars_pylance.cloud.requirements_txt` lists the package.
     """
     staged = stage_lance_sink(
         str(tmp_path / "pickled.lance"),
@@ -363,7 +363,7 @@ def test_callback_survives_into_a_cloud_plan(tmp_path: Path, lance_uri: str) -> 
     if isinstance(plan, tuple):  # polars returns (plan, opt_flags) since 1.43
         plan = plan[0]
 
-    assert b"polars_lance" in plan, "the callback did not reach the plan"
+    assert b"polars_pylance" in plan, "the callback did not reach the plan"
     assert staged.uri.encode() in plan
 
 

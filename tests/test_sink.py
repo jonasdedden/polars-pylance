@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from polars_lance import (
+from polars_pylance import (
     scan_lance,
     scan_lance_fragments,
     sink_lance,

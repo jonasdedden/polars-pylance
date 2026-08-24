@@ -13,7 +13,7 @@ trade: it is the only route that gets Lance a ready-made PyArrow predicate and a
 pushed-down limit, and measurably so -- against the public
 ``register_io_source`` path it was 1.5x faster on a full scan, 1.7x on a top-k
 and 5x on a ``head()``, at equal or lower peak RSS. If a future Polars changes
-the interface, pin the previous polars-lance rather than expecting a fallback.
+the interface, pin the previous polars-pylance rather than expecting a fallback.
 """
 
 from __future__ import annotations
@@ -221,7 +221,7 @@ class LanceDatasetProvider:
                 pa_filter = eval(pyarrow_predicate, _pyarrow_eval_namespace())
             except Exception as exc:
                 warnings.warn(
-                    "polars-lance: could not evaluate the predicate Polars "
+                    "polars-pylance: could not evaluate the predicate Polars "
                     f"generated ({exc!r}); filtering falls back to the engine",
                     RuntimeWarning,
                     stacklevel=2,
@@ -300,7 +300,7 @@ def scan_lance(
     storage_options
         Object-store credentials and settings, passed to Lance.
     options
-        Reader tuning; see :class:`~polars_lance.LanceScanOptions`. The defaults
+        Reader tuning; see :class:`~polars_pylance.LanceScanOptions`. The defaults
         favour bounded memory over raw IO parallelism.
     nearest
         Lance vector-search specification, e.g.
@@ -312,7 +312,7 @@ def scan_lance(
         Include Lance's ``_rowid`` / ``_rowaddr`` columns.
     fragments
         Restrict the scan to these fragment ids. See
-        :func:`~polars_lance.scan_lance_fragments` for the sharded form.
+        :func:`~polars_pylance.scan_lance_fragments` for the sharded form.
     predicate_pushdown
         Set to False to keep filtering entirely in Polars. Worth trying if you
         depend on Polars' null comparison semantics, which differ from SQL's.

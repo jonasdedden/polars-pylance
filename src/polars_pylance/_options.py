@@ -3,7 +3,7 @@
 Lance's own read-ahead defaults, not Polars, dominate the memory footprint of a
 streaming scan: ``io_buffer_size`` alone defaults to 2 GiB. Measured on a 527 MB
 single-column scan, the defaults below cut peak RSS from 697 MB to 426 MB at no
-measurable cost in wall time, so they are what :func:`polars_lance.scan_lance`
+measurable cost in wall time, so they are what :func:`polars_pylance.scan_lance`
 uses unless asked otherwise.
 """
 

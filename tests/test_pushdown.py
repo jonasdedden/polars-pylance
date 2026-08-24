@@ -8,7 +8,7 @@ from typing import Any
 import polars as pl
 import pyarrow as pa
 
-from polars_lance import scan_lance
+from polars_pylance import scan_lance
 
 
 def _scan_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -112,7 +112,7 @@ def test_limit_is_not_pushed_past_a_filter(
 def test_scan_options_reach_lance(
     lance_uri: str, scanner_calls: list[dict[str, Any]]
 ) -> None:
-    from polars_lance import LanceScanOptions
+    from polars_pylance import LanceScanOptions
 
     options = LanceScanOptions(batch_size=1_234, io_buffer_size=8 * 1024 * 1024)
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
