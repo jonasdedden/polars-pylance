@@ -32,8 +32,8 @@ import lance
 import polars as pl
 import pyarrow as pa
 
-from polars_lance._options import LanceScanOptions
-from polars_lance._predicate import to_lance_filter
+from ._options import LanceScanOptions
+from ._predicate import to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence

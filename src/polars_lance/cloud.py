@@ -60,14 +60,14 @@ from typing import TYPE_CHECKING, Any
 import lance
 import polars as pl
 
-from polars_lance._remote import (
+from ._remote import (
     StagedLanceSink,
     sink_lance_remote,
     stage_lance_sink,
 )
 
 if TYPE_CHECKING:
-    from polars_lance._sink import WriteMode
+    from ._sink import WriteMode
 
 __all__ = [
     "StagedLanceSink",
@@ -122,7 +122,7 @@ def convert_parquet_to_lance(
     >>> query.remote(ctx).distributed().sink_parquet(staging)  # doctest: +SKIP
     >>> convert_parquet_to_lance(staging, "s3://bucket/out.lance")  # doctest: +SKIP
     """
-    from polars_lance._sink import sink_lance
+    from ._sink import sink_lance
 
     lf = pl.scan_parquet(parquet_source, storage_options=storage_options)
     dataset = sink_lance(

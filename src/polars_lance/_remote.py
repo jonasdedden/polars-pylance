@@ -45,7 +45,7 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.fs as pafs
 
-from polars_lance._sink import (
+from ._sink import (
     _dataset_exists,
     commit_lance_fragments,
     fragment_write_mode,
