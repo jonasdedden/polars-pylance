@@ -15,15 +15,15 @@ batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
 
 from __future__ import annotations
 
-from polars_lance._options import LanceScanOptions
-from polars_lance._predicate import to_lance_filter
-from polars_lance._scan import (
+from ._options import LanceScanOptions
+from ._predicate import to_lance_filter
+from ._scan import (
     LanceDatasetProvider,
     LanceScanSpec,
     scan_lance,
     scan_lance_fragments,
 )
-from polars_lance._sink import (
+from ._sink import (
     commit_lance_fragments,
     sink_lance,
     write_lance_fragments,
