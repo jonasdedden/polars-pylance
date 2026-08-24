@@ -1,14 +1,11 @@
 """Streaming Lance writer for Polars LazyFrames.
 
 Lance is not a native Polars sink, so the data has to cross the Python boundary.
-:meth:`polars.LazyFrame.collect_batches` streams the query out batch by batch;
-those batches are wrapped in an Arrow ``RecordBatchReader``, which Lance's writer
-consumes natively. The streaming engine on one side and the writer on the other
-then pull through at their own pace, and neither holds the whole result.
-
-See :func:`_reader_from_lazyframe` for why the batches go through a Python
-generator rather than the zero-copy Arrow C stream: the C stream deadlocks
-against Lance's writer.
+:meth:`polars.LazyFrame.collect_batches` streams the query out batch by batch and
+exposes those batches as an Arrow C stream, which PyArrow adopts as a
+``RecordBatchReader`` and Lance's writer consumes natively. The streaming engine
+on one side and the writer on the other then pull through at their own pace, and
+neither holds the whole result.
 
 Measured cost of the boundary on a 527 MB source: a fixed ~340 MB of extra
 resident memory versus an engine-internal sink such as ``sink_parquet``. It does
@@ -26,7 +23,7 @@ import polars as pl
 import pyarrow as pa
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable
 
 WriteMode = Literal["create", "append", "overwrite", "merge"]
 
@@ -45,35 +42,13 @@ def _reader_from_lazyframe(
 ) -> pa.RecordBatchReader:
     """Adopt a LazyFrame's streaming output as an Arrow record-batch reader.
 
-    ``collect_batches`` also exposes ``__arrow_c_stream__``, which PyArrow can
-    adopt directly via ``RecordBatchReader.from_stream``. Do not do that here: on
-    polars 1.43.x it deadlocks whenever the plan contains a ``PythonDataset`` scan
-    node -- which is what :func:`~polars_lance.scan_lance` produces by default.
-    Every thread parks in ``futex_wait`` with no CPU progress.
-
-    It is the *resolution* of that node under a held GIL that deadlocks, not the
-    flow of data: it happens with a single 1000-row batch, on either engine, and a
-    bare ``lf.collect_schema()`` beforehand is enough to avoid it. Nothing about
-    Lance is involved -- ``pa.RecordBatchReader.read_all()`` hangs the same way,
-    and so does ``pl.scan_delta``, which uses the same polars hook. Introduced in
-    polars 1.43.0; 1.42.x is unaffected. See ``upstream/`` for the reports.
-
-    Pulling batches through a Python generator sidesteps it entirely, and does not
-    depend on a scan having been resolved earlier in the process -- which is why
-    this is preferred over adding a ``collect_schema()`` warm-up. Verified against
-    all three scan implementations.
+    ``collect_batches`` returns an object exposing ``__arrow_c_stream__``, so
+    PyArrow can adopt the query's output directly: no copy, no Python generator
+    between the engine and Lance's writer, and the reader's schema is the one
+    Polars resolves for the plan.
     """
-    arrow_schema = lf.collect_schema().to_arrow()
     batches = lf.collect_batches(chunk_size=chunk_size, engine=engine)  # type: ignore[arg-type]
-
-    def record_batches() -> Iterator[pa.RecordBatch]:
-        for frame in batches:
-            table = frame.to_arrow()
-            if table.schema != arrow_schema:
-                table = table.cast(arrow_schema)
-            yield from table.to_batches()
-
-    return pa.RecordBatchReader.from_batches(arrow_schema, record_batches())
+    return pa.RecordBatchReader.from_stream(batches)
 
 
 def sink_lance(

@@ -104,29 +104,13 @@ default `LanceScanOptions` beat a naive Lance loop, because Lance's own
 Tripling the source to 1.58 GB moves peak RSS by 1.19× — nowhere near the 3× a
 buffering pipeline would show. `uv run bench/mem.py guard` asserts this.
 
-## Upstream quirks worked around
-
-Two things that bite anyone building this integration by hand, both found by
-running the pipeline rather than reading the docs:
-
-- **`collect_batches()` as an Arrow C stream deadlocks** (polars 1.43.0+, a
-  regression from 1.42.x). Handing `__arrow_c_stream__` to
-  `pa.RecordBatchReader.from_stream` is the obvious zero-copy route into Lance,
-  but it hangs whenever the plan contains a `PythonDataset` scan node — what
-  `scan_lance` produces by default. Nothing about Lance is involved: plain
-  `read_all()` hangs identically, and so does `pl.scan_delta`. `sink_lance` pulls
-  through a Python generator instead.
-- **Polars hands IO plugins a predicate it cannot evaluate** (polars 1.39.0+, a
-  regression from 1.38.1). A `sort(...).head(n)` makes the engine inject an opaque
-  `dynamic_pred: <uuid>` node into the pushed-down predicate — with or without a
-  `filter` in the query. Every route into the expression engine panics with
-  `internal error: entered unreachable code`. It is a top-k pruning hint, so
-  `_predicate.prune_unevaluable` strips it and lets the top-k operator apply the
-  real limit downstream.
-
-Reports and standalone reproducers for both are in [`upstream/`](upstream/).
-
 ## Polars Cloud
+
+> **Not installable today.** polars-cloud 0.10 pins `polars==1.43.2`, below this
+> package's `polars>=1.44.0` floor, so there is no `cloud` extra and the two
+> cannot be resolved together. Everything in this section is written and kept
+> working against the 0.10 API; it becomes usable when polars-cloud ships a
+> release tracking 1.44. See [The polars pin](#the-polars-pin).
 
 Reads are designed to ship: a scan serializes to a few kB and carries a URI,
 never an open dataset handle. Workers need `pylance` and `polars-lance`
@@ -203,24 +187,35 @@ Serializing is necessary, not sufficient.
 
 ### The polars pin
 
-polars-cloud 0.10 requires `polars==1.43.2`, up from 1.42.1 in 0.9. That crosses
-into the range where `collect_batches()` deadlocks as an Arrow C stream, and the
-reproducer still hangs on 1.43.2 for the default `provider` scan — so the
-workaround below stays. The rest of the suite passes unchanged on 1.43.2.
+polars-cloud 0.10 requires `polars==1.43.2`; this package requires
+`polars>=1.44.0`. Those cannot both hold, which is why the `cloud` extra was
+dropped rather than left declared — an extra pinning below the floor makes even
+`uv lock` unresolvable, not just `pip install polars-lance[cloud]`.
 
-The bump is not incidental to `sink_lance_remote()`: on 1.42.1 the plan is
-rejected before it leaves the client with *logical plan ineligible for execution
-on Polars Cloud: contains callback sink*. The remote write needs 0.10 for the
-polars it pins as much as for the API it adds. Everything else in the package
-still works on the declared `polars>=1.42.1` floor — the test that ships a
-callback sink skips there.
+1.44.0 is the floor because 1.43.2 is the last release carrying two bugs this
+package used to work around, both verified as fixed in 1.44.0:
+
+| on polars 1.43.2 | on polars 1.44.0 |
+| --- | --- |
+| `collect_batches()` as an Arrow C stream hangs on the default `provider` scan | streams normally |
+| `sort().head()` pushes an unevaluable `dynamic_pred` node into an IO plugin's predicate, panicking with `internal error: entered unreachable code` | no such node is passed |
+
+So installing polars-cloud alongside polars-lance is not a workaround: it
+downgrades polars into that range and reintroduces both. `sink_lance_remote()`
+also genuinely needs 0.10 for the API — on 1.42.1 the plan is rejected before it
+leaves the client with *logical plan ineligible for execution on Polars Cloud:
+contains callback sink*. The wait is for a polars-cloud release that tracks
+1.44; `tests/test_remote.py` skips until then.
 
 ## Development
 
 ```sh
-uv run --with-editable . --with pytest --with numpy python -m pytest
+uv run --with-editable . --with pytest --with numpy --with cloudpickle python -m pytest
 uv run bench/mem.py --help
 ```
+
+`cloudpickle` is optional: without it the one test that serializes a callback
+sink into a cloud plan skips, and the other 117 run.
 
 ## Licence
 
