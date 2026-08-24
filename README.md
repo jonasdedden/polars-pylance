@@ -1,4 +1,4 @@
-# polars-lance
+# polars-pylance
 
 Lazy, streaming [Lance](https://lance.org) ↔ [Polars](https://pola.rs) integration.
 
@@ -10,7 +10,7 @@ memory.
 
 ```python
 import polars as pl
-import polars_lance as pll
+import polars_pylance as pll
 
 lf = pll.scan_lance("s3://bucket/embeddings.lance")
 
@@ -20,6 +20,17 @@ pll.sink_lance(
     mode="overwrite",
 )
 ```
+
+## The name
+
+`polars` + `pylance`, composed in Python. There is no compiled extension here and
+no `lance` crate linked in: the package is pure Python over the two libraries it
+joins, which is why it installs as a single wheel, tracks new `pylance` releases
+without a rebuild, and reaches Lance features as fast as `pylance` exposes them.
+
+Note that PyPI's `polars-lance` is an unrelated package by a different author
+([comparison](COMPARISON.md)). Install `polars-pylance`; import
+`polars_pylance`. The two can coexist in one environment.
 
 ## Why this exists
 
@@ -53,7 +64,7 @@ Lance a ready-made PyArrow predicate plus a pushed-down limit, in ~1 kB of
 serialized plan. The hook is private and carries no stability guarantee — a
 deliberate trade, since it is measurably the better path (see
 [Why the private hook](#why-the-private-hook)). If a future Polars changes it,
-pin the previous polars-lance rather than expecting a fallback.
+pin the previous polars-pylance rather than expecting a fallback.
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.
@@ -141,9 +152,9 @@ buffering pipeline would show. `uv run bench/mem.py guard` asserts this.
 > release tracking 1.44. See [The polars pin](#the-polars-pin).
 
 Reads are designed to ship: a scan serializes to a few kB and carries a URI,
-never an open dataset handle. Workers need `pylance` and `polars-lance`
+never an open dataset handle. Workers need `pylance` and `polars-pylance`
 installed, via `ComputeContext(requirements=...)` —
-`polars_lance.cloud.requirements_txt()` renders the pinned lines, since Polars
+`polars_pylance.cloud.requirements_txt()` renders the pinned lines, since Polars
 Cloud rejects a context whose polars version differs from the client's.
 
 ### Writing from a remote query
@@ -155,7 +166,7 @@ Polars Cloud knows about, and the write is genuinely distributed rather than
 streamed back through the client.
 
 ```python
-from polars_lance.cloud import requirements_txt, sink_lance_remote
+from polars_pylance.cloud import requirements_txt, sink_lance_remote
 
 ctx = pc.ComputeContext(cpus=8, memory=32, requirements=requirements_txt().encode())
 lf = pll.scan_lance("s3://bucket/in.lance").filter(pl.col("score") > 0.9)
@@ -196,7 +207,7 @@ staged.commit()
 ```
 
 The Parquet-staging route remains as the conservative fallback: sink to Parquet
-and convert with `polars_lance.cloud.convert_parquet_to_lance()`. 0.10's
+and convert with `polars_pylance.cloud.convert_parquet_to_lance()`. 0.10's
 `DirectQuery.delete_result()` makes cleaning up the intermediate a single call,
 in direct mode with anonymous storage configured for `allow_delete`.
 
@@ -217,7 +228,7 @@ Serializing is necessary, not sufficient.
 polars-cloud 0.10 requires `polars==1.43.2`; this package requires
 `polars>=1.44.0`. Those cannot both hold, which is why the `cloud` extra was
 dropped rather than left declared — an extra pinning below the floor makes even
-`uv lock` unresolvable, not just `pip install polars-lance[cloud]`.
+`uv lock` unresolvable, not just `pip install polars-pylance[cloud]`.
 
 1.44.0 is the floor because 1.43.2 is the last release carrying two bugs this
 package used to work around, both verified as fixed in 1.44.0:
@@ -227,7 +238,7 @@ package used to work around, both verified as fixed in 1.44.0:
 | `collect_batches()` as an Arrow C stream hangs on the default `provider` scan | streams normally |
 | `sort().head()` pushes an unevaluable `dynamic_pred` node into an IO plugin's predicate, panicking with `internal error: entered unreachable code` | no such node is passed |
 
-So installing polars-cloud alongside polars-lance is not a workaround: it
+So installing polars-cloud alongside polars-pylance is not a workaround: it
 downgrades polars into that range and reintroduces both. `sink_lance_remote()`
 also genuinely needs 0.10 for the API — on 1.42.1 the plan is rejected before it
 leaves the client with *logical plan ineligible for execution on Polars Cloud:

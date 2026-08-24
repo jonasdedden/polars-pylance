@@ -198,7 +198,7 @@ def write_lance_fragments(
 
     This is the distributed write shape: every shard streams into its own
     fragment files independently, and a single commit at the end makes them one
-    dataset version. Pair with :func:`~polars_lance.scan_lance_fragments` to get
+    dataset version. Pair with :func:`~polars_pylance.scan_lance_fragments` to get
     the shards.
 
     Parameters
@@ -277,7 +277,7 @@ def commit_lance_fragments(
     storage but no manifest references them, so nothing has been published yet.
     This is the single commit that makes them a version -- whether they were
     written by threads (:func:`write_lance_fragments`) or by Polars Cloud
-    workers (:func:`~polars_lance.cloud.sink_lance_remote`).
+    workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
     """
     if mode == "append":
         operation = lance.LanceOperation.Append(fragments)

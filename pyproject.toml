@@ -3,10 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "polars-lance"
+name = "polars-pylance"
 version = "0.1.0"
 description = "Lazy, streaming Lance <-> Polars integration: scan_lance() and sink_lance()"
 readme = "README.md"
+# The distribution name carries the token `pylance`, not `lance`, so these keep
+# a bare `lance` in the metadata PyPI searches.
+keywords = ["polars", "lance", "arrow", "lazyframe", "streaming"]
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
@@ -24,16 +27,16 @@ dependencies = [
 # plan. It normally arrives with polars-cloud; listed here so the remote-write
 # tests still run now that the cloud extra is gone.
 test = ["pytest>=8", "numpy", "cloudpickle"]
-# There is deliberately no `cloud` extra, even though polars_lance.cloud and
-# polars_lance._remote are written against polars-cloud 0.10 and kept working.
+# There is deliberately no `cloud` extra, even though polars_pylance.cloud and
+# polars_pylance._remote are written against polars-cloud 0.10 and kept working.
 # polars-cloud pins polars with `==` (0.10.0 -> polars==1.43.2), below the floor
 # above, so declaring the extra would make the project unresolvable rather than
-# merely awkward -- `uv lock` fails, not just `pip install polars-lance[cloud]`.
+# merely awkward -- `uv lock` fails, not just `pip install polars-pylance[cloud]`.
 # Restore it as `cloud = ["polars-cloud>=<first release pinning polars 1.44>"]`
 # once such a release exists; tests/test_remote.py skips until then.
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/polars_lance"]
+packages = ["src/polars_pylance"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

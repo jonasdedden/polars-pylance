@@ -17,7 +17,7 @@ Reading
     ``ComputeContext(requirements=...)``; see :func:`requirements_txt`.
 
     The scan survives ``prepare_cloud_plan``, on its own and under
-    ``pl.concat`` of :func:`~polars_lance.scan_lance_fragments` shards. 0.9
+    ``pl.concat`` of :func:`~polars_pylance.scan_lance_fragments` shards. 0.9
     added distributed unions of Python scans, so the sharded form is the
     sanctioned way to fan a read out across workers rather than a fallback.
 
@@ -27,7 +27,7 @@ Writing
     ``sink_batches`` hands each result batch to a Python callable that is
     cloudpickled into the query plan and therefore runs *on the workers* -- so
     the workers write Lance data files directly, and a single client-side commit
-    publishes them. :mod:`polars_lance._remote` documents the arrangement.
+    publishes them. :mod:`polars_pylance._remote` documents the arrangement.
 
     The Parquet-staging route remains as the conservative fallback: sink the
     remote query to Parquet on object storage and convert it with
@@ -40,13 +40,13 @@ The polars pin
     this package now requires ``polars>=1.44.0``. Those are mutually exclusive,
     which is why the ``cloud`` extra was dropped rather than left declared: an
     extra pinning below the floor makes even ``uv lock`` unresolvable, not just
-    ``pip install polars-lance[cloud]``.
+    ``pip install polars-pylance[cloud]``.
 
     1.44.0 is the floor because 1.43.2 is the last release carrying two bugs
     this package used to work around: the ``collect_batches`` Arrow C stream
     deadlocks on the default ``provider`` scan, and a ``sort().head()`` pushes an
     unevaluable ``dynamic_pred`` node into an IO plugin's predicate. Installing
-    polars-cloud alongside polars-lance downgrades polars into that range and
+    polars-cloud alongside polars-pylance downgrades polars into that range and
     reintroduces both, so it is not a supported workaround -- wait for the
     polars-cloud release that tracks 1.44.
 """
@@ -81,7 +81,7 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     """Render a requirements file pinning the versions a cloud worker needs.
 
     Polars Cloud rejects a compute context whose polars version differs from the
-    client's, so both pins are exact. ``polars-lance`` itself is on the list
+    client's, so both pins are exact. ``polars-pylance`` itself is on the list
     because a :func:`sink_lance_remote` callback is pickled by reference: the
     worker imports it rather than receiving its code.
 
@@ -95,7 +95,7 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     lines = [
         f"polars=={pl.__version__}",
         f"pylance=={lance.__version__}",
-        "polars-lance",
+        "polars-pylance",
     ]
     lines.extend(extra or [])
     return "\n".join(lines) + "\n"

@@ -1,9 +1,9 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["polars>=1.44.0", "pylance>=9", "pyarrow", "numpy", "polars-lance"]
+# dependencies = ["polars>=1.44.0", "pylance>=9", "pyarrow", "numpy", "polars-pylance"]
 # [tool.uv.sources]
-# polars-lance = { path = "../", editable = true }
+# polars-pylance = { path = "../", editable = true }
 # ///
 """Peak-memory benchmark and regression guard.
 
@@ -36,10 +36,12 @@ import lance
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).parent))
-import polars_lance as pll
+import polars_pylance as pll
 from _data import ensure_dataset, on_disk_mb
 
-BENCH_DIR = Path(os.environ.get("POLARS_LANCE_BENCH_DIR", "/tmp/polars-lance-bench"))
+BENCH_DIR = Path(
+    os.environ.get("POLARS_PYLANCE_BENCH_DIR", "/tmp/polars-pylance-bench")
+)
 SMALL_ROWS = 1_000_000
 LARGE_ROWS = 3_000_000
 

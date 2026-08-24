@@ -6,7 +6,7 @@ the streaming engine consumes them. Writing streams a query into Lance batch by
 batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
 
 >>> import polars as pl
->>> import polars_lance as pll
+>>> import polars_pylance as pll
 >>> lf = pll.scan_lance("data.lance")  # doctest: +SKIP
 >>> pll.sink_lance(
 ...     lf.filter(pl.col("score") > 0.9), "filtered.lance"

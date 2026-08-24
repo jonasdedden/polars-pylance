@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
-from polars_lance import LanceScanOptions, scan_lance, scan_lance_fragments
+from polars_pylance import LanceScanOptions, scan_lance, scan_lance_fragments
 
 
 def test_schema_matches_dataset(lance_uri: str) -> None:

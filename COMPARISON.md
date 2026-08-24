@@ -10,8 +10,10 @@ and this working copy, on the same machine and the same datasets. Harnesses:
 `compare.py`, `compare_nulls.py` (in the session scratchpad); their repo at commit
 `f95cf2d`.
 
-**Naming:** `polars-lance` on PyPI is theirs. This package needs a different
-distribution name before it can be published.
+**Naming:** `polars-lance` on PyPI is theirs. This package is published as
+`polars-pylance` -- named for what it is, `polars` plus `pylance` composed in
+Python, against their `lance` crate compiled in. Its import name is
+`polars_pylance`, so both can be installed side by side.
 
 ---
 
@@ -98,8 +100,8 @@ This is the sharpest difference. `write_lance(df, ...)` requires a materialized
 `DataFrame`, so writing the result of a large query means holding it in RAM:
 
 ```python
-pll.write_lance(lf.collect(), "out.lance")  # theirs: full result in memory
-pll.sink_lance(lf, "out.lance")  # here: streamed batch by batch
+polars_lance.write_lance(lf.collect(), "out.lance")  # theirs: full result in memory
+polars_pylance.sink_lance(lf, "out.lance")  # here: streamed batch by batch
 ```
 
 Measured on the 527 MB source, writing a 500 101-row filtered projection:

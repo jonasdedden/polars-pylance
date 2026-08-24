@@ -8,8 +8,8 @@ import pickle
 import polars as pl
 from polars.testing import assert_frame_equal
 
-from polars_lance import LanceScanOptions, LanceScanSpec, scan_lance
-from polars_lance.cloud import requirements_txt
+from polars_pylance import LanceScanOptions, LanceScanSpec, scan_lance
+from polars_pylance.cloud import requirements_txt
 
 
 def test_spec_is_picklable(lance_uri: str) -> None:

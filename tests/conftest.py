@@ -78,7 +78,7 @@ def scanner_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 @pytest.fixture
 def frames_yielded(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """Count the batches actually pulled out of Lance, for early-stop tests."""
-    from polars_lance import _scan
+    from polars_pylance import _scan
 
     counter = [0]
     original = _scan.LanceScanSpec.iter_frames
