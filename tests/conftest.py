@@ -61,12 +61,6 @@ def expected(lance_uri: str) -> pl.DataFrame:
     return pl.from_arrow(lance.dataset(lance_uri).to_table())  # type: ignore[return-value]
 
 
-@pytest.fixture(params=["provider", "io_plugin"])
-def impl(request: pytest.FixtureRequest) -> str:
-    """Both scan implementations must behave identically."""
-    return request.param
-
-
 @pytest.fixture
 def scanner_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Record the arguments Lance itself receives, options and all."""

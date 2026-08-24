@@ -16,11 +16,10 @@ Reading
     lance`` and to reach the dataset's storage. Install the dependency with
     ``ComputeContext(requirements=...)``; see :func:`requirements_txt`.
 
-    Both scan implementations survive ``prepare_cloud_plan`` -- ``provider`` and
-    ``io_plugin``, on their own and under ``pl.concat`` of
-    :func:`~polars_lance.scan_lance_fragments` shards. 0.9 added distributed
-    unions of Python scans, so the sharded form is the sanctioned way to fan a
-    read out across workers rather than a fallback.
+    The scan survives ``prepare_cloud_plan``, on its own and under
+    ``pl.concat`` of :func:`~polars_lance.scan_lance_fragments` shards. 0.9
+    added distributed unions of Python scans, so the sharded form is the
+    sanctioned way to fan a read out across workers rather than a fallback.
 
 Writing
     Possible remotely since 0.10, via :func:`sink_lance_remote`. Polars Cloud's
