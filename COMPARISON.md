@@ -21,7 +21,7 @@ distribution name before it can be published.
 | --- | --- | --- |
 | Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` 9 |
 | Polars hook | `register_io_source` | dataset-provider hook, `register_io_source` fallback |
-| Runtime deps | `polars>=1.0.0` only — Lance is statically linked | `polars>=1.42.1`, `pylance>=9`, `pyarrow` |
+| Runtime deps | `polars>=1.0.0` only — Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
 | Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes |
@@ -151,11 +151,13 @@ Two more behavioural cases:
 | `filter(...).sort(...).head(7)` | **ComputeError** | ok |
 | `sort(...).head(3)` | **ComputeError** | ok |
 
-The top-k failures are the upstream `dynamic_pred` bug documented in
-[`upstream/issue-io-plugin-dynamic-predicate.md`](upstream/issue-io-plugin-dynamic-predicate.md).
-Theirs hits it because it also evaluates the pushed predicate with polars; this
-package strips the unevaluable node first. Their failure is version-dependent:
-`sort().head()` works on polars 1.38.1 and breaks from 1.42.1 onward.
+The top-k failures are the upstream `dynamic_pred` bug: a `sort().head()` made
+polars push an opaque, unevaluable node into an IO plugin's predicate, and theirs
+hits it because it also evaluates the pushed predicate with polars. The bug ran
+from polars 1.39.0 through 1.43.2 and is fixed in 1.44.0 — verified with a
+standalone `register_io_source` reproducer, where 1.43.2 panics four ways and
+1.44.0 passes cleanly. The rows above were measured against polars 1.43.1 and so
+predate that fix; theirs was not re-measured on 1.44.0.
 
 ## Performance (best of 3, 527 MB source, polars 1.43.1)
 

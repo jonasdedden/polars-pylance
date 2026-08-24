@@ -33,7 +33,7 @@ import polars as pl
 import pyarrow as pa
 
 from polars_lance._options import LanceScanOptions
-from polars_lance._predicate import prune_unevaluable, to_lance_filter
+from polars_lance._predicate import to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -295,9 +295,7 @@ def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
     ) -> Iterator[pl.DataFrame]:
         dataset = spec.open()
         # Polars includes the predicate's columns in `with_columns`, so the
-        # predicate can always be evaluated on what we are about to yield --
-        # once any engine-internal placeholder has been stripped out.
-        predicate = None if predicate is None else prune_unevaluable(predicate)
+        # predicate can always be evaluated on what we are about to yield.
         sql_filter = (
             to_lance_filter(predicate)
             if predicate is not None and spec.predicate_pushdown

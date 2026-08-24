@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["polars>=1.42.1", "pylance>=9", "pyarrow", "numpy", "polars-lance"]
+# dependencies = ["polars>=1.44.0", "pylance>=9", "pyarrow", "numpy", "polars-lance"]
 # [tool.uv.sources]
 # polars-lance = { path = "../", editable = true }
 # ///

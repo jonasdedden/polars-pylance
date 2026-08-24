@@ -1,5 +1,13 @@
 """Helpers for running Lance scans and writes on Polars Cloud.
 
+.. warning::
+    **Not installable today.** polars-cloud pins polars with ``==`` -- 0.10.0
+    pins ``polars==1.43.2`` -- which is below this package's ``polars>=1.44.0``
+    floor, so there is no ``cloud`` extra and the two cannot be resolved
+    together. Everything here is written and kept working against the 0.10 API;
+    it becomes usable as soon as polars-cloud ships a release tracking 1.44.
+    See "The polars pin" below.
+
 What works and what does not, as of polars-cloud 0.10:
 
 Reading
@@ -29,10 +37,19 @@ Writing
     call, in direct mode with anonymous storage configured for ``allow_delete``.
 
 The polars pin
-    polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9. The
-    ``collect_batches`` Arrow C stream deadlock that :mod:`polars_lance._sink`
-    works around is still present in 1.43.2 for the default ``provider`` scan,
-    so the workaround stays.
+    polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9, and
+    this package now requires ``polars>=1.44.0``. Those are mutually exclusive,
+    which is why the ``cloud`` extra was dropped rather than left declared: an
+    extra pinning below the floor makes even ``uv lock`` unresolvable, not just
+    ``pip install polars-lance[cloud]``.
+
+    1.44.0 is the floor because 1.43.2 is the last release carrying two bugs
+    this package used to work around: the ``collect_batches`` Arrow C stream
+    deadlocks on the default ``provider`` scan, and a ``sort().head()`` pushes an
+    unevaluable ``dynamic_pred`` node into an IO plugin's predicate. Installing
+    polars-cloud alongside polars-lance downgrades polars into that range and
+    reintroduces both, so it is not a supported workaround -- wait for the
+    polars-cloud release that tracks 1.44.
 """
 
 from __future__ import annotations
