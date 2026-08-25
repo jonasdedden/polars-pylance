@@ -31,7 +31,7 @@ without a rebuild, and reaches Lance features as fast as `pylance` exposes them.
 ## Comparison with `polars-lance`
 
 Note that PyPI's `polars-lance` is an unrelated package by a different author
-(extensive [benchmarks and feature insights](COMPARISON.md) for comparison).
+(extensive [benchmarks and feature insights](https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md) for comparison).
 The two can coexist in one environment but follow different implementation designs.
 
 ## Why this exists
@@ -91,7 +91,7 @@ with once the workers are done.
 ## Memory behaviour
 
 Peak RSS for `polars-pylance` across the size ladder in
-[`bench/`](bench/README.md), on datasets from 1 GiB to 190.7 GiB -- a **190×**
+[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 190.7 GiB -- a **190×**
 increase in data:
 
 | | 1 GiB source | 190.7 GiB source |
@@ -127,7 +127,7 @@ uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 > package's `polars>=1.44.0` floor, so there is no `cloud` extra and the two
 > cannot be resolved together. Everything in this section is written and kept
 > working against the 0.10 API; it becomes usable when polars-cloud ships a
-> release tracking 1.44. See [The polars pin](#the-polars-pin).
+> release tracking 1.44.
 
 Reads are designed to ship: a scan serializes to a few kB and carries a URI,
 never an open dataset handle. Workers need `pylance` and `polars-pylance`
