@@ -27,6 +27,11 @@ Polars offers two ways to plug a foreign source into a query, and they differ in
 Both hooks are unstable API (one private, one marked unstable), and both are
 used deliberately. ``docs/PREDICATE_PUSHDOWN.md`` has the measurements behind
 the default.
+
+The split is not fundamental. A Polars that also passed the provider its
+*serialized* predicate would let the provider path lower filters as widely as
+the IO-plugin path; :meth:`LanceDatasetProvider.to_dataset_scan` already accepts
+that argument, and uses it when a Polars offers it.
 """
 
 from __future__ import annotations
@@ -275,6 +280,7 @@ class LanceDatasetProvider:
         projection: list[str] | None = None,
         filter_columns: list[str] | None = None,
         pyarrow_predicate: str | None = None,
+        serialized_predicate: bytes | None = None,
     ) -> tuple[pl.LazyFrame, str] | None:
         dataset = self.spec.open()
         version_key = str(dataset.version)
@@ -284,17 +290,9 @@ class LanceDatasetProvider:
         ):
             return None
 
-        pa_filter = None
-        if pyarrow_predicate is not None and self.spec.predicate_pushdown:
-            try:
-                pa_filter = eval(pyarrow_predicate, _pyarrow_eval_namespace())
-            except Exception as exc:
-                warnings.warn(
-                    "polars-pylance: could not evaluate the predicate Polars "
-                    f"generated ({exc!r}); filtering falls back to the engine",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+        pa_filter: pc.Expression | str | None = None
+        if self.spec.predicate_pushdown:
+            pa_filter = self._filter(pyarrow_predicate, serialized_predicate)
 
         # Polars keeps the filter above a provider-resolved scan and re-applies
         # it whatever this flag says (measured on both engines in 1.44), and it
@@ -323,6 +321,48 @@ class LanceDatasetProvider:
             self.spec.arrow_schema(dataset), impl, pyarrow=True, is_pure=True
         )
         return lf, version_key
+
+    def _filter(
+        self, pyarrow_predicate: str | None, serialized_predicate: bytes | None
+    ) -> pc.Expression | str | None:
+        """The best filter available from what Polars passed.
+
+        `serialized_predicate` is the whole predicate and only arrives from a
+        Polars that offers it (see docs/PREDICATE_PUSHDOWN.md); `pyarrow_predicate`
+        is the part Polars could lower itself. Lowering the whole one covers far
+        more of the expression language, but it is also allowed to give up on a
+        conjunct, so a relaxed lowering defers to Polars' own where there is one.
+        """
+        lowered = None
+        if serialized_predicate is not None:
+            try:
+                lowered = to_lance_filter(pl.Expr.deserialize(serialized_predicate))
+            except Exception as exc:
+                warnings.warn(
+                    "polars-pylance: could not read the predicate Polars passed "
+                    f"({exc!r}); falling back to its PyArrow lowering",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+
+        if lowered is not None and (lowered.exact or pyarrow_predicate is None):
+            return lowered.sql
+
+        if pyarrow_predicate is None:
+            return None
+
+        try:
+            return cast(
+                "pc.Expression", eval(pyarrow_predicate, _pyarrow_eval_namespace())
+            )
+        except Exception as exc:
+            warnings.warn(
+                "polars-pylance: could not evaluate the predicate Polars "
+                f"generated ({exc!r}); filtering falls back to the engine",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            return lowered.sql if lowered is not None else None
 
     def __repr__(self) -> str:
         return f"LanceDatasetProvider({self.spec.uri!r}, version={self.spec.version!r})"

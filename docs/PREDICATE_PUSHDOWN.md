@@ -13,9 +13,10 @@ predicate Polars has *already* lowered. Short version:
   through the provider path and 35 through a visitor** — `is_in`, every string
   function, arithmetic, temporal parts, list and struct access are all left to
   the engine today.
-- The visitor cannot be bolted onto the provider hook. The hook never sees a
-  Polars expression, and the three ways of smuggling one in all fail. Using it
-  means using the IO-plugin hook, as suspected.
+- The visitor cannot be bolted onto the provider hook as Polars ships today.
+  The hook never sees a Polars expression, and the three ways of smuggling one
+  in all fail. Using it means using the IO-plugin hook, as suspected — §8 is
+  the 113-line upstream change that removes the trade-off, built and measured.
 - It pays where you would expect: **2x to 8x** on filters Polars cannot lower,
   and **up to 48x** once the dataset has a scalar index, which is unreachable
   otherwise. It is level-to-slightly-negative everywhere else.
@@ -94,10 +95,9 @@ There is no way to do it in polars 1.44:
 | return an IO-plugin `LazyFrame` from the hook | `PanicException: not yet implemented: IOPlugin` |
 | return anything else (e.g. a `select` over one) | `ComputeError: unknown DSL when resolving python dataset scan` |
 
-So the answer to "does the IO Plugin mechanism have to be used again" is yes —
-it is the only hook that hands over a `pl.Expr`. The natural upstream fix would
-be for `to_dataset_scan` to also pass the serialized predicate (it already has
-it); a provider that understands it would get both halves.
+So the answer to "does the IO Plugin mechanism have to be used again" is yes,
+for a stock Polars — it is the only hook that hands over a `pl.Expr`. The fix is
+upstream and small, and §8 has it built and measured.
 
 ## 4. The visitor
 
@@ -235,12 +235,53 @@ parts, list or struct access — and especially when the dataset carries scalar
 indices, which are unreachable otherwise. The table in §2 is the guide; the
 `rows` column of `bench/pushdown.py` is how to check a real query.
 
-The better outcome is upstream: if `to_dataset_scan` also received the
-serialized predicate, the visitor could run on the provider path and neither
-choice would be necessary. That is a small change to
-`polars_python::dataset::dataset_provider_funcs` — the expression is already in
-hand at that point — and it would let every dataset provider lower predicates
-into its own language instead of only into the PyArrow subset.
+The better outcome is upstream, and §8 is what that looks like.
+
+## 8. The upstream change, built and measured
+
+The choice between the two hooks only exists because the provider hook hands
+over a lowering instead of a predicate. `expand_datasets` has the predicate in
+hand at exactly the point where it builds `pyarrow_predicate`; passing it as
+well is 113 lines across three files:
+
+| file | change |
+| --- | --- |
+| `polars-plan/.../expand_datasets.rs` | serialize the scan predicate, thread it through, add it to the resolved-scan cache key |
+| `polars-plan/.../python_dataset.rs` | one more argument on the provider vtable |
+| `polars-python/.../dataset_provider_funcs.rs` | pass it as `serialized_predicate=`, to providers that accept it |
+
+It is the same encoding `register_io_source` gives an IO plugin, so
+`pl.Expr.deserialize` reads it, and it goes only to a provider that names the
+parameter or takes `**kwargs` (checked with `inspect.signature`) — a provider
+written against an older Polars keeps working untouched. It is gated exactly
+like `pyarrow_predicate`: not sent when the scan carries a row index or a slice,
+where a source acting on the predicate would number or truncate the wrong rows.
+Serializing costs 3–10 µs per scan resolution when nothing asks for it.
+
+`LanceDatasetProvider.to_dataset_scan` already accepts that argument and lowers
+it with the visitor, so the provider path picks the change up as soon as a
+Polars offers it. Built and run against a patched Polars, `impl="provider"`, 1M
+rows with a 128-byte payload, best of three, filter pushed vs not (same build,
+so the two columns are comparable to each other and not to §5):
+
+| query | nothing pushed | lowered to Lance SQL |
+| --- | --- | --- |
+| `text.str.contains(...)`, 1 in 1000 | 0.332 s / 1,000,000 rows | **0.042 s / 1,000 rows** |
+| `id.is_in([200 values])` | 0.297 s / 1,000,000 rows | **0.029 s / 200 rows** |
+| `text.str.starts_with(...) & id > 10` | 0.340 s / 1,000,000 rows | **0.065 s / 99,989 rows** |
+
+Those are the same three shapes the provider path pushes *nothing* for today.
+With the change it pushes exactly what the IO-plugin path pushes, without the
+IO-plugin path's per-scan overhead, its larger serialized plan, or the loss of
+resolution caching — which would make `impl=` a historical curiosity rather
+than a decision.
+
+The branch is
+[`claude/dataset-provider-serialized-predicate`](https://github.com/jonasdedden/polars/tree/claude/dataset-provider-serialized-predicate)
+on a fork, with a `py-polars/tests/unit/io/test_python_dataset.py` covering the
+new argument, the opt-in, the row-index gate and the cache key. Polars'
+`AI_POLICY.md` reserves all repository interaction for humans, so proposing it
+upstream is a human's call, not this branch's.
 
 ## Reproducing
 

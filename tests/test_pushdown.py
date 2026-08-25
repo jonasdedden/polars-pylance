@@ -6,10 +6,57 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import polars as pl
+import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 
 from polars_pylance import scan_lance
+
+
+def _provider_is_handed_the_whole_predicate() -> bool:
+    """Whether this Polars passes a dataset provider its serialized predicate.
+
+    Polars passes only its own PyArrow lowering today, so the provider path
+    pushes nothing for a predicate outside that subset. A Polars that also
+    passes the expression lets the provider lower it as widely as the io_plugin
+    path does -- see docs/PREDICATE_PUSHDOWN.md -- which flips the expected
+    answer of several tests below.
+    """
+    from polars._plr import PyLazyFrame
+    from polars._utils.wrap import wrap_ldf
+
+    seen: set[str] = set()
+    schema = pa.schema([pa.field("a", pa.int64())])
+
+    class Probe:
+        def schema(self) -> pa.Schema:
+            return schema
+
+        def to_dataset_scan(self, **kwargs: Any) -> tuple[pl.LazyFrame, str]:
+            seen.update(kwargs)
+
+            def impl(*_args: Any, **_kwargs: Any) -> tuple[Any, bool]:
+                return iter([pl.DataFrame({"a": [1]})]), False
+
+            lf = pl.LazyFrame._scan_python_function(
+                schema, impl, pyarrow=True, is_pure=True
+            )
+            return lf, "v1"
+
+    lf = wrap_ldf(PyLazyFrame.new_from_dataset_object(Probe()))
+    # A predicate with no PyArrow lowering, so only the new argument can carry it.
+    lf.filter(pl.col("a").cast(pl.String).str.starts_with("x")).collect(
+        engine="streaming"
+    )
+    return "serialized_predicate" in seen
+
+
+PROVIDER_LOWERS_THE_PREDICATE = _provider_is_handed_the_whole_predicate()
+
+needs_pyarrow_only_provider = pytest.mark.skipif(
+    PROVIDER_LOWERS_THE_PREDICATE,
+    reason="this Polars hands the provider the whole predicate, so it pushes more",
+)
 
 
 def _scan_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -54,8 +101,10 @@ def test_predicate_reaches_lance(
     ]
     assert filters, "no filter pushed down"
     # Polars hands the provider a ready-made PyArrow expression, which is
-    # exactly what Lance's scanner accepts -- no translation in between.
-    assert all(isinstance(f, pc.Expression) for f in filters)
+    # exactly what Lance's scanner accepts -- no translation in between. Where
+    # it also hands over the predicate itself, the exact SQL lowering wins.
+    expected = str if PROVIDER_LOWERS_THE_PREDICATE else pc.Expression
+    assert all(isinstance(f, expected) for f in filters)
 
 
 def test_predicate_pushdown_can_be_disabled(
@@ -67,6 +116,7 @@ def test_predicate_pushdown_can_be_disabled(
     assert all(c.get("filter") is None for c in scanner_calls)
 
 
+@needs_pyarrow_only_provider
 def test_untranslatable_predicate_is_not_pushed(
     lance_uri: str, expected: pl.DataFrame, scanner_calls: list[dict[str, Any]]
 ) -> None:
@@ -152,6 +202,7 @@ def test_io_plugin_pushes_what_polars_cannot_lower(
     assert all(isinstance(f, str) for f in pushed), "expected a Lance SQL filter"
 
 
+@needs_pyarrow_only_provider
 @pytest.mark.parametrize("predicate", BEYOND_PYARROW)
 def test_provider_pushes_none_of_it(
     predicate: pl.Expr, lance_uri: str, scanner_calls: list[dict[str, Any]]
@@ -252,3 +303,61 @@ def test_a_filter_lance_refuses_is_dropped_not_raised(
 def test_unknown_impl_is_rejected(lance_uri: str) -> None:
     with pytest.raises(ValueError, match="unknown scan impl"):
         scan_lance(lance_uri, impl="nonesuch")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# provider path, given a predicate Polars does not pass today
+# ---------------------------------------------------------------------------
+
+
+def _provider_scan(uri: str, predicate: pl.Expr | None, **kwargs: Any) -> str | None:
+    """Resolve a provider scan by hand and report the filter it would push.
+
+    Stock Polars only ever passes `pyarrow_predicate`. Calling the interface
+    directly is how the *other* argument gets exercised until a Polars ships
+    that offers it -- see docs/PREDICATE_PUSHDOWN.md.
+    """
+    from polars_pylance import LanceDatasetProvider, LanceScanSpec
+
+    provider = LanceDatasetProvider(LanceScanSpec(uri=uri, **kwargs))
+    serialized = None if predicate is None else predicate.meta.serialize()
+    seen: list[Any] = []
+    original = LanceScanSpec.iter_frames
+
+    def spy(self: Any, dataset: Any, **kw: Any) -> Any:
+        seen.append(kw.get("filter"))
+        return original(self, dataset, **kw)
+
+    LanceScanSpec.iter_frames = spy  # type: ignore[method-assign]
+    try:
+        # No projection: the LazyFrame a provider returns declares the full
+        # schema, and Polars, not the provider, narrows it afterwards.
+        result = provider.to_dataset_scan(serialized_predicate=serialized)
+        assert result is not None
+        result[0].collect(engine="streaming")
+    finally:
+        LanceScanSpec.iter_frames = original  # type: ignore[method-assign]
+    return seen[0] if seen else None
+
+
+def test_provider_lowers_a_serialized_predicate(lance_uri: str) -> None:
+    pushed = _provider_scan(lance_uri, pl.col("cat").str.starts_with("b"))
+    assert pushed == "starts_with(`cat`, 'b')"
+
+
+def test_provider_ignores_a_serialized_predicate_when_pushdown_is_off(
+    lance_uri: str,
+) -> None:
+    pushed = _provider_scan(
+        lance_uri, pl.col("cat").str.starts_with("b"), predicate_pushdown=False
+    )
+    assert pushed is None
+
+
+def test_provider_survives_an_unreadable_serialized_predicate(lance_uri: str) -> None:
+    from polars_pylance import LanceDatasetProvider, LanceScanSpec
+
+    provider = LanceDatasetProvider(LanceScanSpec(uri=lance_uri))
+    with pytest.warns(RuntimeWarning, match="could not read the predicate"):
+        result = provider.to_dataset_scan(serialized_predicate=b"not an expression")
+    assert result is not None
