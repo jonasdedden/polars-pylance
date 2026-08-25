@@ -28,7 +28,12 @@ from ._sink import (
     write_lance_fragments,
 )
 
-__version__ = "0.1.0"
+# `_version.py` is written at build time from the git tag; it is not in the
+# repository. A checkout that has never been built has no such file.
+try:
+    from ._version import __version__
+except ImportError:  # pragma: no cover - source tree that was never built
+    __version__ = "0.0.0+unknown"
 
 __all__ = [
     "LanceDatasetProvider",
