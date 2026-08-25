@@ -1,23 +1,37 @@
 """Lazy, streaming Lance reader for Polars.
 
-The scan registers a dataset object through ``PyLazyFrame.new_from_dataset_object``,
-the hook behind :func:`polars.scan_delta` and :func:`polars.scan_iceberg`. Polars
-resolves the scan at IR-resolution time and hands over the projection, the row
-limit, the columns a filter touches, and the filter itself already translated to
-a PyArrow expression -- which is exactly what Lance accepts. It also passes back
-the version key of the previous resolution, so an unchanged dataset need not be
-re-planned.
+Polars offers two ways to plug a foreign source into a query, and they differ in
+*what the source is told about the filter*:
 
-The hook is private and carries no stability guarantee. That is a deliberate
-trade: it is the only route that gets Lance a ready-made PyArrow predicate and a
-pushed-down limit, and measurably so -- against the public
-``register_io_source`` path it was 1.5x faster on a full scan, 1.7x on a top-k
-and 5x on a ``head()``, at equal or lower peak RSS. If a future Polars changes
-the interface, pin the previous polars-pylance rather than expecting a fallback.
+``provider`` (default)
+    Registers a dataset object through ``PyLazyFrame.new_from_dataset_object``,
+    the private hook behind :func:`polars.scan_delta` and
+    :func:`polars.scan_iceberg`. Polars resolves the scan while building the IR
+    and hands over the projection, the row limit, the columns a filter touches,
+    and the filter *already translated to a PyArrow expression* -- which is
+    exactly what Lance accepts. It also passes back the version key of the
+    previous resolution, so an unchanged dataset need not be re-planned. The
+    catch is that Polars' PyArrow lowering is narrow: no ``is_in``, no string
+    functions, no arithmetic, no temporal parts, no list or struct access. What
+    it cannot lower, it drops, and the scan then reads rows the filter would
+    have skipped.
+
+``io_plugin``
+    The public :func:`polars.io.plugins.register_io_source`. It hands over the
+    *whole* predicate as a :class:`polars.Expr`, which
+    :mod:`polars_pylance._predicate` lowers into Lance SQL -- a much wider
+    language. Predicates the provider path leaves entirely to the engine reach
+    Lance here, which is worth a great deal when Lance can answer them from a
+    scalar index or skip pages of a wide column.
+
+Both hooks are unstable API (one private, one marked unstable), and both are
+used deliberately. ``docs/PREDICATE_PUSHDOWN.md`` has the measurements behind
+the default.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,19 +42,19 @@ import polars as pl
 import pyarrow as pa
 
 from ._options import LanceScanOptions
+from ._predicate import VIRTUAL_COLUMNS, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+    from typing import Literal
 
     # `pyarrow` does not re-export `compute` from its top level, so `pa.compute`
     # only resolves once something else has imported the submodule.
     import pyarrow.compute as pc
 
-# Columns Lance synthesises rather than reads. They are appended to the output by
-# the scanner itself and must be kept out of the `columns=` projection.
-VIRTUAL_COLUMNS = frozenset(
-    {"_rowid", "_rowaddr", "_distance", "_score", "query_index"}
-)
+# `VIRTUAL_COLUMNS` -- the columns Lance synthesises rather than reads -- is
+# imported above rather than defined here: the predicate lowering has to refuse
+# them, and one list beats two.
 
 
 @dataclass
@@ -119,17 +133,30 @@ class LanceScanSpec:
         projection: Sequence[str] | None = None,
         filter: pc.Expression | str | None = None,
         limit: int | None = None,
+        filter_is_optional: bool = False,
     ) -> Iterator[pl.DataFrame]:
         """Stream `projection` out of Lance as Polars frames.
 
         Lazy by construction: nothing is read until the consumer pulls, and
         dropping the generator early stops the scan.
+
+        `filter_is_optional` says the caller re-applies the predicate itself, so
+        a filter Lance refuses to plan may be dropped rather than raised. Lance
+        validates a filter while building the plan, before any batch is
+        produced, so dropping it can never duplicate rows already yielded.
         """
         columns = None if projection is None else self._physical_columns(projection)
-        scanner = self.scanner(dataset, columns=columns, filter=filter, limit=limit)
+
+        batches = self._batches(
+            dataset,
+            columns=columns,
+            filter=filter,
+            limit=limit,
+            filter_is_optional=filter_is_optional,
+        )
 
         remaining = limit
-        for batch in scanner.to_batches():
+        for batch in batches:
             if batch.num_rows == 0:
                 continue
             if remaining is not None:
@@ -152,6 +179,44 @@ class LanceScanSpec:
                 # engine expects exactly the projection, in order.
                 frame = frame.select(projection)
             yield frame
+
+    def _batches(
+        self,
+        dataset: lance.LanceDataset,
+        *,
+        columns: list[str] | None,
+        filter: pc.Expression | str | None,
+        limit: int | None,
+        filter_is_optional: bool,
+    ) -> Iterator[pa.RecordBatch]:
+        """`scanner.to_batches()`, retried without the filter if Lance says no.
+
+        Lance rejects a filter it cannot plan -- an out-of-range literal for the
+        column's type, say -- and it does so on the first pull, before any
+        batch exists. When the caller is filtering anyway, a scan without the
+        hint is still correct and much better than a failed query.
+        """
+        scanner = self.scanner(dataset, columns=columns, filter=filter, limit=limit)
+        try:
+            iterator = iter(scanner.to_batches())
+            first = next(iterator, None)
+        except Exception as exc:
+            if filter is None or not filter_is_optional:
+                raise
+            warnings.warn(
+                f"polars-pylance: Lance rejected the pushed-down filter ({exc}); "
+                "scanning without it",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            yield from self.scanner(
+                dataset, columns=columns, filter=None, limit=limit
+            ).to_batches()
+            return
+        if first is None:
+            return
+        yield first
+        yield from iterator
 
     def _physical_columns(self, projection: Sequence[str]) -> list[str]:
         # Generated columns are added by the scanner itself and must not appear
@@ -231,13 +296,16 @@ class LanceDatasetProvider:
                     stacklevel=2,
                 )
 
-        predicate_applied = pa_filter is not None
+        # Polars keeps the filter above a provider-resolved scan and re-applies
+        # it whatever this flag says (measured on both engines in 1.44), and it
+        # has to: when only part of a conjunction lowers to PyArrow, only that
+        # part arrives here. Reporting False is the reading that stays correct
+        # if a future Polars starts honouring the flag.
+        predicate_applied = False
         # The limit may only be pushed into Lance when no rows will be removed
         # downstream of the scan; otherwise it would truncate before filtering.
         # Polars is not observed to send both, but be explicit about it.
-        pushed_limit = (
-            limit if (pyarrow_predicate is None or predicate_applied) else None
-        )
+        pushed_limit = limit if pyarrow_predicate is None else None
 
         spec = self.spec
 
@@ -268,6 +336,77 @@ def _provider_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
 
 
 # ---------------------------------------------------------------------------
+# io_plugin implementation (public polars API, sees the whole predicate)
+# ---------------------------------------------------------------------------
+
+
+def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
+    # Imported by path: `polars` does not re-export its `io` subpackage.
+    from polars.io.plugins import register_io_source
+
+    schema = spec.polars_schema()
+
+    def source(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        dataset = spec.open()
+        lowered = (
+            to_lance_filter(predicate)
+            if predicate is not None and spec.predicate_pushdown
+            else None
+        )
+        # `register_io_source` reports the predicate as handled here, so it must
+        # be re-applied per batch below -- the SQL filter is an IO hint, never
+        # the source of truth. That holds even for an exact lowering: nothing
+        # downstream would catch a translation bug, and re-filtering rows Lance
+        # has already narrowed is cheap. That is also why a limit is only pushed when
+        # there is no predicate at all: a limit applied to rows that still have
+        # to be filtered would truncate the wrong ones. Polars does not offer a
+        # limit together with a predicate anyway.
+        limit = n_rows if predicate is None else None
+        # The engine's batch-size hint is sized in rows with no idea how wide
+        # they are, and on a 256-byte payload it is 4x the option's default. It
+        # is used only where the option asked for Lance's own choice.
+        scan_spec = (
+            _with_batch_size(spec, batch_size)
+            if batch_size is not None and spec.options.batch_size is None
+            else spec
+        )
+
+        remaining = n_rows
+        for frame in scan_spec.iter_frames(
+            dataset,
+            projection=with_columns,
+            filter=lowered.sql if lowered is not None else None,
+            limit=limit,
+            filter_is_optional=True,
+        ):
+            out = frame if predicate is None else frame.filter(predicate)
+            if remaining is not None:
+                if out.height > remaining:
+                    out = out.head(remaining)
+                remaining -= out.height
+            if out.height:
+                yield out
+            if remaining is not None and remaining <= 0:
+                return
+
+    return register_io_source(
+        source, schema=schema, validate_schema=False, is_pure=True
+    )
+
+
+def _with_batch_size(spec: LanceScanSpec, batch_size: int) -> LanceScanSpec:
+    """Honour the engine's batch-size hint without mutating the shared spec."""
+    return dataclasses.replace(
+        spec, options=spec.options.replace(batch_size=batch_size)
+    )
+
+
+# ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
 
@@ -284,6 +423,7 @@ def scan_lance(
     with_row_address: bool = False,
     fragments: Sequence[int] | None = None,
     predicate_pushdown: bool = True,
+    impl: Literal["provider", "io_plugin"] = "provider",
 ) -> pl.LazyFrame:
     """Lazily read a Lance dataset as a Polars :class:`~polars.LazyFrame`.
 
@@ -318,8 +458,18 @@ def scan_lance(
         Restrict the scan to these fragment ids. See
         :func:`~polars_pylance.scan_lance_fragments` for the sharded form.
     predicate_pushdown
-        Set to False to keep filtering entirely in Polars. Worth trying if you
-        depend on Polars' null comparison semantics, which differ from SQL's.
+        Set to False to keep filtering entirely in Polars. Both scan paths
+        re-apply the predicate after Lance, so this only ever costs speed.
+    impl
+        Which Polars hook to scan through, and with it how much of a filter
+        reaches Lance. ``"provider"`` uses the private dataset hook, whose
+        filter comes pre-lowered by Polars into a PyArrow expression --
+        comparisons, boolean structure and null checks only. ``"io_plugin"``
+        uses the public IO-plugin API, which hands over the whole predicate for
+        :mod:`polars_pylance._predicate` to lower into Lance SQL: string
+        matching, ``is_in``, arithmetic, temporal parts, list and struct access
+        all reach the scanner. Use it when a filter Polars cannot lower is what
+        makes the query expensive; see ``docs/PREDICATE_PUSHDOWN.md``.
 
     Examples
     --------
@@ -347,7 +497,12 @@ def scan_lance(
         predicate_pushdown=predicate_pushdown,
     )
 
-    return _provider_lazyframe(spec)
+    if impl == "provider":
+        return _provider_lazyframe(spec)
+    if impl == "io_plugin":
+        return _io_plugin_lazyframe(spec)
+    msg = f"unknown scan impl {impl!r}; expected 'provider' or 'io_plugin'"
+    raise ValueError(msg)
 
 
 def scan_lance_fragments(

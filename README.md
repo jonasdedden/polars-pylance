@@ -62,8 +62,28 @@ than reading to the end.
 
 The scan goes through `PyLazyFrame.new_from_dataset_object`, the hook behind
 `scan_delta`/`scan_iceberg`: Polars resolves it at IR-resolution time and hands
-Lance a ready-made PyArrow predicate plus a pushed-down limit, in ~1 kB of
+Lance a ready-made PyArrow predicate plus a pushed-down limit, in ~2 kB of
 serialized plan.
+
+### When the filter is the expensive part
+
+Polars lowers only part of its expression language to PyArrow: comparisons,
+boolean structure and null checks. `is_in`, string matching, arithmetic,
+temporal parts, list and struct access are handed to the engine instead, so
+Lance reads rows the filter would have skipped.
+
+```python
+lf = pll.scan_lance("data.lance", impl="io_plugin")
+lf.filter(pl.col("text").str.contains("needle")).collect(engine="streaming")
+```
+
+`impl="io_plugin"` scans through Polars' public IO-plugin hook, which hands over
+the whole predicate; polars-pylance lowers it into a Lance SQL filter instead.
+On a 4M-row dataset that is 4.6x faster for the query above, 48x with an NGRAM
+index on the column -- a scalar index cannot help a predicate that never reaches
+Lance. It is level or slightly slower on everything else, which is why it is not
+the default. [`docs/PREDICATE_PUSHDOWN.md`](https://github.com/jonasdedden/polars-pylance/blob/main/docs/PREDICATE_PUSHDOWN.md)
+has the coverage table and the measurements.
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.
@@ -112,8 +132,8 @@ in under 4 GiB of RAM.
 ## Development
 
 ```sh
-uv run pytest                    # 69 tests
-uv run pytest -m "not cloud"     # 43 -- what CI runs
+uv run pytest                    # 202 tests
+uv run pytest -m "not cloud"     # 176 -- what CI runs
 uv run mypy                      # strict, over src, tests and bench
 uv run basedpyright
 uvx ruff check . && uvx ruff format --check .

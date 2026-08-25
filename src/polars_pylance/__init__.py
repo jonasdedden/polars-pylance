@@ -11,11 +11,20 @@ batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
 >>> pll.sink_lance(
 ...     lf.filter(pl.col("score") > 0.9), "filtered.lance"
 ... )  # doctest: +SKIP
+
+Filters Polars cannot lower to PyArrow -- string matching, ``is_in``,
+arithmetic, temporal parts, list and struct access -- only reach Lance through
+``scan_lance(..., impl="io_plugin")``. :func:`to_lance_filter` shows what a given
+predicate would be lowered to:
+
+>>> pll.to_lance_filter(pl.col("cat").str.starts_with("b"))
+LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
 """
 
 from __future__ import annotations
 
 from ._options import LanceScanOptions
+from ._predicate import LanceFilter, to_lance_filter
 from ._scan import (
     LanceDatasetProvider,
     LanceScanSpec,
@@ -37,11 +46,13 @@ except ImportError:  # pragma: no cover - source tree that was never built
 
 __all__ = [
     "LanceDatasetProvider",
+    "LanceFilter",
     "LanceScanOptions",
     "LanceScanSpec",
     "commit_lance_fragments",
     "scan_lance",
     "scan_lance_fragments",
     "sink_lance",
+    "to_lance_filter",
     "write_lance_fragments",
 ]

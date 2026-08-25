@@ -3,10 +3,11 @@ regression to "read everything, filter in Polars"."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import polars as pl
 import pyarrow.compute as pc
+import pytest
 
 from polars_pylance import scan_lance
 
@@ -121,3 +122,133 @@ def test_scan_options_reach_lance(
     assert all(c["io_buffer_size"] == 8 * 1024 * 1024 for c in calls)
     # There is no engine batch-size hint on this path, so our option is used.
     assert all(c["batch_size"] == 1_234 for c in calls)
+
+
+# ---------------------------------------------------------------------------
+# io_plugin path: the whole predicate arrives, so more of it reaches Lance
+# ---------------------------------------------------------------------------
+
+IMPLS: tuple[Literal["provider", "io_plugin"], ...] = ("provider", "io_plugin")
+
+# Predicates Polars cannot lower to PyArrow, so the provider path pushes
+# nothing and the io_plugin path pushes Lance SQL.
+BEYOND_PYARROW: list[pl.Expr] = [
+    pl.col("cat").str.starts_with("b"),
+    pl.col("id").is_in([1, 2, 3]),
+    (pl.col("id") % 2) == 0,
+    pl.col("val").abs() > 0.5,
+]
+
+
+@pytest.mark.parametrize("predicate", BEYOND_PYARROW)
+def test_io_plugin_pushes_what_polars_cannot_lower(
+    predicate: pl.Expr, lance_uri: str, scanner_calls: list[dict[str, Any]]
+) -> None:
+    scan_lance(lance_uri, impl="io_plugin").filter(predicate).select(pl.len()).collect(
+        engine="streaming"
+    )
+    pushed = [c["filter"] for c in _scan_calls(scanner_calls) if c.get("filter")]
+    assert pushed, "nothing reached Lance"
+    assert all(isinstance(f, str) for f in pushed), "expected a Lance SQL filter"
+
+
+@pytest.mark.parametrize("predicate", BEYOND_PYARROW)
+def test_provider_pushes_none_of_it(
+    predicate: pl.Expr, lance_uri: str, scanner_calls: list[dict[str, Any]]
+) -> None:
+    """The measurement behind `impl=`: Polars' own lowering declines these."""
+    scan_lance(lance_uri, impl="provider").filter(predicate).select(pl.len()).collect(
+        engine="streaming"
+    )
+    assert all(c.get("filter") is None for c in scanner_calls)
+
+
+@pytest.mark.parametrize("predicate", BEYOND_PYARROW)
+def test_both_paths_agree(
+    predicate: pl.Expr, lance_uri: str, expected: pl.DataFrame
+) -> None:
+    want = expected.filter(predicate).sort("id")["id"].to_list()
+    for impl in IMPLS:
+        got = (
+            scan_lance(lance_uri, impl=impl)
+            .filter(predicate)
+            .sort("id")
+            .select("id")
+            .collect(engine="streaming")["id"]
+            .to_list()
+        )
+        assert got == want, impl
+
+
+def test_io_plugin_pushes_only_the_translatable_conjunct(
+    lance_uri: str, expected: pl.DataFrame, scanner_calls: list[dict[str, Any]]
+) -> None:
+    """A predicate that is half-translatable still narrows the scan."""
+    predicate = pl.col("cat").str.strip_chars() == "b"
+    got = (
+        scan_lance(lance_uri, impl="io_plugin")
+        .filter(predicate & (pl.col("val") > 0.5))
+        .select(pl.len())
+        .collect(engine="streaming")
+    )
+    assert got.item() == expected.filter(predicate & (pl.col("val") > 0.5)).height
+    pushed = [c["filter"] for c in _scan_calls(scanner_calls) if c.get("filter")]
+    assert pushed and all("val" in f and "strip" not in f for f in pushed)
+
+
+def test_io_plugin_pushdown_can_be_disabled(
+    lance_uri: str, scanner_calls: list[dict[str, Any]]
+) -> None:
+    scan_lance(lance_uri, impl="io_plugin", predicate_pushdown=False).filter(
+        pl.col("cat").str.starts_with("b")
+    ).select(pl.len()).collect(engine="streaming")
+    assert all(c.get("filter") is None for c in scanner_calls)
+
+
+def test_io_plugin_pushes_the_limit(
+    lance_uri: str, scanner_calls: list[dict[str, Any]]
+) -> None:
+    """The old io-plugin implementation kept the limit in Python; this one does not."""
+    scan_lance(lance_uri, impl="io_plugin").select("id").head(5).collect(
+        engine="streaming"
+    )
+    assert 5 in [c.get("limit") for c in _scan_calls(scanner_calls)]
+
+
+def test_io_plugin_stops_early(lance_uri: str, frames_yielded: list[int]) -> None:
+    scan_lance(lance_uri, impl="io_plugin").select("id").head(5).collect(
+        engine="streaming"
+    )
+    assert frames_yielded[0] == 1
+
+
+def test_a_filter_lance_refuses_is_dropped_not_raised(
+    lance_uri: str, expected: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lance rejecting a filter must cost speed, never correctness.
+
+    The lowering is not schema-aware, so it can emit SQL that Lance refuses to
+    plan (a literal outside the column's type, say). The predicate is applied in
+    the engine regardless, so the scan can simply drop the hint.
+    """
+    from polars_pylance import _scan
+    from polars_pylance._predicate import LanceFilter
+
+    monkeypatch.setattr(
+        _scan,
+        "to_lance_filter",
+        lambda predicate, **_: LanceFilter(sql="no_such_fn(1)", exact=False),
+    )
+    with pytest.warns(RuntimeWarning, match="rejected the pushed-down filter"):
+        got = (
+            scan_lance(lance_uri, impl="io_plugin")
+            .filter(pl.col("cat") == "b")
+            .select(pl.len())
+            .collect(engine="streaming")
+        )
+    assert got.item() == expected.filter(pl.col("cat") == "b").height
+
+
+def test_unknown_impl_is_rejected(lance_uri: str) -> None:
+    with pytest.raises(ValueError, match="unknown scan impl"):
+        scan_lance(lance_uri, impl="nonesuch")  # type: ignore[arg-type]
