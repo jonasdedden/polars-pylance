@@ -8,3 +8,5 @@ dist/
 *.lance/
 # Upstream checkouts for patches sent elsewhere; not part of this package.
 upstream/
+# Written at build time by uv-dynamic-versioning.
+src/polars_pylance/_version.py

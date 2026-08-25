@@ -22,24 +22,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # uv-dynamic-versioning reads the version from the git tag, which a
+          # shallow clone does not have.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
 
-      # A tag that disagrees with pyproject.toml means the wrong code is about
-      # to be published under the right name. Catch it before anything is built.
-      - name: tag matches project version
-        if: github.event_name == 'release'
-        run: |
-          version=$(uv run --no-project --with tomli python -c \
-            'import tomli; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])')
-          tag="${GITHUB_REF_NAME#v}"
-          echo "pyproject: $version / tag: $tag"
-          test "$version" = "$tag" || {
-            echo "::error::tag $GITHUB_REF_NAME does not match version $version"
-            exit 1
-          }
-
+      # No version step: `uv-dynamic-versioning` derives it from the tag that
+      # this release points at, and the build hook writes it into `_version.py`.
       - name: tests
         run: uv run --no-default-groups --group test pytest -q -m "not cloud"
 

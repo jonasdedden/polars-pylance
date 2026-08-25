@@ -1,10 +1,13 @@
 [build-system]
-requires = ["uv_build>=0.12.5,<0.13.0"]
-build-backend = "uv_build"
+# hatchling rather than uv_build: uv_build cannot take a `dynamic` version, so
+# it cannot be driven from the git tag.
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
 
 [project]
 name = "polars-pylance"
-version = "0.1.0"
+# Derived from the git tag by uv-dynamic-versioning; see [tool.hatch.version].
+dynamic = ["version"]
 description = "Lazy, streaming Lance <-> Polars integration: scan_lance() and sink_lance()"
 readme = "README.md"
 # The distribution name carries the token `pylance`, not `lance`, so these keep
@@ -68,6 +71,24 @@ bench = ["plotly>=5", "kaleido>=0.2"]
 # check `tests/`, which imports pytest, so the two groups are not separable in
 # practice -- hence one `dev` that pulls in both.
 dev = [{ include-group = "test" }, { include-group = "typing" }]
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+# Builds without git metadata -- from an unpacked sdist, or Dependabot's
+# `uv lock --upgrade-package` -- would otherwise fail outright.
+fallback-version = "0.0.0"
+
+# Writes the resolved version into the package so `__version__` never drifts.
+# Generated at build time and git-ignored; never edit it.
+[tool.hatch.build.hooks.version]
+path = "src/polars_pylance/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polars_pylance"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
