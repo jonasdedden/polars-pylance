@@ -125,10 +125,16 @@ BENCH_ROWS=4000000 uv run bench/pushdown.py index      # add scalar indices, run
 uv run --group bench bench/plot_pushdown.py --static   # four pages + PNG/SVG
 ```
 
-`plot_pushdown.py` writes `plots/pushdown.html`, `plots/pushdown-indexed.html`,
-`plots/pushdown-upstream.html` and `plots/pushdown-coverage.html`. The figures
-embedded in [`docs/PREDICATE_PUSHDOWN.md`](../docs/PREDICATE_PUSHDOWN.md) are
-their `--static` exports.
+`plot_pushdown.py` writes a page per results file into `plots/`: `pushdown`,
+`pushdown-indexed`, `pushdown-patched`, `pushdown-patched-indexed`,
+`pushdown-upstream` and `pushdown-coverage`. The figures embedded in
+[`docs/PREDICATE_PUSHDOWN.md`](../docs/PREDICATE_PUSHDOWN.md) are their
+`--static` exports.
+
+The two `-patched` files come from running the same matrix under a Polars built
+from [that branch](https://github.com/jonasdedden/polars/tree/claude/dataset-provider-serialized-predicate),
+where the provider path is handed the whole predicate. It is an unoptimised
+build, so those numbers compare within themselves and not to the others.
 
 Unlike the pages above they keep each measure on its own axis rather than
 pairing runtime with memory on twin axes: rows-out-of-Lance and wall time are

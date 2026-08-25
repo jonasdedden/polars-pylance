@@ -17,6 +17,8 @@ predicate Polars has *already* lowered. Short version:
   The hook never sees a Polars expression, and the three ways of smuggling one
   in all fail. Using it means using the IO-plugin hook, as suspected — §8 is
   the 113-line upstream change that removes the trade-off, built and measured.
+  With it the provider path pushes the identical filter and is **1.2x to 3x
+  faster than the IO-plugin path** on top, so the choice disappears.
 - It pays where you would expect: **2x to 8x** on filters Polars cannot lower,
   and **up to 48x** once the dataset has a scalar index, which is unreachable
   otherwise. It is level-to-slightly-negative everywhere else.
@@ -280,10 +282,38 @@ so the two columns are comparable to each other and not to §5):
 | `text.str.starts_with(...) & id > 10` | 0.361 s / 1,000,000 rows | **0.066 s / 99,989 rows** |
 
 Those are the same three shapes the provider path pushes *nothing* for today.
-With the change it pushes exactly what the IO-plugin path pushes, without the
-IO-plugin path's per-scan overhead, its larger serialized plan, or the loss of
-resolution caching — which would make `impl=` a historical curiosity rather
-than a decision.
+
+### Provider-with-the-patch against the IO plugin, head to head
+
+Running §5's whole matrix on the patched build puts the two paths side by side
+with the same visitor behind both. The row counts come out identical in all
+twelve cases — the provider path pushes exactly the filter the IO-plugin path
+pushes — and the time separates on what the IO-plugin path has to do afterwards:
+`register_io_source` reports the predicate as handled, so it re-applies it in
+Python per batch, over however many rows Lance returned.
+
+![The same matrix on the patched build: identical rows for both paths, with the provider ahead on time](../bench/plots/static/pushdown-patched.png)
+
+| case | rows (both) | provider | io_plugin | |
+| --- | --- | --- | --- | --- |
+| `ts.dt.year() == 2024` | 4,000,000 | **0.362 s** | 1.078 s | 3.0x |
+| `cat.str.starts_with` | 1,000,000 | **0.324 s** | 0.610 s | 1.9x |
+| `val > 0.999` | 3,861 | **0.128 s** | 0.274 s | 2.1x |
+| `cat.str.starts_with`, payload | 1,000,000 | **0.608 s** | 0.753 s | 1.2x |
+| `id.is_in(200)` | 200 | **0.075 s** | 0.082 s | par |
+| `text.str.contains` | 1,000 | **0.154 s** | 0.164 s | par |
+| unlowerable `AND` numeric | 495 | **0.169 s** | 0.180 s | par |
+
+The gap tracks the surviving row count, which is what that Python filter costs:
+a few percent when Lance hands back hundreds of rows, 2-3x when it hands back
+millions. With scalar indices the same ordering holds and the selective cases
+get sharper still — `id.is_in(200)` 0.026 s vs 0.078 s, `contains` 0.017 s vs
+0.019 s, against 3.4 s for no pushdown at all.
+
+So with the change the provider path is the better path everywhere: the same
+filter reaches Lance, and none of the IO plugin's per-batch re-filtering, larger
+serialized plan or lost resolution caching comes with it. `impl="io_plugin"`
+becomes a historical curiosity rather than a decision.
 
 The branch is
 [`claude/dataset-provider-serialized-predicate`](https://github.com/jonasdedden/polars/tree/claude/dataset-provider-serialized-predicate)
@@ -299,6 +329,10 @@ uv run bench/coverage.py --verbose            # §2, seconds, no setup
 BENCH_ROWS=4000000 uv run bench/pushdown.py gen
 BENCH_ROWS=4000000 uv run bench/pushdown.py run     # §5, ~4 min
 BENCH_ROWS=4000000 uv run bench/pushdown.py index   # then run again
+
+# §8: the same matrix under a Polars carrying the patch
+BENCH_ROWS=4000000 /path/to/patched/python bench/pushdown.py run \
+    --json bench/results-pushdown-4m-patched.jsonl
 
 uv run bench/coverage.py --json bench/results-coverage.jsonl
 uv run --group bench bench/plot_pushdown.py --static  # the figures above

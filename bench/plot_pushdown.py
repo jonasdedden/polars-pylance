@@ -43,6 +43,10 @@ LABEL = {
     "io_plugin": "io_plugin (visitor → Lance SQL)",
     "engine": "no pushdown",
 }
+# On a Polars carrying the `serialized_predicate` patch the provider path lowers
+# the predicate itself, so it is no longer the PyArrow subset that is measured.
+PATCHED_LABEL = dict(LABEL, provider="provider (visitor → Lance SQL)")
+
 # Drawn back to front, so the series that usually sits alone goes last.
 ORDER = ["engine", "provider", "io_plugin"]
 OFFSET = {"engine": 0.24, "provider": 0.0, "io_plugin": -0.24}
@@ -113,8 +117,10 @@ def dumbbell(
     title: str,
     label: str,
     value_fmt: Any = _compact,
+    labels: dict[str, str] | None = None,
 ) -> tuple[list[go.Scatter], list[float], list[str]]:
     """One row per case, one dot per implementation, on a log axis."""
+    labels = labels or LABEL
     traces: list[go.Scatter] = []
     names = list(cases)
     values = [r[key] for r in rows if r.get(key)]
@@ -149,7 +155,7 @@ def dumbbell(
                 x=[v for _, v, _ in pts],
                 y=[i + OFFSET[impl] for i, _, _ in pts],
                 mode="markers+text",
-                name=LABEL[impl],
+                name=labels[impl],
                 legendgroup=impl,
                 marker={
                     "size": 11,
@@ -161,7 +167,7 @@ def dumbbell(
                 textfont={"size": 10, "color": INK},
                 cliponaxis=False,
                 customdata=[
-                    [LABEL[impl], r.get("pushed") or "nothing"] for _, _, r in pts
+                    [labels[impl], r.get("pushed") or "nothing"] for _, _, r in pts
                 ],
                 hovertemplate=(
                     f"<b>%{{customdata[0]}}</b><br>{label} %{{x:,}}"
@@ -173,7 +179,9 @@ def dumbbell(
     return traces, ticks, ticktext
 
 
-def scan_figure(rows: list[dict[str, Any]], subtitle: str) -> go.Figure:
+def scan_figure(
+    rows: list[dict[str, Any]], subtitle: str, labels: dict[str, str] | None = None
+) -> go.Figure:
     cases = {k: v for k, v in CASES.items() if any(r["case"] == k for r in rows)}
     fig = make_subplots(
         rows=1,
@@ -191,7 +199,13 @@ def scan_figure(rows: list[dict[str, Any]], subtitle: str) -> go.Figure:
         start=1,
     ):
         traces, ticks, ticktext = dumbbell(
-            rows, cases=cases, key=key, title=label, label=label, value_fmt=fmt
+            rows,
+            cases=cases,
+            key=key,
+            title=label,
+            label=label,
+            value_fmt=fmt,
+            labels=labels,
         )
         for trace in traces:
             if col == 2 and trace.showlegend is not False:
@@ -464,6 +478,14 @@ def main() -> None:
         "--indexed", type=Path, default=here / "results-pushdown-4m-indexed.jsonl"
     )
     ap.add_argument(
+        "--patched", type=Path, default=here / "results-pushdown-4m-patched.jsonl"
+    )
+    ap.add_argument(
+        "--patched-indexed",
+        type=Path,
+        default=here / "results-pushdown-4m-patched-indexed.jsonl",
+    )
+    ap.add_argument(
         "--upstream", type=Path, default=here / "results-pushdown-upstream-1m.jsonl"
     )
     ap.add_argument("--coverage", type=Path, default=here / "results-coverage.jsonl")
@@ -502,6 +524,32 @@ def main() -> None:
                 ),
             )
         )
+    for name, path, note in (
+        (
+            "pushdown-patched",
+            args.patched,
+            "no scalar indices",
+        ),
+        (
+            "pushdown-patched-indexed",
+            args.patched_indexed,
+            "with BTREE on id, BITMAP on cat, NGRAM on text",
+        ),
+    ):
+        if path.exists():
+            pages.append(
+                (
+                    name,
+                    scan_figure(
+                        load(path),
+                        "the same matrix on a Polars that passes the provider the "
+                        f"whole predicate — 4M rows, {note}.<br>An unoptimised "
+                        "build, so these compare to each other and not to the "
+                        "pages above",
+                        labels=PATCHED_LABEL,
+                    ),
+                )
+            )
     if args.upstream.exists():
         pages.append(("pushdown-upstream", upstream_figure(load(args.upstream))))
     if args.coverage.exists():
