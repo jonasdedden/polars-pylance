@@ -19,6 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+          cache-suffix: ${{ github.job }}
       # `--output-format=github` turns findings into inline annotations on the PR.
       - name: lint
         run: uvx ruff check --output-format=github .
@@ -33,6 +34,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+          cache-suffix: ${{ github.job }}
       # Strictness and the file list live in `[tool.mypy]`, so this matches what
       # `mypy` does locally. Covers src, tests and bench. The `dev` group is
       # installed by default, which is where mypy and the stubs come from.
@@ -46,6 +48,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+          cache-suffix: ${{ github.job }}
       # Run through `uv run` rather than `uvx` so basedpyright resolves imports
       # against the project's environment instead of a bare interpreter.
       - run: uv run basedpyright
@@ -62,6 +65,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
+          cache-suffix: ${{ github.job }}-${{ matrix.python-version }}
       # `-m "not cloud"` deselects the Polars Cloud write path. Those tests pass
       # on their own, but polars-cloud pins `polars==1.43.2` -- below this
       # package's floor -- so the dependency it exercises cannot be installed
