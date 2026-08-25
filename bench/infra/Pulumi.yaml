@@ -1,0 +1,6 @@
+name: polars-pylance-bench
+runtime:
+  name: python
+  options:
+    toolchain: uv
+description: Single-instance NVMe benchmark rig for polars-pylance

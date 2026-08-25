@@ -1,4 +1,4 @@
-"""sink_lance correctness. Memory behaviour is covered by bench/mem.py."""
+"""sink_lance correctness. Memory behaviour is covered by `bench/`."""
 
 from __future__ import annotations
 

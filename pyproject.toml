@@ -26,6 +26,7 @@ dependencies = [
 # today, which makes `uv lock` fail outright rather than just the extra.
 # [project.optional-dependencies]
 # cloud = ["polars-cloud>=0.10"]
+
 [dependency-groups]
 # cloudpickle is what polars uses to serialize a callback sink into a cloud
 # plan. It normally arrives with polars-cloud; listed here so the remote-write
@@ -34,6 +35,9 @@ test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
 # stub package, and without it every pyarrow symbol degrades to `Any`.
 typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
+# Only for `bench/plot.py`, which renders the large-scale results.
+# kaleido renders the static PNG/SVG embedded in COMPARISON.md.
+bench = ["plotly>=5", "kaleido>=0.2"]
 # `dev` is installed by default by `uv run` and `uv sync`, so a bare
 # `uv run pytest` or `uv run mypy` needs no flags. mypy and basedpyright both
 # check `tests/`, which imports pytest, so the two groups are not separable in
@@ -64,10 +68,11 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
-files = ["src", "tests", "bench"]
+files = ["src", "tests"]
 
 [tool.basedpyright]
-include = ["src", "tests", "bench"]
+include = ["src", "tests"]
+
 # "standard" rather than basedpyright's stricter default: the `reportAny` and
 # `reportUnknown*` families fire on every value that passes through pyarrow,
 # which has no stubs, so they report the dependency rather than this code.
