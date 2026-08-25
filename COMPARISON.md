@@ -2,59 +2,59 @@
 
 [`jorritsandbrink/polars-lance`](https://github.com/jorritsandbrink/polars-lance)
 (PyPI `polars-lance` 0.5.0) solves the same problem with a different architecture:
-a compiled Rust extension linking the `lance` crate, versus this package's pure
+a compiled Rust extension linking the `lance` crate, versus polars-pylance's pure
 Python built on `pylance`.
 
-Everything below was measured on 2026-07-31 against their published wheel 0.5.0
-and this working copy, on the same machine and the same datasets. Harnesses:
-`compare.py`, `compare_nulls.py` (in the session scratchpad); their repo at commit
-`f95cf2d`.
+Measured on 2026-08-24 against their published wheel 0.5.0 and this working
+copy, on `polars` 1.44.0 and `pylance` 10.0.0. Used a 1 GiB to 190.7 GiB
+dataset ladder on an AWS instance `m8id.4xlarge` (16 vCPU Xeon 6975P-C,
+64 GiB RAM, 885 GB local NVMe).
 
-**Naming:** `polars-lance` on PyPI is theirs. This package is published as
-`polars-pylance` -- named for what it is, `polars` plus `pylance` composed in
-Python, against their `lance` crate compiled in. Its import name is
-`polars_pylance`, so both can be installed side by side.
+212 measurements, reproducible with [`bench`](bench/README.md).
+Raw data is committed as `bench/results-m8id4xl.jsonl`.
 
 ---
 
 ## At a glance
 
-| | theirs (0.5.0) | this package |
+| | `polars-lance` (0.5.0) | `polars-pylance` |
 | --- | --- | --- |
-| Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` 9 |
+| Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` |
 | Polars hook | `register_io_source` | dataset-provider hook |
-| Runtime deps | `polars>=1.0.0` only — Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
+| Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
 | Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes |
-| Published | PyPI, 15 wheels, 5 releases | not yet |
-| CI | Linux/macOS/Windows × py3.10–3.14 | none yet |
-| Cloud-storage tests | yes (MinIO via testcontainers, Azure) | no |
-| Test functions | 16 | 93 (parametrized over both scan impls) |
-| Lines of code | 1 112 Rust + 142 Python | 1 233 Python |
-| License | MIT | MIT |
-| Repo activity | 43 commits, 2026-05-09 → 2026-05-21 | new |
 
 ## Architecture
 
-Theirs calls `register_io_source` with a Rust `LanceScanner` behind it, so
+### `polars-lance`
+
+`polars-lance` calls `register_io_source` with a Rust `LanceScanner` behind it, so
 per-batch work never touches the interpreter. Lance is compiled in: no `pylance`
-at runtime, verified by installing their wheel with only polars present — both
+at runtime, verified by installing their wheel with only polars present -- both
 scan and write work. The cost is a 60–68 MB platform wheel per Python version
 (15 wheels for 0.5.0) and coupling to polars' internal Rust API.
 
-This package resolves scans through the same hook `pl.scan_delta` and
-`pl.scan_iceberg` use, which yields a richer pushdown surface. It needs `pylance`
-(a 76 MB wheel) but is itself pure Python: no build step, no per-platform wheels,
-and it inherits every Lance feature `pylance` exposes.
+### `polars-pylance` (this package)
+
+`polars-pylance` hands Polars a provider object through the private
+`PyLazyFrame.new_from_dataset_object` constructor, which puts a dataset-scan node
+in the query IR rather than an opaque source. Polars resolves the schema up
+front, then calls back with the pushdown already worked out -- projection, a
+PyArrow predicate, a row limit -- and those go straight to
+`lance.LanceDataset.scanner()`, so Lance does the page skipping and the early
+stop and nothing is re-filtered in Python afterwards. It needs `pylance` (a 76 MB
+wheel) but is itself pure Python: no build step, no per-platform wheels, and it
+inherits every Lance feature `pylance` exposes.
 
 ## Read features
 
-| | theirs | this package |
+| | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
 | Projection pushdown | yes | yes |
 | Row-limit pushdown | yes | yes (when no filter follows the scan) |
-| Predicate pushdown into Lance | no | yes (PyArrow expression, or SQL on the fallback path) |
+| Predicate pushdown into Lance | no | yes (ready-made PyArrow expression) |
 | Early stop on `.head()` | yes | yes |
 | `storage_options` (S3/Azure/GCS) | yes | yes |
 | Version / tag pinning, time travel | no | yes |
@@ -66,31 +66,12 @@ and it inherits every Lance feature `pylance` exposes.
 | Scan-plan serialization (Polars Cloud) | untested | yes, 2–6 kB, round-trip tested |
 | Distributed write to Lance (Polars Cloud) | no | yes (`cloud.sink_lance_remote`) |
 
-Their `scan_lance` takes exactly two arguments (`source`, `storage_options`).
-The Lance-specific capabilities — vector search, versioning, fragments — are the
-main functional gap, and are the reason this package exposes them as scan
-arguments: they cannot be expressed as polars expressions, so an IO plugin has to
-surface them explicitly.
-
-Their missing predicate pushdown is a deliberate, documented `TODO` in
-`src/scan.rs`:
-
-```rust
-// TODO: Translate the Polars `Expr` into a `LanceFilter` and push the predicate
-// down into the Lance scanner.
-```
-
-In practice it costs little on a small local dataset — Lance still gets the
-projection, and filtering in Rust polars is fast — but it forfeits page skipping
-and scalar-index use, which is what makes a selective filter cheap on a large or
-remote dataset.
-
 ## Write features
 
-| | theirs | this package |
+| | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
 | Input | `pl.DataFrame` (eager) | `pl.LazyFrame` (streamed) |
-| Larger-than-memory writes | no — caller must chunk manually | yes |
+| Larger-than-memory writes | no -- caller must chunk manually | yes |
 | Modes | `error`, `append`, `overwrite` | `create`, `append`, `overwrite`, `merge` (upsert) |
 | File-layout control | `max_rows_per_file`, `max_bytes_per_file` | all `lance.write_dataset` kwargs |
 | Deferred / composable sink | no | yes (`lazy=True`) |
@@ -100,84 +81,106 @@ This is the sharpest difference. `write_lance(df, ...)` requires a materialized
 `DataFrame`, so writing the result of a large query means holding it in RAM:
 
 ```python
-polars_lance.write_lance(lf.collect(), "out.lance")  # theirs: full result in memory
+polars_lance.write_lance(lf.collect(), "out.lance")  # full result in memory
 polars_pylance.sink_lance(lf, "out.lance")  # here: streamed batch by batch
 ```
 
-Measured on the 527 MB source, writing a 500 101-row filtered projection:
-**1 242 MB peak RSS theirs vs 774 MB here** — and theirs grows with the result
-size while this does not.
+The cost of that shows up as soon as the data is big: writing from a 47.7 GiB
+source, `polars-lance` peaks at **51.26 GiB** against `polars-pylance`'s **2.69 GiB**,
+and past that size it does not finish at all on a 64 GiB machine. See
+[Writes](#writes-this-is-where-it-stops-being-a-trade).
 
-## Correctness (measured)
+## Some correctness & stability issues of `polars-lance`
 
-Ten predicates over a 12-row dataset containing nulls in both filtered columns,
-checked against polars' own semantics on an eagerly loaded frame
-(`compare_nulls.py`, polars 1.43.1):
+Unfortunately I also stumbled over some issues in `polars-lance` where evaluation of
+predicates lead to crashes or the scanner in general behaved unstably:
 
-| predicate | theirs | mine |
-| --- | --- | --- |
-| `col == "a"` | ok | ok |
-| `col != "a"` | ok | ok |
-| `~(col == "a")` | ok | ok |
-| `val > 0.5` | ok | ok |
-| `col.is_null()` | **ComputeError** | ok |
-| `val.is_not_null()` | **ComputeError** | ok |
-| `and`, `or`, `not_or` | ok | ok |
-| nested `and`/`or`/`is_null` | **ComputeError** | ok |
+- https://github.com/jorritsandbrink/polars-lance/issues/10
+- https://github.com/jorritsandbrink/polars-lance/issues/11
 
-All 10 of this package's results match polars exactly, which is the important
-result for a package that *does* push predicates down: pushing them into Lance
-does not change which rows come back, including the null cases where SQL and
-polars semantics could have diverged.
+A handful of benchmark tests actually weren't executable because of this reason with
+`polars-lance`, but I won't go into too much detail here since I think this potentially
+are easily fixable bugs.
 
-Theirs fails on `is_null`/`is_not_null` with:
+# Benchmark results
 
-```
-BindingsError: Error when deserializing 'Expr'. This may be due to mismatched
-polars versions. OtherString("invalid value: integer `4`, expected variant
-index 0 <= i < 3")
-```
+## Write benchmarks
 
-Their Rust side (polars 0.53, `pyo3-polars` 0.26) cannot deserialize the
-`Boolean` function variants a newer Python polars emits. I checked polars 1.31.0,
-1.32.3, 1.34.0, 1.38.1, 1.42.1 and 1.43.1 — `is_null` fails on **all** of them,
-so this is a genuine gap rather than a fixable version mismatch. Their filter test
-covers only `pl.col("int32") > 0`, which is why it went unnoticed.
+![write: `polars-lance` peak tracks the result and OOMs past 47.7 GiB](bench/plots/static/write-scaling.png)
 
-Two more behavioural cases:
-
-| query | theirs | this package |
-| --- | --- | --- |
-| `filter(...).head(7)` | ok, 7 rows | ok, 7 rows |
-| `filter(...).sort(...).head(7)` | **ComputeError** | ok |
-| `sort(...).head(3)` | **ComputeError** | ok |
-
-The top-k failures are the upstream `dynamic_pred` bug: a `sort().head()` made
-polars push an opaque, unevaluable node into an IO plugin's predicate, and theirs
-hits it because it also evaluates the pushed predicate with polars. The bug ran
-from polars 1.39.0 through 1.43.2 and is fixed in 1.44.0 — verified with a
-standalone `register_io_source` reproducer, where 1.43.2 panics four ways and
-1.44.0 passes cleanly. The rows above were measured against polars 1.43.1 and so
-predate that fix; theirs was not re-measured on 1.44.0.
-
-## Performance (best of 3, 527 MB source, polars 1.43.1)
-
-| case | theirs | this package (default) | this package (`throughput()`) |
+| write filtered projection | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
-| full scan + aggregate over payload column | 0.22 s | 0.33 s | 0.23 s |
-| projection-only aggregate | 0.01 s | 0.02 s | not measured |
-| selective filter + aggregate | 0.01 s | 0.02 s | not measured |
-| `select(pl.len())` | 0.01 s | 0.01 s | not measured |
+| 3.9 GiB | 4.5 s / 4.67 GiB | 1.5 s / 2.17 GiB | 3.0× faster, 0.46× mem |
+| 23.6 GiB | 23.2 s / 25.68 GiB | 8.2 s / 4.46 GiB | 2.8× faster, 0.17× mem |
+| 47.7 GiB | 61.8 s / 51.26 GiB | 23.2 s / **2.69 GiB** | 2.7× faster, **0.05× mem** |
+| 95.4 GiB | **OOM** | 52.2 s / 2.61 GiB | |
+| 190.7 GiB | **OOM** | 108.8 s / 3.87 GiB | |
 
-On the only case big enough to measure, the 50 % gap closes entirely once this
-package's memory-conservative defaults are swapped for
-`LanceScanOptions.throughput()` (0.23 s vs 0.22 s). So the difference is the
-readahead defaults, not Rust versus Python per-batch overhead. Their throughput
-comes with Lance's 2 GiB `io_buffer_size` default and no way to turn it down.
+`write_lance` takes a materialised `DataFrame`, so its peak tracks the result:
+51.26 GiB to write from a 47.7 GiB source. Past that it does not complete at all
+on a 64 GiB machine. `sink_lance` streams, so `polars-pylance` is flat at
+2.6–4.5 GiB and
+also 2.7–3.0× faster, because materialising costs time nobody spends when
+streaming.
 
-## Memory (peak RSS, same 527 MB source)
+### The question that matters: a fixed budget of 8GiB RAM
 
-| case | theirs | this package |
+The previous **scaling** pass uses a generous cap so nothing is constrained,
+and shows how peak RSS and runtime grow with the data.
+The **fixed-budget** pass pins memory at 8 GiB with swap
+disabled and grows the data past it, which is the question that decides whether
+a job exists at all:
+
+| write, 8 GiB budget | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
-| streaming aggregation over payload column | 937 MB | 623 MB |
-| write a 500 k-row filtered projection | 1 242 MB | 774 MB |
+| 3.9 GiB | 6.5 s / 4.67 GiB | 1.5 s / 2.31 GiB |
+| 7.9 GiB | **OOM-killed** | 5.8 s / 3.50 GiB |
+| 47.7 GiB | **OOM-killed** | 27.8 s / 3.47 GiB |
+| 190.7 GiB | **OOM-killed** | 115.0 s / 6.11 GiB |
+
+![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.png)
+
+In 8 GiB, `polars-lance` writes at most ~4 GiB of source. Ours writes 190.7 GiB -- a
+**48× larger workload in the same memory**. Reads are fine on both under the
+same budget, so this is specific to the write path.
+
+## Read benchmarks
+
+![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.png)
+
+| full scan + payload aggregate | `polars-lance` | `polars-pylance` |
+| --- | --- | --- |
+| 1.0 GiB | 0.6 s / 1.17 GiB | 0.7 s / 0.46 GiB |
+| 23.6 GiB | 13.3 s / 1.26 GiB | 15.2 s / 0.57 GiB |
+| 190.7 GiB | 111.2 s / 1.31 GiB | 134.2 s / 0.59 GiB |
+
+`polars-lance` is 1.14–1.23× faster on a full scan at *every* tier -- the per-batch
+Python cost, and it neither grows nor shrinks with scale. Both stream: neither
+peak grows with the data. But `polars-pylance` holds 0.46 → 0.59 GiB while the
+source grows 190×, against their 1.17 → 1.31 GiB, so we run in **0.4× their memory**
+throughout.
+
+| string predicate | selective filter |
+| --- | --- |
+| ![full scan: runtime and peak memory vs dataset size](bench/plots/static/string-predicate-scaling.png) | ![selective filter: memory inverts as data grows](bench/plots/static/selective-filter-scaling.png) |
+
+On filtered reads the memory story inverts as data grows. For
+`filter(val > 0.999)`, `polars-lance` climbs 0.14 → 0.78 GiB across the ladder
+while `polars-pylance` stays 0.21 → 0.28 GiB: at 1 GiB it uses 1.5× polars-lance's
+memory, at 190 GiB it uses 0.36×. The crossover is around 8 GiB. Same shape on
+the string predicate (1.50× → 0.28×).
+
+![50% filter: pushdown wins on time, costs memory](bench/plots/static/half-filter-scaling.png)
+Two reads where predicate pushdown wins outright:
+
+| 50% filter + payload aggregate | `polars-lance` | `polars-pylance` | |
+| --- | --- | --- | --- |
+| 3.9 GiB | 2.2 s | 0.8 s | **2.9× faster** |
+| 23.6 GiB | 13.0 s | 4.0 s | **3.2× faster** |
+| 190.7 GiB | 115.2 s | 101.6 s | 1.13× faster |
+
+Lance gets a ready-made PyArrow expression and skips pages; `polars-lance` reads
+the
+column and filters in Rust afterwards. The advantage is largest in the middle of
+the ladder and narrows at the top, where the query turns I/O-bound and both
+implementations wait on the same NVMe.
