@@ -6,13 +6,15 @@ all*. For every predicate it records what Polars' own PyArrow lowering produced
 ``polars_pylance._predicate`` produces (what the ``io_plugin`` path pushes), and
 checks both against the dataset so a wrong answer cannot pass as coverage.
 
-    uv run bench/coverage.py            # markdown table
-    uv run bench/coverage.py --verbose  # plus the generated filters
+    uv run bench/coverage.py                 # markdown table
+    uv run bench/coverage.py --verbose       # plus the generated filters
+    uv run bench/coverage.py --json out.jsonl  # for bench/plot_pushdown.py
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 import shutil
 import sys
 import tempfile
@@ -152,7 +154,7 @@ def _evaluation_error(pyarrow_predicate: str) -> str | None:
     return None
 
 
-def coverage(uri: str, verbose: bool) -> None:
+def coverage(uri: str, verbose: bool, out: Path | None = None) -> None:
     dataset = lance.dataset(uri)
     truth = pl.from_arrow(dataset.to_table())
     assert isinstance(truth, pl.DataFrame)
@@ -161,6 +163,7 @@ def coverage(uri: str, verbose: bool) -> None:
     print("| --- | --- | --- |")
     totals = {"pyarrow": 0, "sql": 0}
     details: list[str] = []
+    records: list[dict[str, Any]] = []
     for label, predicate in CASES:
         pa_pred = pyarrow_lowering(uri, predicate)
         lowered = to_lance_filter(predicate)
@@ -192,6 +195,14 @@ def coverage(uri: str, verbose: bool) -> None:
                 right = "!! NOT EXACT"
             details.append(f"- `{label}`: `{lowered.sql[:120]}`")
         print(f"| {label} | {left} | {right} |")
+        records.append(
+            {
+                "case": label,
+                "pyarrow": left,
+                "visitor": right,
+                "sql": None if lowered is None else lowered.sql,
+            }
+        )
     print(
         f"\n{totals['pyarrow']}/{len(CASES)} reach Lance through the provider path, "
         f"{totals['sql']}/{len(CASES)} through the visitor."
@@ -199,11 +210,17 @@ def coverage(uri: str, verbose: bool) -> None:
     if verbose:
         print("\nLowered filters:\n")
         print("\n".join(details))
+    if out is not None:
+        out.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+        print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":
+    target = (
+        Path(sys.argv[sys.argv.index("--json") + 1]) if "--json" in sys.argv else None
+    )
     directory = Path(tempfile.mkdtemp(prefix="coverage-"))
     try:
-        coverage(build(directory), "--verbose" in sys.argv)
+        coverage(build(directory), "--verbose" in sys.argv, target)
     finally:
         shutil.rmtree(directory, ignore_errors=True)

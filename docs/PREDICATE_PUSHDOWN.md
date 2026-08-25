@@ -83,6 +83,8 @@ and checks each result against the data. Where they differ:
 more (`eq_missing` and `xor`) are lowered by Polars into strings that cannot be
 evaluated at all; see §6.
 
+![Predicate coverage: 12 of 47 shapes reach Lance through Polars' PyArrow lowering, 35 through the visitor](../bench/plots/static/pushdown-coverage.png)
+
 ## 3. Why the visitor needs the IO plugin
 
 The obvious wish is to keep the provider hook and lower the predicate ourselves.
@@ -143,7 +145,10 @@ three, one process per measurement. `engine` is the IO-plugin path with
 `predicate_pushdown=False`, i.e. the same hook doing no lowering at all, which
 separates the translator's contribution from the hook's.
 
-Each cell is wall time / peak RSS / rows Lance handed to Polars.
+Each cell is wall time / peak RSS / rows Lance handed to Polars. The `rows`
+panel is the mechanism; the timings follow from it.
+
+![Rows handed to Polars and wall time per case, by scan path, without scalar indices](../bench/plots/static/pushdown.png)
 
 ### Without scalar indices
 
@@ -163,6 +168,8 @@ Each cell is wall time / peak RSS / rows Lance handed to Polars.
 | unlowerable `AND` numeric | 0.512 s / 831 MiB / 2,000,341 | **0.167 s** / 327 MiB / 495 | 0.932 s / 592 MiB / 4,000,000 |
 
 ### With scalar indices (BTREE on `id`, BITMAP on `cat`, NGRAM on `text`)
+
+![The same matrix with scalar indices: the NGRAM index takes text.str.contains from 0.68 s to 0.014 s, but only on the path that pushes it](../bench/plots/static/pushdown-indexed.png)
 
 Only the rows that change materially:
 
@@ -264,11 +271,13 @@ Polars offers it. Built and run against a patched Polars, `impl="provider"`, 1M
 rows with a 128-byte payload, best of three, filter pushed vs not (same build,
 so the two columns are comparable to each other and not to §5):
 
+![The provider path on a patched Polars: rows handed to Polars drop from 1M to 1k, and wall time with them](../bench/plots/static/pushdown-upstream.png)
+
 | query | nothing pushed | lowered to Lance SQL |
 | --- | --- | --- |
-| `text.str.contains(...)`, 1 in 1000 | 0.332 s / 1,000,000 rows | **0.042 s / 1,000 rows** |
-| `id.is_in([200 values])` | 0.297 s / 1,000,000 rows | **0.029 s / 200 rows** |
-| `text.str.starts_with(...) & id > 10` | 0.340 s / 1,000,000 rows | **0.065 s / 99,989 rows** |
+| `text.str.contains(...)`, 1 in 1000 | 0.426 s / 1,000,000 rows | **0.046 s / 1,000 rows** |
+| `id.is_in([200 values])` | 0.288 s / 1,000,000 rows | **0.030 s / 200 rows** |
+| `text.str.starts_with(...) & id > 10` | 0.361 s / 1,000,000 rows | **0.066 s / 99,989 rows** |
 
 Those are the same three shapes the provider path pushes *nothing* for today.
 With the change it pushes exactly what the IO-plugin path pushes, without the
@@ -290,6 +299,9 @@ uv run bench/coverage.py --verbose            # §2, seconds, no setup
 BENCH_ROWS=4000000 uv run bench/pushdown.py gen
 BENCH_ROWS=4000000 uv run bench/pushdown.py run     # §5, ~4 min
 BENCH_ROWS=4000000 uv run bench/pushdown.py index   # then run again
+
+uv run bench/coverage.py --json bench/results-coverage.jsonl
+uv run --group bench bench/plot_pushdown.py --static  # the figures above
 ```
 
 Numbers above are from a 4-vCPU / 15 GiB Linux container on local NVMe, polars

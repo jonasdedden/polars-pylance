@@ -108,6 +108,37 @@ one here shows markup. Two ways to actually look at them:
 The static PNGs in `COMPARISON.md` exist precisely because neither of those is a
 click, and the headline results should not need one.
 
+## Predicate pushdown
+
+A second, self-contained question with its own scripts: how much of a filter
+each scan path actually gets into Lance. It needs no AWS instance -- the dataset
+is 1 GiB and the whole matrix runs in a few minutes on a laptop.
+
+```sh
+uv run bench/coverage.py --verbose                     # what each lowering can express
+uv run bench/coverage.py --json bench/results-coverage.jsonl
+
+BENCH_ROWS=4000000 uv run bench/pushdown.py gen        # ~1 GiB
+BENCH_ROWS=4000000 uv run bench/pushdown.py run --json bench/results-pushdown-4m.jsonl
+BENCH_ROWS=4000000 uv run bench/pushdown.py index      # add scalar indices, run again
+
+uv run --group bench bench/plot_pushdown.py --static   # four pages + PNG/SVG
+```
+
+`plot_pushdown.py` writes `plots/pushdown.html`, `plots/pushdown-indexed.html`,
+`plots/pushdown-upstream.html` and `plots/pushdown-coverage.html`. The figures
+embedded in [`docs/PREDICATE_PUSHDOWN.md`](../docs/PREDICATE_PUSHDOWN.md) are
+their `--static` exports.
+
+Unlike the pages above they keep each measure on its own axis rather than
+pairing runtime with memory on twin axes: rows-out-of-Lance and wall time are
+different quantities, and the point of the comparison is the row count, which a
+shared panel would bury.
+
+`--static` needs a Chrome or Chromium for kaleido; if one is already on the
+machine, point at it with `BROWSER_PATH=/path/to/chrome`, otherwise
+`plotly_get_chrome` fetches one.
+
 ## Layout
 
 | file | role |
@@ -118,6 +149,9 @@ click, and the headline results should not need one.
 | `analyse.py` | renders `results.jsonl` as per-case scaling tables |
 | `plot.py` | renders `results.jsonl` as interactive Plotly pages |
 | `infra/` | Pulumi program, SSM wrapper, end-to-end driver |
+| `pushdown.py` | the predicate-pushdown matrix: one process per (impl, case) |
+| `coverage.py` | which predicate shapes each lowering can express, checked against the data |
+| `plot_pushdown.py` | renders both as Plotly pages and static exports |
 
 ## What it measures
 
