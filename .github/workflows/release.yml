@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  # Manual runs default to TestPyPI, so a rehearsal cannot burn a real version:
+  # PyPI refuses to re-upload a filename even after deletion.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Index to publish to
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+# Nothing gets a token it does not need; the publish job opts back in below.
+permissions: {}
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # A tag that disagrees with pyproject.toml means the wrong code is about
+      # to be published under the right name. Catch it before anything is built.
+      - name: tag matches project version
+        if: github.event_name == 'release'
+        run: |
+          version=$(uv run --no-project --with tomli python -c \
+            'import tomli; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])')
+          tag="${GITHUB_REF_NAME#v}"
+          echo "pyproject: $version / tag: $tag"
+          test "$version" = "$tag" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version"
+            exit 1
+          }
+
+      - name: tests
+        run: uv run --no-default-groups --group test pytest -q -m "not cloud"
+
+      - name: build sdist and wheel
+        run: uv build
+
+      - name: check metadata
+        run: uvx twine check --strict dist/*
+
+      # An importable wheel in a clean environment is the thing being shipped;
+      # `uv build` succeeding does not prove it.
+      - name: install the wheel and import it
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/python -c "
+          import polars_pylance as pll
+          print('version', pll.__version__)
+          assert pll.scan_lance and pll.sink_lance
+          import importlib.resources as r
+          assert (r.files('polars_pylance') / 'py.typed').is_file(), 'py.typed missing'
+          print('wheel OK')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish to ${{ github.event_name == 'release' && 'pypi' || inputs.target }}
+    needs: build
+    runs-on: ubuntu-latest
+    # Environments carry the trusted-publishing configuration and can require a
+    # manual approval before the upload runs.
+    environment:
+      name: ${{ github.event_name == 'release' && 'pypi' || inputs.target }}
+      url: ${{ github.event_name == 'release' && 'https://pypi.org/p/polars-pylance' || 'https://test.pypi.org/p/polars-pylance' }}
+    permissions:
+      id-token: write # OIDC for trusted publishing; no API token is stored
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ (github.event_name == 'release' || inputs.target == 'pypi') && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}
