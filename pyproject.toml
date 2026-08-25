@@ -11,7 +11,25 @@ readme = "README.md"
 # a bare `lance` in the metadata PyPI searches.
 keywords = ["polars", "lance", "arrow", "lazyframe", "streaming"]
 requires-python = ">=3.10"
-license = { text = "MIT" }
+authors = [{ name = "Jonas Dedden" }]
+license = "MIT"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
 dependencies = [
     # 1.44.0 is the floor because it is the first release with both of the fixes
     # this package used to work around: the Arrow C stream deadlock on a
@@ -21,6 +39,13 @@ dependencies = [
     "pylance>=9",
     "pyarrow",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jonasdedden/polars-pylance"
+Repository = "https://github.com/jonasdedden/polars-pylance"
+Issues = "https://github.com/jonasdedden/polars-pylance/issues"
+Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
+Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md"
 
 # Uncomment once polars-cloud allows polars 1.44.0. It pins `polars==1.43.2`
 # today, which makes `uv lock` fail outright rather than just the extra.
