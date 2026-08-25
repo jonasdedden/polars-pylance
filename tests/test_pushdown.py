@@ -361,3 +361,28 @@ def test_provider_survives_an_unreadable_serialized_predicate(lance_uri: str) ->
     with pytest.warns(RuntimeWarning, match="could not read the predicate"):
         result = provider.to_dataset_scan(serialized_predicate=b"not an expression")
     assert result is not None
+
+
+def test_provider_drops_a_filter_lance_refuses(
+    lance_uri: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lowering Lance will not plan must not take the query down with it.
+
+    The provider path reports the predicate as unapplied, so Polars filters
+    above the scan and the pushed filter is only ever an IO hint.
+    """
+    from polars_pylance import LanceDatasetProvider, LanceFilter, LanceScanSpec, _scan
+
+    monkeypatch.setattr(
+        _scan,
+        "to_lance_filter",
+        lambda predicate, **_: LanceFilter(sql="no_such_fn(1)", exact=True),
+    )
+    provider = LanceDatasetProvider(LanceScanSpec(uri=lance_uri))
+    result = provider.to_dataset_scan(
+        serialized_predicate=(pl.col("cat") == "b").meta.serialize()
+    )
+    assert result is not None
+    with pytest.warns(RuntimeWarning, match="rejected the pushed-down filter"):
+        got = result[0].collect(engine="streaming")
+    assert got.height == 60_000

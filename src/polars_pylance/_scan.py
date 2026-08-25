@@ -314,6 +314,9 @@ class LanceDatasetProvider:
                 projection=projection,
                 filter=pa_filter,
                 limit=pushed_limit,
+                # Reporting the predicate as unapplied is what makes the filter
+                # droppable: the engine evaluates it above the scan either way.
+                filter_is_optional=not predicate_applied,
             )
             return frames, predicate_applied
 
