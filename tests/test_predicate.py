@@ -309,3 +309,55 @@ def test_untranslatable_predicate_does_not_raise() -> None:
 def test_lowering_is_pure_of_dataset_knowledge(rich_uri: str) -> None:
     """The lowering never touches the dataset; it works from the expression alone."""
     assert to_lance_filter(pl.col("nonexistent") > 1) is not None
+
+
+# ---------------------------------------------------------------------------
+# schema-directed cast elision
+# ---------------------------------------------------------------------------
+
+
+def test_a_float_column_is_not_cast_when_the_schema_says_so() -> None:
+    """A redundant `CAST` costs Lance's scalar index, so drop it where we can."""
+    predicate = pl.col("val") > 0.999
+    assert to_lance_filter(predicate) == LanceFilter(
+        sql="(CAST(`val` AS double) > 0.999)", exact=True
+    )
+    assert to_lance_filter(predicate, schema=pl.Schema({"val": pl.Float64})) == (
+        LanceFilter(sql="(`val` > 0.999)", exact=True)
+    )
+
+
+def test_an_integer_column_is_still_cast_against_a_float_literal() -> None:
+    """The promotion is load-bearing there: Lance refuses the mixed comparison."""
+    schema = pl.Schema({"id": pl.Int64})
+    assert to_lance_filter(pl.col("id") > 0.5, schema=schema) == LanceFilter(
+        sql="(CAST(`id` AS double) > 0.5)", exact=True
+    )
+
+
+def test_an_unknown_column_keeps_the_cast() -> None:
+    """A schema that does not mention the column must not change the answer."""
+    predicate = pl.col("val") > 0.999
+    assert to_lance_filter(predicate, schema=pl.Schema({"other": pl.Float64})) == (
+        to_lance_filter(predicate)
+    )
+
+
+def test_the_schema_does_not_change_which_rows_survive(
+    rich_uri: str, rich_frame: pl.DataFrame
+) -> None:
+    dataset = lance.dataset(rich_uri)
+    schema = pl.Schema(rich_frame.schema)
+    for predicate in (
+        pl.col("val") > 0.5,
+        pl.col("val").is_in([0.5, 0.75]),
+        (pl.col("val") * 2) > 1.5,
+        pl.col("id") > 0.5,
+        (pl.col("val") > 0.5) & (pl.col("id") < 100),
+    ):
+        lowered = to_lance_filter(predicate, schema=schema)
+        assert lowered is not None
+        pushed = dataset.scanner(columns=["id"], filter=lowered.sql).to_table()
+        assert set(rich_frame.filter(predicate)["id"].to_list()) <= set(
+            pushed["id"].to_pylist()
+        )

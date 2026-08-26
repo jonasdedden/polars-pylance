@@ -140,7 +140,10 @@ class _Value:
 
 
 def to_lance_filter(
-    predicate: pl.Expr, *, max_in_list: int = MAX_IN_LIST
+    predicate: pl.Expr,
+    *,
+    max_in_list: int = MAX_IN_LIST,
+    schema: pl.Schema | None = None,
 ) -> LanceFilter | None:
     """Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
 
@@ -150,6 +153,14 @@ def to_lance_filter(
         Any boolean Polars expression, however deeply nested.
     max_in_list
         Largest ``is_in`` membership list to spell out as SQL ``IN``.
+    schema
+        The scanned schema, when the caller has it. Used only to *drop* casts:
+        comparing a column to a float literal has to promote the column, because
+        Lance refuses the mixed comparison Polars would allow -- but a column
+        that is already floating point needs no promotion, and a ``CAST`` around
+        an indexed column costs its scalar index (measured at 8x on a range and
+        14x on an ``IN`` list; see docs/PATCHED_POLARS_PUSHDOWN.md). Without a
+        schema the lowering casts, which is correct but slower.
 
     Examples
     --------
@@ -169,7 +180,7 @@ def to_lance_filter(
         # we could not have translated either.
         return None
 
-    lowering = _Lowering(max_in_list=max_in_list)
+    lowering = _Lowering(max_in_list=max_in_list, schema=schema)
     try:
         sql, exact = lowering.predicate(tree)
     except (_Decline, RecursionError):
@@ -182,8 +193,9 @@ def to_lance_filter(
 class _Lowering:
     """One translation pass. Holds the knobs; carries no state between nodes."""
 
-    def __init__(self, *, max_in_list: int) -> None:
+    def __init__(self, *, max_in_list: int, schema: pl.Schema | None = None) -> None:
         self.max_in_list = max_in_list
+        self.schema = schema
 
     # -- boolean position --------------------------------------------------
 
@@ -395,6 +407,12 @@ class _Lowering:
             return None, False
         return f"array_has({column.sql}, {needle.sql})", True
 
+    def _is_floating(self, name: Any) -> bool:
+        """Whether `name` is already a float column, so a promotion is a no-op."""
+        if self.schema is None or not isinstance(name, str):
+            return False
+        return self.schema.get(name) in (pl.Float32, pl.Float64)
+
     # -- value position ----------------------------------------------------
 
     def value(self, node: Any) -> _Value:
@@ -408,7 +426,7 @@ class _Lowering:
         if kind == "Alias":
             return self.value(body[0])
         if kind == "Column":
-            return _Value(_column(body))
+            return _Value(_column(body), is_double=self._is_floating(body))
         if kind == "Literal":
             return _literal(node)
         if kind == "Cast":

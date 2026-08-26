@@ -126,8 +126,7 @@ class LanceScanSpec:
         return self.scanner(dataset).projected_schema
 
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
-        arrow = self.arrow_schema(dataset)
-        return cast("pl.DataFrame", pl.from_arrow(arrow.empty_table())).schema
+        return _polars_schema(self.arrow_schema(dataset))
 
     # -- batch production --------------------------------------------------
 
@@ -260,6 +259,11 @@ def _pyarrow_eval_namespace() -> dict[str, Any]:
     }
 
 
+def _polars_schema(schema: pa.Schema) -> pl.Schema:
+    """The Polars view of an Arrow schema, without reading a row."""
+    return cast("pl.DataFrame", pl.from_arrow(schema.empty_table())).schema
+
+
 def _unsafe_for_lance(pyarrow_predicate: str, schema: pa.Schema) -> bool:
     """Whether Lance would answer this PyArrow expression with the wrong rows.
 
@@ -323,9 +327,15 @@ class LanceDatasetProvider:
         ):
             return None
 
+        # Resolved once and reused: the returned LazyFrame declares it, and the
+        # lowering below reads it to decide whether a cast is redundant.
+        arrow_schema = self.spec.arrow_schema(dataset)
+
         pa_filter: pc.Expression | str | None = None
         if self.spec.predicate_pushdown:
-            pa_filter = self._filter(dataset, pyarrow_predicate, serialized_predicate)
+            pa_filter = self._filter(
+                arrow_schema, pyarrow_predicate, serialized_predicate
+            )
 
         # Polars keeps the filter above a provider-resolved scan and re-applies
         # it whatever this flag says (measured on both engines in 1.44), and it
@@ -354,13 +364,13 @@ class LanceDatasetProvider:
             return frames, predicate_applied
 
         lf = pl.LazyFrame._scan_python_function(
-            self.spec.arrow_schema(dataset), impl, pyarrow=True, is_pure=True
+            arrow_schema, impl, pyarrow=True, is_pure=True
         )
         return lf, version_key
 
     def _filter(
         self,
-        dataset: lance.LanceDataset,
+        schema: pa.Schema,
         pyarrow_predicate: str | None,
         serialized_predicate: bytes | None,
     ) -> pc.Expression | str | None:
@@ -375,7 +385,12 @@ class LanceDatasetProvider:
         lowered = None
         if serialized_predicate is not None:
             try:
-                lowered = to_lance_filter(pl.Expr.deserialize(serialized_predicate))
+                lowered = to_lance_filter(
+                    pl.Expr.deserialize(serialized_predicate),
+                    # Only ever drops a cast the schema shows is redundant, and
+                    # a redundant cast costs Lance's scalar index.
+                    schema=_polars_schema(schema),
+                )
             except Exception as exc:
                 warnings.warn(
                     "polars-pylance: could not read the predicate Polars passed "
@@ -387,9 +402,7 @@ class LanceDatasetProvider:
         if lowered is not None and (lowered.exact or pyarrow_predicate is None):
             return lowered.sql
 
-        if pyarrow_predicate is None or _unsafe_for_lance(
-            pyarrow_predicate, self.spec.arrow_schema(dataset)
-        ):
+        if pyarrow_predicate is None or _unsafe_for_lance(pyarrow_predicate, schema):
             return lowered.sql if lowered is not None else None
 
         try:
@@ -435,7 +448,7 @@ def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
     ) -> Iterator[pl.DataFrame]:
         dataset = spec.open()
         lowered = (
-            to_lance_filter(predicate)
+            to_lance_filter(predicate, schema=schema)
             if predicate is not None and spec.predicate_pushdown
             else None
         )

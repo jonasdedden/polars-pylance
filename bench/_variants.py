@@ -145,7 +145,7 @@ def _io_plugin_engine_filter(uri: str) -> pl.LazyFrame:
         batch_size: int | None,
     ) -> tuple[Iterator[pl.DataFrame], bool]:
         parsed = pl.Expr.deserialize(predicate) if predicate else None
-        lowered = to_lance_filter(parsed) if parsed is not None else None
+        lowered = to_lance_filter(parsed, schema=schema) if parsed is not None else None
         frames = _frames(
             spec, with_columns, lowered, n_rows if parsed is None else None
         )
