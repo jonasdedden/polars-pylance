@@ -153,7 +153,7 @@ def _panels(
     fig.update_layout(
         template="plotly_white",
         height=170 + 46 * len(order),
-        margin={"l": 260, "r": 40, "t": 115, "b": 110},
+        margin={"l": 260, "r": 40, "t": 135, "b": 110},
         title={
             "text": f"{title}<br>"
             f"<span style='font-size:12px;color:{INK}'>{subtitle}</span>",
@@ -207,8 +207,8 @@ def main() -> None:
             labels=BUILD_LABEL,
             title="What the three upstream PRs move on the default scan path",
             subtitle=(
-                f"{dataset}. Same release build of Polars either side of the "
-                "patches, best of three, one process per measurement."
+                f"{dataset}.<br>Same release build of Polars either side of "
+                "the patches, best of seven, one process per measurement."
             ),
             key="build",
         ),
@@ -223,8 +223,8 @@ def main() -> None:
             labels=ATTRIBUTION_LABEL,
             title="Which patch does the work",
             subtitle=(
-                f"{dataset}. The provider path on the patched build with one "
-                "lowering pinned at a time."
+                f"{dataset}.<br>The provider path on the patched build, with "
+                "one of the two lowerings pinned at a time."
             ),
         ),
         f"patched-attribution{suffix}",
@@ -238,8 +238,8 @@ def main() -> None:
             labels=HOOK_LABEL,
             title="IO plugin against dataset provider, same filter behind both",
             subtitle=(
-                f"{dataset}. On the patched build both hooks push the identical "
-                "filter, so what is left is the hook."
+                f"{dataset}.<br>Both hooks push the identical filter on this "
+                "build, so what is left is the hook itself."
             ),
         ),
         f"patched-hooks{suffix}",

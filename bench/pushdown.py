@@ -217,6 +217,8 @@ CASES: dict[str, tuple[str, Case]] = {
 # Which scan paths to put in the matrix. `bench/_variants.py` documents them all;
 # the default three are the ones a user can actually choose today.
 IMPLS = tuple(os.environ.get("BENCH_IMPLS", "provider,io_plugin,engine").split(","))
+# `BENCH_CASES` narrows the matrix to a few cases, for a focused repeat run.
+SELECTED = tuple(filter(None, os.environ.get("BENCH_CASES", "").split(",")))
 REPEATS = int(os.environ.get("BENCH_REPEATS", 3))
 
 
@@ -246,11 +248,18 @@ def measure(impl: str, case: str) -> dict[str, Any]:
     _, plan = CASES[case]
     lazy = build(impl)
     best = float("inf")
+    cpu = 0.0
     for _ in range(REPEATS):
         rows[0] = 0
-        start = time.perf_counter()
+        # CPU against wall says how much of the machine the query used. A path
+        # that evaluates the residual predicate inside its scan node rather than
+        # in a FilterNode gets one core however many are free, and that is the
+        # difference between the two hooks on a query where most rows survive.
+        cpu_start, start = time.process_time(), time.perf_counter()
         result = plan(lazy).collect(engine="streaming")
-        best = min(best, time.perf_counter() - start)
+        elapsed = time.perf_counter() - start
+        if elapsed < best:
+            best, cpu = elapsed, time.process_time() - cpu_start
     return {
         # `build` names which Polars this ran against, so results files from
         # different builds can be plotted side by side.
@@ -259,6 +268,8 @@ def measure(impl: str, case: str) -> dict[str, Any]:
         "impl": impl,
         "case": case,
         "seconds": best,
+        "cpu_seconds": cpu,
+        "cores_busy": cpu / best if best else 0.0,
         "peak_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
         "rows_from_lance": rows[0],
         "pushed": filters[0] if filters else None,
@@ -268,7 +279,7 @@ def measure(impl: str, case: str) -> dict[str, Any]:
 
 def run(out: Path | None) -> None:
     records: list[dict[str, Any]] = []
-    for case in CASES:
+    for case in SELECTED or CASES:
         for impl in IMPLS:
             proc = subprocess.run(
                 [sys.executable, __file__, "case", impl, case],
@@ -300,6 +311,8 @@ def _report(records: list[dict[str, Any]]) -> None:
     print("| case | | " + " | ".join(IMPLS) + " |")
     print("| --- | --- | " + " | ".join("---" for _ in IMPLS) + " |")
     for case, (label, _) in CASES.items():
+        if SELECTED and case not in SELECTED:
+            continue
         got = by_case.get(case, {})
         cells = []
         for impl in IMPLS:
@@ -307,9 +320,10 @@ def _report(records: list[dict[str, Any]]) -> None:
             if "seconds" not in record:
                 cells.append("failed")
                 continue
+            cores = record.get("cores_busy", 0)
             cells.append(
-                f"{record['seconds']:.3f} s / {record['peak_mib']:.0f} MiB / "
-                f"{record['rows_from_lance']:,} rows"
+                f"{record['seconds']:.3f} s / {cores:.1f} cores / "
+                f"{record['peak_mib']:.0f} MiB / {record['rows_from_lance']:,} rows"
             )
         print(f"| `{case}` | {label} | " + " | ".join(cells) + " |")
     print("\nFilter reaching Lance:\n")

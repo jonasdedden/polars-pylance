@@ -136,6 +136,34 @@ from [that branch](https://github.com/jonasdedden/polars/tree/claude/dataset-pro
 where the provider path is handed the whole predicate. It is an unoptimised
 build, so those numbers compare within themselves and not to the others.
 
+### Against a patched Polars, release builds either side
+
+The `results-rel-*` files and `plot_patched.py` are the successor to those two:
+one wheel per branch, both release-optimised, one results file per (Polars build
+x dataset). `docs/PATCHED_POLARS_PUSHDOWN.md` has the write-up.
+
+```sh
+export BENCH_ROOT=/var/tmp BENCH_ROWS=4000000 BENCH_REPEATS=7
+uv run bench/pushdown.py gen
+
+# BENCH_IMPLS names the columns; bench/_variants.py documents each one.
+BENCH_BUILD=base BENCH_IMPLS=provider,io_plugin,io_plugin_register,engine \
+    /path/to/venv-base/bin/python bench/pushdown.py run \
+    --json bench/results-rel-base-4m.jsonl
+BENCH_BUILD=patched \
+    BENCH_IMPLS=provider,provider_pa,provider_sql,io_plugin,io_plugin_register,engine \
+    /path/to/venv-patched/bin/python bench/pushdown.py run \
+    --json bench/results-rel-patched-4m.jsonl
+
+uv run bench/hooks.py --json bench/results-rel-hooks-patched.jsonl  # per-query costs
+uv run --group bench bench/plot_patched.py --static
+uv run --group bench bench/plot_patched.py --static --suffix=-indexed
+```
+
+`BENCH_URI` points the matrix at an existing dataset, which is how the indexed
+and unindexed copies are measured without an index/unindex round trip.
+`BENCH_CASES` narrows it to a few cases for a focused high-repeat run.
+
 Unlike the pages above they keep each measure on its own axis rather than
 pairing runtime with memory on twin axes: rows-out-of-Lance and wall time are
 different quantities, and the point of the comparison is the row count, which a
@@ -156,8 +184,11 @@ machine, point at it with `BROWSER_PATH=/path/to/chrome`, otherwise
 | `plot.py` | renders `results.jsonl` as interactive Plotly pages |
 | `infra/` | Pulumi program, SSM wrapper, end-to-end driver |
 | `pushdown.py` | the predicate-pushdown matrix: one process per (impl, case) |
+| `_variants.py` | the scan paths that are *not* shipped, one mechanism changed each |
 | `coverage.py` | which predicate shapes each lowering can express, checked against the data |
+| `hooks.py` | what each hook costs per *query* rather than per row |
 | `plot_pushdown.py` | renders both as Plotly pages and static exports |
+| `plot_patched.py` | the same, for the base-against-patched comparisons |
 
 ## What it measures
 

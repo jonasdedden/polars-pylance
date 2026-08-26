@@ -77,13 +77,22 @@ lf = pll.scan_lance("data.lance", impl="io_plugin")
 lf.filter(pl.col("text").str.contains("needle")).collect(engine="streaming")
 ```
 
-`impl="io_plugin"` scans through Polars' public IO-plugin hook, which hands over
-the whole predicate; polars-pylance lowers it into a Lance SQL filter instead.
-On a 4M-row dataset that is 4.6x faster for the query above, 48x with an NGRAM
-index on the column -- a scalar index cannot help a predicate that never reaches
+`impl="io_plugin"` scans through Polars' IO-plugin hook, which hands over the
+whole predicate; polars-pylance lowers it into a Lance SQL filter instead. On a
+4M-row dataset that is 4.6x faster for the query above, 74x with an NGRAM index
+on the column -- a scalar index cannot help a predicate that never reaches
 Lance. It is level or slightly slower on everything else, which is why it is not
 the default. [`docs/PREDICATE_PUSHDOWN.md`](https://github.com/jonasdedden/polars-pylance/blob/main/docs/PREDICATE_PUSHDOWN.md)
 has the coverage table and the measurements.
+
+Three Polars branches ([#28994](https://github.com/pola-rs/polars/pull/28994),
+[#28995](https://github.com/pola-rs/polars/pull/28995),
+[#28996](https://github.com/pola-rs/polars/pull/28996)) close the gap from the
+other side, and the default path picks them up with no change here: `is_in`,
+arithmetic and `eq_missing` start reaching Lance through Polars' own lowering,
+and the whole predicate reaches the provider hook for this package to lower
+itself. Measured at 2x to 16x, and up to 74x with scalar indices, in
+[`docs/PATCHED_POLARS_PUSHDOWN.md`](https://github.com/jonasdedden/polars-pylance/blob/main/docs/PATCHED_POLARS_PUSHDOWN.md).
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.

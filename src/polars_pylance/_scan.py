@@ -444,7 +444,7 @@ def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
     that per batch, from Python, once per morsel. Reporting the predicate as
     unapplied instead hands that job to the streaming engine, which evaluates it
     over the same batch inside the scan node: same rows, same pushed filter, one
-    less crossing of the FFI boundary. Measured at 0.108 s against 0.054 s on a
+    less crossing of the FFI boundary. Measured at 0.104 s against 0.039 s on a
     4M-row filtered scan; see docs/PATCHED_POLARS_PUSHDOWN.md.
 
     The price is `LazyFrame._scan_python_function` rather than the public

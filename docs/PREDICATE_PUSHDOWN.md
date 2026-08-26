@@ -17,8 +17,17 @@ predicate Polars has *already* lowered. Short version:
   The hook never sees a Polars expression, and the three ways of smuggling one
   in all fail. Using it means using the IO-plugin hook, as suspected — §8 is
   the 113-line upstream change that removes the trade-off, built and measured.
-  With it the provider path pushes the identical filter and is **1.2x to 3x
-  faster than the IO-plugin path** on top, so the choice disappears.
+  With it the provider path pushes the identical filter, so the choice
+  disappears.
+
+> **Superseded in part.** §8's head-to-head was run against a locally built
+> Polars whose build profile is not recorded, and its "1.2x to 3x faster than
+> the IO-plugin path" does not survive a release build on both sides. With
+> release builds the two are level except on one shape, and a third of the gap
+> that remained was this package's own use of `register_io_source` rather than
+> the hook. [`PATCHED_POLARS_PUSHDOWN.md`](PATCHED_POLARS_PUSHDOWN.md) is the
+> re-measurement, and also covers the two PyArrow-lowering PRs this document
+> predates.
 - It pays where you would expect: **2x to 8x** on filters Polars cannot lower,
   and **up to 48x** once the dataset has a scalar index, which is unreachable
   otherwise. It is level-to-slightly-negative everywhere else.
@@ -314,6 +323,17 @@ So with the change the provider path is the better path everywhere: the same
 filter reaches Lance, and none of the IO plugin's per-batch re-filtering, larger
 serialized plan or lost resolution caching comes with it. `impl="io_plugin"`
 becomes a historical curiosity rather than a decision.
+
+**The margins above did not survive a release build.** Re-run with release
+builds either side —
+[`PATCHED_POLARS_PUSHDOWN.md`](PATCHED_POLARS_PUSHDOWN.md) §5 — the row counts
+still come out identical, but the time gap collapses to nothing except on
+`ts.dt.year() == 2024`, and it turns out not to be per-batch re-filtering at
+all: a Python-source scan evaluates the residual predicate single-threaded
+inside its own scan node, where a provider-resolved scan gets a parallel
+`FilterNode`. The per-batch Python filter was real and is now gone — the
+IO-plugin path no longer uses `register_io_source` — but it was the smaller
+half. The conclusion stands with a smaller number attached to it.
 
 The branch is
 [`claude/dataset-provider-serialized-predicate`](https://github.com/jonasdedden/polars/tree/claude/dataset-provider-serialized-predicate)
