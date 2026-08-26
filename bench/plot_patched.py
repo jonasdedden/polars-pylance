@@ -69,19 +69,19 @@ ATTRIBUTION_LABEL = {
 }
 
 HOOK_SERIES = (
-    ["engine", "io_plugin", "io_plugin_rust", "provider"],
+    ["engine", "io_plugin", "io_plugin_register", "provider"],
     {
         "engine": "#8a8984",
         "io_plugin": ORANGE,
-        "io_plugin_rust": PLUM,
+        "io_plugin_register": PLUM,
         "provider": BLUE,
     },
-    {"engine": 0.3, "io_plugin": 0.1, "io_plugin_rust": -0.1, "provider": -0.3},
+    {"engine": 0.3, "io_plugin": 0.1, "io_plugin_register": -0.1, "provider": -0.3},
 )
 HOOK_LABEL = {
     "engine": "no pushdown",
-    "io_plugin": "io_plugin (re-filters in Python)",
-    "io_plugin_rust": "io_plugin (engine re-filters)",
+    "io_plugin": "io_plugin (engine re-filters, shipped)",
+    "io_plugin_register": "io_plugin via register_io_source",
     "provider": "provider",
 }
 

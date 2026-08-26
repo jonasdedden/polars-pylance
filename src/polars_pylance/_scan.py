@@ -435,62 +435,99 @@ def _provider_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
 
 
 def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
-    # Imported by path: `polars` does not re-export its `io` subpackage.
-    from polars.io.plugins import register_io_source
+    """An IO-plugin scan that leaves the second evaluation to the engine.
 
+    :func:`polars.io.plugins.register_io_source` is the obvious way to build
+    this, but it hardcodes "the source applied the predicate". A source pushing a
+    *relaxed* filter -- which this one does, whenever a conjunct has no Lance
+    spelling -- then has to re-apply the predicate itself, and it can only do
+    that per batch, from Python, once per morsel. Reporting the predicate as
+    unapplied instead hands that job to the streaming engine, which evaluates it
+    over the same batch inside the scan node: same rows, same pushed filter, one
+    less crossing of the FFI boundary. Measured at 0.108 s against 0.054 s on a
+    4M-row filtered scan; see docs/PATCHED_POLARS_PUSHDOWN.md.
+
+    The price is `LazyFrame._scan_python_function` rather than the public
+    wrapper. That is the same trade the provider path already makes, and this
+    reproduces what `register_io_source` does around it -- deserialize the
+    predicate, tolerate a predicate that will not deserialize -- rather than
+    relying on any of it.
+    """
     schema = spec.polars_schema()
 
-    def source(
+    def wrap(
         with_columns: list[str] | None,
-        predicate: pl.Expr | None,
+        predicate: bytes | None,
         n_rows: int | None,
         batch_size: int | None,
-    ) -> Iterator[pl.DataFrame]:
-        dataset = spec.open()
-        lowered = (
-            to_lance_filter(predicate, schema=schema)
-            if predicate is not None and spec.predicate_pushdown
-            else None
-        )
-        # `register_io_source` reports the predicate as handled here, so it must
-        # be re-applied per batch below -- the SQL filter is an IO hint, never
-        # the source of truth. That holds even for an exact lowering: nothing
-        # downstream would catch a translation bug, and re-filtering rows Lance
-        # has already narrowed is cheap. That is also why a limit is only pushed when
-        # there is no predicate at all: a limit applied to rows that still have
-        # to be filtered would truncate the wrong ones. Polars does not offer a
-        # limit together with a predicate anyway.
-        limit = n_rows if predicate is None else None
-        # The engine's batch-size hint is sized in rows with no idea how wide
-        # they are, and on a 256-byte payload it is 4x the option's default. It
-        # is used only where the option asked for Lance's own choice.
-        scan_spec = (
-            _with_batch_size(spec, batch_size)
-            if batch_size is not None and spec.options.batch_size is None
-            else spec
-        )
+    ) -> tuple[Iterator[pl.DataFrame], bool]:
+        parsed: pl.Expr | None = None
+        if predicate:
+            try:
+                parsed = pl.Expr.deserialize(predicate)
+            except Exception as exc:
+                warnings.warn(
+                    "polars-pylance: could not read the predicate Polars passed "
+                    f"({exc!r}); filtering falls back to the engine",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        # False: the engine evaluates `parsed` above whatever is yielded, so the
+        # SQL filter is only ever an IO hint. That is what makes a relaxed
+        # lowering sound, and what lets a filter Lance refuses be dropped.
+        return _io_plugin_frames(
+            spec, schema, with_columns, parsed, n_rows, batch_size
+        ), False
 
-        remaining = n_rows
-        for frame in scan_spec.iter_frames(
-            dataset,
-            projection=with_columns,
-            filter=lowered.sql if lowered is not None else None,
-            limit=limit,
-            filter_is_optional=True,
-        ):
-            out = frame if predicate is None else frame.filter(predicate)
-            if remaining is not None:
-                if out.height > remaining:
-                    out = out.head(remaining)
-                remaining -= out.height
-            if out.height:
-                yield out
-            if remaining is not None and remaining <= 0:
-                return
-
-    return register_io_source(
-        source, schema=schema, validate_schema=False, is_pure=True
+    return pl.LazyFrame._scan_python_function(
+        schema, wrap, pyarrow=False, validate_schema=False, is_pure=True
     )
+
+
+def _io_plugin_frames(
+    spec: LanceScanSpec,
+    schema: pl.Schema,
+    with_columns: list[str] | None,
+    predicate: pl.Expr | None,
+    n_rows: int | None,
+    batch_size: int | None,
+) -> Iterator[pl.DataFrame]:
+    dataset = spec.open()
+    lowered = (
+        to_lance_filter(predicate, schema=schema)
+        if predicate is not None and spec.predicate_pushdown
+        else None
+    )
+    # A limit is only pushed when there is no predicate at all: applied to rows
+    # that still have to be filtered it would truncate the wrong ones. Polars
+    # does not offer a limit together with a predicate anyway.
+    limit = n_rows if predicate is None else None
+    # The engine's batch-size hint is sized in rows with no idea how wide they
+    # are, and on a 256-byte payload it is 4x the option's default. It is used
+    # only where the option asked for Lance's own choice.
+    scan_spec = (
+        _with_batch_size(spec, batch_size)
+        if batch_size is not None and spec.options.batch_size is None
+        else spec
+    )
+
+    remaining = n_rows if predicate is None else None
+    for frame in scan_spec.iter_frames(
+        dataset,
+        projection=with_columns,
+        filter=lowered.sql if lowered is not None else None,
+        limit=limit,
+        filter_is_optional=True,
+    ):
+        out = frame
+        if remaining is not None:
+            if out.height > remaining:
+                out = out.head(remaining)
+            remaining -= out.height
+        if out.height:
+            yield out
+        if remaining is not None and remaining <= 0:
+            return
 
 
 def _with_batch_size(spec: LanceScanSpec, batch_size: int) -> LanceScanSpec:

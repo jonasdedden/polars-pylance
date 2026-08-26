@@ -19,9 +19,10 @@ SQL). ``provider`` picks between them; ``provider_pa`` and ``provider_sql`` pin
 one, which is how the two upstream changes are told apart.
 
 **Where the predicate is re-applied after Lance has answered.** Polars evaluates
-it a second time whatever the scan says, and the hooks differ in where: the
-streaming engine, or Python, once per batch. ``io_plugin_rust`` moves it from
-the second to the first. (There is no provider counterpart, because a
+it a second time whatever the scan says, and the two places differ: the
+streaming engine, or Python, once per batch. ``io_plugin_register`` is the
+``register_io_source`` form the shipped path used to have, kept as a column so
+the difference stays measurable. (There is no provider counterpart, because a
 provider-resolved scan's ``predicate_applied`` flag is ignored outright --
 ``bench/hooks.py`` probes for that and reports it.)
 """
@@ -37,15 +38,13 @@ if TYPE_CHECKING:
 
     import pyarrow.compute as pc
 
-    from polars_pylance._predicate import LanceFilter
-    from polars_pylance._scan import LanceScanSpec
 
 VARIANTS = (
     "provider",
     "provider_pa",
     "provider_sql",
     "io_plugin",
-    "io_plugin_rust",
+    "io_plugin_register",
     "io_plugin_hint",
     "engine",
 )
@@ -71,8 +70,8 @@ def build(impl: str, uri: str) -> pl.LazyFrame:
     if impl in ("provider_pa", "provider_sql"):
         _pin_provider_lowering(impl)
         return scan_lance(uri, impl="provider")
-    if impl == "io_plugin_rust":
-        return _io_plugin_engine_filter(uri)
+    if impl == "io_plugin_register":
+        return _io_plugin_register_source(uri)
     msg = f"unknown impl {impl!r}"
     raise ValueError(msg)
 
@@ -120,53 +119,44 @@ def _pin_provider_lowering(impl: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _io_plugin_engine_filter(uri: str) -> pl.LazyFrame:
-    """``impl="io_plugin"``, but with the second evaluation moved into Rust.
+def _io_plugin_register_source(uri: str) -> pl.LazyFrame:
+    """The IO-plugin path as `register_io_source` builds it.
 
-    ``polars.io.plugins.register_io_source`` hardcodes "the source applied the
-    predicate", so a source that pushes a *relaxed* filter has to re-apply the
-    predicate itself -- which it can only do per batch, in Python, once per
-    morsel. Calling ``_scan_python_function`` directly and reporting ``False``
-    instead hands that job to the streaming engine, which evaluates it over the
-    same batch inside the scan node. Same rows, same pushed filter; the only
-    difference is which side of the FFI boundary the second evaluation happens
-    on.
+    That wrapper hardcodes "the source applied the predicate", so a source
+    pushing a *relaxed* filter has to re-apply the predicate itself, per batch,
+    from Python. The shipped path no longer does this -- it reports the
+    predicate as unapplied and lets the streaming engine evaluate it -- and this
+    column is what that costs, over the identical pushed filter.
     """
+    from polars.io.plugins import register_io_source
+
     from polars_pylance._predicate import to_lance_filter
     from polars_pylance._scan import LanceScanSpec
 
     spec = LanceScanSpec(uri=uri)
     schema = spec.polars_schema()
 
-    def wrap(
+    def source(
         with_columns: list[str] | None,
-        predicate: bytes | None,
+        predicate: pl.Expr | None,
         n_rows: int | None,
         batch_size: int | None,
-    ) -> tuple[Iterator[pl.DataFrame], bool]:
-        parsed = pl.Expr.deserialize(predicate) if predicate else None
-        lowered = to_lance_filter(parsed, schema=schema) if parsed is not None else None
-        frames = _frames(
-            spec, with_columns, lowered, n_rows if parsed is None else None
+    ) -> Iterator[pl.DataFrame]:
+        lowered = (
+            to_lance_filter(predicate, schema=schema) if predicate is not None else None
         )
-        # False: the engine re-applies `parsed` above the batches we yield.
-        return frames, False
+        frames = spec.iter_frames(
+            spec.open(),
+            projection=with_columns,
+            filter=None if lowered is None else lowered.sql,
+            limit=n_rows if predicate is None else None,
+            filter_is_optional=True,
+        )
+        for frame in frames:
+            out = frame if predicate is None else frame.filter(predicate)
+            if out.height:
+                yield out
 
-    return pl.LazyFrame._scan_python_function(
-        schema, wrap, pyarrow=False, validate_schema=False, is_pure=True
-    )
-
-
-def _frames(
-    spec: LanceScanSpec,
-    with_columns: list[str] | None,
-    lowered: LanceFilter | None,
-    limit: int | None,
-) -> Iterator[pl.DataFrame]:
-    yield from spec.iter_frames(
-        spec.open(),
-        projection=with_columns,
-        filter=None if lowered is None else lowered.sql,
-        limit=limit,
-        filter_is_optional=True,
+    return register_io_source(
+        source, schema=schema, validate_schema=False, is_pure=True
     )
