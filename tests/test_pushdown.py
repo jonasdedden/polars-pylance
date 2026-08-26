@@ -386,3 +386,88 @@ def test_provider_drops_a_filter_lance_refuses(
     with pytest.warns(RuntimeWarning, match="rejected the pushed-down filter"):
         got = result[0].collect(engine="streaming")
     assert got.height == 60_000
+
+
+# ---------------------------------------------------------------------------
+# the Lance filter Lance answers wrongly
+# ---------------------------------------------------------------------------
+
+
+def test_lance_mishandles_a_pyarrow_timestamp_filter(rich_uri: str) -> None:
+    """The bug `_unsafe_for_lance` exists for, pinned so its repair is visible.
+
+    Lance takes a PyArrow expression through Substrait, and a comparison against
+    a timezone-naive timestamp column comes back with the wrong rows -- silently,
+    unlike `date64` / `time64` / `duration` / `timestamp(tz=...)`, which raise.
+    Measured on pylance 9.0.0 and 10.0.0.
+
+    When this test starts failing, Lance has fixed it: drop `_unsafe_for_lance`
+    and this test with it.
+    """
+    import datetime as dt
+
+    import lance
+
+    dataset = lance.dataset(rich_uri)
+    cut = dt.datetime(2024, 1, 5)
+    expected = dataset.scanner(
+        columns=["id"], filter=f"ts > timestamp '{cut:%Y-%m-%d %H:%M:%S}'"
+    ).to_table()
+    through_pyarrow = dataset.scanner(
+        columns=["id"], filter=pc.field("ts") > pa.scalar(cut, pa.timestamp("us"))
+    ).to_table()
+
+    assert expected.num_rows > 0
+    assert through_pyarrow.num_rows == 0
+
+
+def test_timestamp_predicate_is_not_pushed_as_a_pyarrow_expression(
+    rich_uri: str, scanner_calls: list[dict[str, Any]]
+) -> None:
+    import datetime as dt
+
+    scan_lance(rich_uri).filter(pl.col("ts") > dt.datetime(2024, 1, 5)).select(
+        pl.len()
+    ).collect(engine="streaming")
+
+    pushed = [call["filter"] for call in _scan_calls(scanner_calls)]
+    assert not any(isinstance(f, pc.Expression) for f in pushed)
+
+
+def test_timestamp_predicate_still_returns_the_right_rows(
+    rich_uri: str, rich_frame: pl.DataFrame
+) -> None:
+    import datetime as dt
+
+    predicate = pl.col("ts") > dt.datetime(2024, 1, 5)
+    impls: tuple[Literal["provider", "io_plugin"], ...] = ("provider", "io_plugin")
+    for impl in impls:
+        got = (
+            scan_lance(rich_uri, impl=impl)
+            .filter(predicate)
+            .select(pl.len())
+            .collect(engine="streaming")
+            .item()
+        )
+        assert got == rich_frame.filter(predicate).height
+
+
+def test_the_guard_leaves_the_sql_lowering_alone(rich_uri: str) -> None:
+    """Only the PyArrow expression is refused; Lance's own SQL is fine with it."""
+    import datetime as dt
+
+    pushed = _provider_scan(rich_uri, pl.col("ts") > dt.datetime(2024, 1, 5))
+    assert pushed is not None
+    assert "ts" in pushed
+
+
+def test_a_column_named_like_a_timestamp_column_still_pushes(rich_uri: str) -> None:
+    """The guard matches column names in the generated source, so check a
+    predicate over other columns of the same dataset is unaffected."""
+    from polars_pylance import _scan
+
+    schema = _scan.LanceScanSpec(uri=rich_uri).arrow_schema()
+    assert not _scan._unsafe_for_lance("(pa.compute.field('id') > 5)", schema)
+    assert _scan._unsafe_for_lance("(pa.compute.field('ts') > 5)", schema)
+    # `day` is a date32, which Lance answers correctly.
+    assert not _scan._unsafe_for_lance("(pa.compute.field('day') > 5)", schema)

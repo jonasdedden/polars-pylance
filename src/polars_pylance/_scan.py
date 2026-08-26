@@ -260,6 +260,39 @@ def _pyarrow_eval_namespace() -> dict[str, Any]:
     }
 
 
+def _unsafe_for_lance(pyarrow_predicate: str, schema: pa.Schema) -> bool:
+    """Whether Lance would answer this PyArrow expression with the wrong rows.
+
+    Lance takes a PyArrow filter through Substrait, and as of pylance 10.0.0 a
+    comparison against a **timezone-naive timestamp** column comes back with
+    every row or none of them, silently -- so a scan that pushes it returns a
+    wrong answer rather than a slow one::
+
+        ts = pa.array([...], pa.timestamp("us"))                # 100 rows
+        ds.scanner(filter=pc.field("ts") > pa.scalar(cut)).to_table()   # 0 rows
+        ds.scanner(filter="ts > timestamp '...'").to_table()            # correct
+
+    Every other type this package can push is either right (`date32`, numbers,
+    strings) or *loudly* wrong -- `date64`, `time64`, `duration` and a
+    timestamp with a time zone all raise, which `iter_frames` catches, warns
+    about and scans without. Only the naive timestamp is silent, so only it is
+    refused here. Lance's own SQL dialect is unaffected, which is what the
+    predicate visitor emits, so a Polars carrying
+    `#28995 <https://github.com/pola-rs/polars/pull/28995>`_ pushes this
+    predicate correctly instead of not at all.
+
+    Matching on the generated source is crude but sound in the direction that
+    matters: Polars spells a column as ``pa.compute.field('name')``, and a
+    false positive costs pushdown rather than rows.
+    """
+    return any(
+        pa.types.is_timestamp(field.type)
+        and field.type.tz is None
+        and f"'{field.name}'" in pyarrow_predicate
+        for field in schema
+    )
+
+
 class LanceDatasetProvider:
     """Implements Polars' (private) dataset-provider interface for Lance."""
 
@@ -292,7 +325,7 @@ class LanceDatasetProvider:
 
         pa_filter: pc.Expression | str | None = None
         if self.spec.predicate_pushdown:
-            pa_filter = self._filter(pyarrow_predicate, serialized_predicate)
+            pa_filter = self._filter(dataset, pyarrow_predicate, serialized_predicate)
 
         # Polars keeps the filter above a provider-resolved scan and re-applies
         # it whatever this flag says (measured on both engines in 1.44), and it
@@ -326,7 +359,10 @@ class LanceDatasetProvider:
         return lf, version_key
 
     def _filter(
-        self, pyarrow_predicate: str | None, serialized_predicate: bytes | None
+        self,
+        dataset: lance.LanceDataset,
+        pyarrow_predicate: str | None,
+        serialized_predicate: bytes | None,
     ) -> pc.Expression | str | None:
         """The best filter available from what Polars passed.
 
@@ -351,8 +387,10 @@ class LanceDatasetProvider:
         if lowered is not None and (lowered.exact or pyarrow_predicate is None):
             return lowered.sql
 
-        if pyarrow_predicate is None:
-            return None
+        if pyarrow_predicate is None or _unsafe_for_lance(
+            pyarrow_predicate, self.spec.arrow_schema(dataset)
+        ):
+            return lowered.sql if lowered is not None else None
 
         try:
             return cast(
