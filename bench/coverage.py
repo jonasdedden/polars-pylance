@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -154,11 +155,38 @@ def _evaluation_error(pyarrow_predicate: str) -> str | None:
     return None
 
 
+def _rows_kept(dataset: lance.LanceDataset, filter: Any) -> set[int] | str:
+    """The `id`s Lance keeps for `filter`, or why it could not be used."""
+    try:
+        table = dataset.scanner(columns=["id"], filter=filter).to_table()
+    except Exception as exc:
+        return type(exc).__name__
+    return set(table["id"].to_pylist())
+
+
+def _verdict(kept: set[int], pushed: set[int] | str, partial: bool) -> str:
+    """Grade a lowering against the rows the predicate itself keeps.
+
+    A lowering is allowed to be a *superset* -- the caller leaves the predicate
+    with the engine -- so dropping a row is the only real failure. A lowering
+    that claimed to cover every column but is not exact is worth flagging too,
+    since that is the case a caller might be tempted to trust.
+    """
+    if isinstance(pushed, str):
+        return f"!! Lance {pushed}"
+    if not kept <= pushed:
+        return "!! DROPS ROWS"
+    if kept != pushed:
+        return "partial" if partial else "!! NOT EXACT"
+    return "yes"
+
+
 def coverage(uri: str, verbose: bool, out: Path | None = None) -> None:
     dataset = lance.dataset(uri)
     truth = pl.from_arrow(dataset.to_table())
     assert isinstance(truth, pl.DataFrame)
 
+    print(f"polars {pl.__version__} ({os.environ.get('BENCH_BUILD', 'unknown')})\n")
     print("| predicate | Polars -> PyArrow | visitor -> Lance SQL |")
     print("| --- | --- | --- |")
     totals = {"pyarrow": 0, "sql": 0}
@@ -167,38 +195,43 @@ def coverage(uri: str, verbose: bool, out: Path | None = None) -> None:
     for label, predicate in CASES:
         pa_pred = pyarrow_lowering(uri, predicate)
         lowered = to_lance_filter(predicate)
+        kept = set(truth.filter(predicate)["id"].to_list())
 
+        # Both lowerings are graded the same way, and both against the data:
+        # "does Lance, given this filter, hand back at least the rows the
+        # predicate keeps". Polars lowers only whole conjuncts, so a lowering
+        # that misses a column is a superset by construction.
         columns = set(predicate.meta.root_names())
         if pa_pred is None:
             left = "-"
         elif (broken := _evaluation_error(pa_pred)) is not None:
             # Polars produced something, but not something PyArrow accepts.
             left = f"!! {broken}"
-        elif all(f"'{c}'" in pa_pred for c in columns):
-            left = "yes"
-            totals["pyarrow"] += 1
         else:
-            left = "partial"
+            expression = eval(pa_pred, _scan._pyarrow_eval_namespace())
+            left = _verdict(
+                kept,
+                _rows_kept(dataset, expression),
+                partial=not all(f"'{c}'" in pa_pred for c in columns),
+            )
             totals["pyarrow"] += 1
 
         if lowered is None:
             right = "-"
         else:
-            right = "yes" if lowered.exact else "partial"
+            right = _verdict(
+                kept, _rows_kept(dataset, lowered.sql), partial=not lowered.exact
+            )
             totals["sql"] += 1
-            kept = set(truth.filter(predicate)["id"].to_list())
-            scanned = dataset.scanner(columns=["id"], filter=lowered.sql).to_table()
-            pushed = set(scanned["id"].to_pylist())
-            if not kept <= pushed:
-                right = "!! DROPS ROWS"
-            elif lowered.exact and kept != pushed:
-                right = "!! NOT EXACT"
             details.append(f"- `{label}`: `{lowered.sql[:120]}`")
         print(f"| {label} | {left} | {right} |")
         records.append(
             {
+                "build": os.environ.get("BENCH_BUILD", "unknown"),
+                "polars": pl.__version__,
                 "case": label,
                 "pyarrow": left,
+                "pyarrow_expr": pa_pred,
                 "visitor": right,
                 "sql": None if lowered is None else lowered.sql,
             }

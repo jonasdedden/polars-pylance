@@ -51,6 +51,10 @@ PATCHED_LABEL = dict(LABEL, provider="provider (visitor → Lance SQL)")
 ORDER = ["engine", "provider", "io_plugin"]
 OFFSET = {"engine": 0.24, "provider": 0.0, "io_plugin": -0.24}
 
+# (draw order, colour per key, vertical offset per key). `dumbbell` takes one so
+# a figure can compare something other than the three shipped paths.
+Series = tuple[list[str], dict[str, str], dict[str, float]]
+
 SURFACE = "#fcfcfb"
 INK = "#52514e"
 RULE = "#d9d8d3"
@@ -68,6 +72,9 @@ CASES: dict[str, str] = {
     "prefix_payload": "cat.str.starts_with, reads payload",
     "contains": "text.str.contains, 1 in 10k",
     "is_in": "id.is_in(200 values)",
+    "is_in_small": "id.is_in(100 values)",
+    "arith": "val * 2 > 1.9995",
+    "eq_missing": "cat.eq_missing('beta')",
     "temporal": "ts.dt.year() == 2024",
     "mixed": "unlowerable AND numeric",
 }
@@ -118,9 +125,16 @@ def dumbbell(
     label: str,
     value_fmt: Any = _compact,
     labels: dict[str, str] | None = None,
+    series: Series | None = None,
 ) -> tuple[list[go.Scatter], list[float], list[str]]:
-    """One row per case, one dot per implementation, on a log axis."""
+    """One row per case, one dot per implementation, on a log axis.
+
+    `series` names which implementations to draw and how; the default is the
+    three a user can choose between. A figure comparing something else -- two
+    Polars builds, or the variants in `bench/_variants.py` -- passes its own.
+    """
     labels = labels or LABEL
+    order, colour, offset = series or (ORDER, COLOUR, OFFSET)
     traces: list[go.Scatter] = []
     names = list(cases)
     values = [r[key] for r in rows if r.get(key)]
@@ -142,7 +156,7 @@ def dumbbell(
             )
         )
 
-    for impl in ORDER:
+    for impl in order:
         pts = [
             (names.index(r["case"]), r[key], r)
             for r in rows
@@ -153,13 +167,13 @@ def dumbbell(
         traces.append(
             go.Scatter(
                 x=[v for _, v, _ in pts],
-                y=[i + OFFSET[impl] for i, _, _ in pts],
+                y=[i + offset[impl] for i, _, _ in pts],
                 mode="markers+text",
                 name=labels[impl],
                 legendgroup=impl,
                 marker={
                     "size": 11,
-                    "color": COLOUR[impl],
+                    "color": colour[impl],
                     "line": {"color": SURFACE, "width": 2},
                 },
                 text=[value_fmt(v) for _, v, _ in pts],

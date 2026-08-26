@@ -45,11 +45,18 @@ import pyarrow as pa
 ROWS = int(os.environ.get("BENCH_ROWS", 4_000_000))
 PAYLOAD = 256
 ROOT = Path(os.environ.get("BENCH_ROOT", "/tmp")) / "pushdown-bench"
-URI = str(ROOT / f"{ROWS // 1_000_000}m.lance")
+# `BENCH_URI` points the matrix at an existing dataset -- e.g. an indexed copy
+# alongside the plain one, so both can be measured without an index/unindex
+# round trip between runs.
+URI = os.environ.get("BENCH_URI") or str(ROOT / f"{ROWS // 1_000_000}m.lance")
 WORDS = np.array(["alpha", "beta", "gamma", "delta"])
 
 # A membership test big enough to be realistic and small enough to spell out.
+# Polars renders an `is_in` haystack into the PyArrow predicate only up to
+# `LIST_ITEM_LIMIT = 100` elements, so the two sizes fall on opposite sides of
+# that cap and separate what each lowering can reach.
 IN_LIST = [i * 9_973 % ROWS for i in range(200)]
+IN_LIST_SMALL = IN_LIST[:100]
 # Matches ~1 row in 10_000: the shape where skipping pages is everything.
 NEEDLE = "row-0001234"
 
@@ -173,6 +180,28 @@ CASES: dict[str, tuple[str, Case]] = {
             pl.col("payload").is_not_null().sum()
         ),
     ),
+    "is_in_small": (
+        "id.is_in(100 values, under Polars' cap)",
+        lambda lf: lf.filter(pl.col("id").is_in(IN_LIST_SMALL)).select(
+            pl.col("payload").is_not_null().sum()
+        ),
+    ),
+    # Lowered to PyArrow only by pola-rs/polars#28996 (arithmetic) and #28994
+    # (`eq_missing`, which before it emitted `==v` -- a SyntaxError for every
+    # consumer of the hook). Both are pure provider-path cases: the visitor has
+    # always handled them, so they separate the two upstream changes.
+    "arith": (
+        "val * 2 > 1.9995, reads payload",
+        lambda lf: lf.filter((pl.col("val") * 2) > 1.9995).select(
+            pl.col("payload").is_not_null().sum()
+        ),
+    ),
+    "eq_missing": (
+        "cat.eq_missing('beta'), reads payload",
+        lambda lf: lf.filter(pl.col("cat").eq_missing("beta")).select(
+            pl.col("payload").is_not_null().sum()
+        ),
+    ),
     "temporal": (
         "ts.dt.year() == 2024 (matches all)",
         lambda lf: lf.filter(pl.col("ts").dt.year() == 2024).select(pl.len()),
@@ -185,25 +214,16 @@ CASES: dict[str, tuple[str, Case]] = {
     ),
 }
 
-IMPLS = ("provider", "io_plugin", "engine", "io_plugin_hint")
+# Which scan paths to put in the matrix. `bench/_variants.py` documents them all;
+# the default three are the ones a user can actually choose today.
+IMPLS = tuple(os.environ.get("BENCH_IMPLS", "provider,io_plugin,engine").split(","))
 REPEATS = int(os.environ.get("BENCH_REPEATS", 3))
 
 
 def build(impl: str) -> pl.LazyFrame:
-    from polars_pylance import scan_lance
+    from _variants import build as build_variant
 
-    if impl == "engine":
-        return scan_lance(URI, impl="io_plugin", predicate_pushdown=False)
-    if impl == "io_plugin_hint":
-        # Isolate one confound: only the IO plugin is handed the engine's
-        # batch-size hint (100k rows), and it takes it only when the scan
-        # options do not pin one. This column is that path.
-        from polars_pylance import LanceScanOptions
-
-        return scan_lance(
-            URI, impl="io_plugin", options=LanceScanOptions(batch_size=None)
-        )
-    return scan_lance(URI, impl=impl)
+    return build_variant(impl, URI)
 
 
 def measure(impl: str, case: str) -> dict[str, Any]:
@@ -232,6 +252,10 @@ def measure(impl: str, case: str) -> dict[str, Any]:
         result = plan(lazy).collect(engine="streaming")
         best = min(best, time.perf_counter() - start)
     return {
+        # `build` names which Polars this ran against, so results files from
+        # different builds can be plotted side by side.
+        "build": os.environ.get("BENCH_BUILD", "unknown"),
+        "polars": pl.__version__,
         "impl": impl,
         "case": case,
         "seconds": best,
@@ -268,7 +292,11 @@ def _report(records: list[dict[str, Any]]) -> None:
     for record in records:
         by_case.setdefault(record["case"], {})[record["impl"]] = record
 
-    print(f"\n{ROWS:,} rows, {PAYLOAD}-byte payload, {URI}\n")
+    build_label = os.environ.get("BENCH_BUILD", "unknown")
+    print(
+        f"\n{ROWS:,} rows, {PAYLOAD}-byte payload, {URI}\n"
+        f"polars {pl.__version__} ({build_label})\n"
+    )
     print("| case | | " + " | ".join(IMPLS) + " |")
     print("| --- | --- | " + " | ".join("---" for _ in IMPLS) + " |")
     for case, (label, _) in CASES.items():
