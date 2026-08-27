@@ -31,6 +31,9 @@ until [[ "$(aws ssm describe-instance-information \
 done
 
 echo "== uploading payload =="
+# Fresh: `dist/` keeps one wheel per commit, and copying them all would ship a
+# stale build as well as inflating the upload.
+rm -rf "$HERE/dist"
 uv build --wheel --out-dir "$HERE/dist" "$REPO" >/dev/null
 TMP=$(mktemp -d)
 # The archive must not live in the directory being archived: tar notices it
@@ -39,12 +42,30 @@ mkdir "$TMP/payload"
 cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/payload/"
 cp "$HERE"/dist/polars_pylance-*.whl "$TMP/payload/"
 tar czf "$TMP/payload.tgz" -C "$TMP/payload" .
-python3 - "$TMP/payload.tgz" > "$TMP/upload.sh" <<'PY'
-import base64, sys, pathlib
-b64 = base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode()
-print(f"set -eu\nmkdir -p /mnt/nvme\necho '{b64}' | base64 -d > /mnt/nvme/payload.tgz\ncd /mnt/nvme && tar xzf payload.tgz && ls -1 /mnt/nvme")
-PY
-./ssm.sh "$TMP/upload.sh" 300
+
+# SSM takes its parameters through argv, and Linux caps a single argument at
+# 128 KiB whatever ARG_MAX says, so the archive goes up in chunks and is
+# reassembled on the far side. CHUNK is sized so a chunk plus its own base64
+# wrapper stays well under both that and the SSM parameter limit.
+CHUNK=40000
+base64 -w0 < "$TMP/payload.tgz" > "$TMP/payload.b64"
+split -b "$CHUNK" "$TMP/payload.b64" "$TMP/chunk."
+printf 'set -eu\nmkdir -p /mnt/nvme\nrm -f /mnt/nvme/payload.b64\n' > "$TMP/start.sh"
+./ssm.sh "$TMP/start.sh" 120 > /dev/null
+N=$(ls "$TMP"/chunk.* | wc -l)
+i=0
+for c in "$TMP"/chunk.*; do
+  i=$((i + 1))
+  echo "  chunk $i/$N ($(stat -c%s "$c") bytes)"
+  {
+    printf "set -eu\ncat >> /mnt/nvme/payload.b64 <<'CHUNK_EOF'\n"
+    cat "$c"
+    printf "\nCHUNK_EOF\n"
+  } > "$TMP/put.sh"
+  ./ssm.sh "$TMP/put.sh" 120 > /dev/null
+done
+printf 'set -eu\ncd /mnt/nvme\ntr -d "\\n" < payload.b64 | base64 -d > payload.tgz\ntar xzf payload.tgz\nrm -f payload.b64 payload.tgz\nls -1 /mnt/nvme\n' > "$TMP/unpack.sh"
+./ssm.sh "$TMP/unpack.sh" 300
 
 echo "== bootstrapping python env =="
 printf 'set -eu\nBENCH_ROOT=/mnt/nvme bash /mnt/nvme/bootstrap.sh\n' > "$TMP/boot.sh"
