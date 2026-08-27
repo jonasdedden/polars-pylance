@@ -90,3 +90,79 @@ def frames_yielded(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
     monkeypatch.setattr(_scan.LanceScanSpec, "iter_frames", spy)
     return counter
+
+
+# A second dataset, wider in types rather than rows: strings, floats that are
+# not numbers, timestamps, dates, lists and structs.
+RICH_ROWS = 2_000
+WORDS = np.array(["alpha", "beta", "gamma", "delta"])
+
+_RICH_FIELDS: list[pa.Field[Any]] = [
+    pa.field("id", pa.int64()),
+    pa.field("cat", pa.string()),
+    pa.field("text", pa.string()),
+    pa.field("val", pa.float64()),
+    # NaN and both infinities, where Polars' ordering and SQL's disagree.
+    pa.field("odd", pa.float64()),
+    pa.field("flag", pa.bool_()),
+    pa.field("opt", pa.int64()),
+    pa.field("ts", pa.timestamp("us")),
+    pa.field("day", pa.date32()),
+    pa.field("tags", pa.list_(pa.int64())),
+    pa.field("meta", pa.struct([("k", pa.int64()), ("s", pa.string())])),
+    pa.field("odd name", pa.int64()),
+]
+RICH_SCHEMA = pa.schema(_RICH_FIELDS)
+
+
+def _odd(i: int) -> float:
+    if i % 11 == 0:
+        return float("nan")
+    if i % 13 == 0:
+        return float("inf") if i % 26 else float("-inf")
+    return i / 100.0
+
+
+@pytest.fixture(scope="session")
+def rich_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """A dataset covering every dtype the predicate lowering claims to handle."""
+    import datetime as dt
+
+    rng = np.random.default_rng(1)
+    n = RICH_ROWS
+    base = dt.datetime(2024, 1, 1)
+    table = pa.table(
+        [
+            pa.array(np.arange(n, dtype=np.int64)),
+            pa.array(WORDS[np.arange(n) % 4]),
+            pa.array([f"  row-{i:05d}-{WORDS[i % 4]}  " for i in range(n)]),
+            pa.array(rng.random(n)),
+            pa.array([_odd(i) for i in range(n)]),
+            pa.array(np.arange(n) % 3 == 0),
+            pa.array([None if i % 7 == 0 else i for i in range(n)], pa.int64()),
+            pa.array([base + dt.timedelta(hours=i) for i in range(n)]),
+            pa.array(
+                [dt.date(2024, 1, 1) + dt.timedelta(days=i % 365) for i in range(n)]
+            ),
+            # Some rows are empty, so `list.get` hits its out-of-bounds path.
+            pa.array(
+                [[i % 5, i % 3] if i % 9 else [] for i in range(n)],
+                pa.list_(pa.int64()),
+            ),
+            pa.array(
+                [{"k": i % 10, "s": WORDS[i % 4]} for i in range(n)],
+                pa.struct([("k", pa.int64()), ("s", pa.string())]),
+            ),
+            pa.array(np.arange(n, dtype=np.int64)),
+        ],
+        schema=RICH_SCHEMA,
+    )
+    uri = str(tmp_path_factory.mktemp("rich") / "rich.lance")
+    lance.write_dataset(table, uri, max_rows_per_file=500)
+    return uri
+
+
+@pytest.fixture(scope="session")
+def rich_frame(rich_uri: str) -> pl.DataFrame:
+    """Ground truth for `rich_uri`, materialised eagerly."""
+    return pl.from_arrow(lance.dataset(rich_uri).to_table())  # type: ignore[return-value]

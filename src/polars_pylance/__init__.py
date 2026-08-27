@@ -16,6 +16,7 @@ batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
 from __future__ import annotations
 
 from ._options import LanceScanOptions
+from ._predicate import LanceFilter, to_lance_filter
 from ._scan import (
     LanceDatasetProvider,
     LanceScanSpec,
@@ -37,11 +38,13 @@ except ImportError:  # pragma: no cover - source tree that was never built
 
 __all__ = [
     "LanceDatasetProvider",
+    "LanceFilter",
     "LanceScanOptions",
     "LanceScanSpec",
     "commit_lance_fragments",
     "scan_lance",
     "scan_lance_fragments",
     "sink_lance",
+    "to_lance_filter",
     "write_lance_fragments",
 ]
