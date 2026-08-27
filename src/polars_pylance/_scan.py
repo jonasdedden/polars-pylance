@@ -1,23 +1,23 @@
 """Lazy, streaming Lance reader for Polars.
 
-The scan registers a dataset object through ``PyLazyFrame.new_from_dataset_object``,
-the hook behind :func:`polars.scan_delta` and :func:`polars.scan_iceberg`. Polars
-resolves the scan at IR-resolution time and hands over the projection, the row
-limit, the columns a filter touches, and the filter itself already translated to
-a PyArrow expression -- which is exactly what Lance accepts. It also passes back
-the version key of the previous resolution, so an unchanged dataset need not be
-re-planned.
+The scan is a Polars IO plugin. :func:`polars.io.plugins.register_io_source`
+hands the source the projection, the row limit, a batch-size hint, and the whole
+predicate as a :class:`polars.Expr`; :mod:`polars_pylance._predicate` translates
+that into a Lance SQL filter, which is the widest filter language Lance accepts.
 
-The hook is private and carries no stability guarantee. That is a deliberate
-trade: it is the only route that gets Lance a ready-made PyArrow predicate and a
-pushed-down limit, and measurably so -- against the public
-``register_io_source`` path it was 1.5x faster on a full scan, 1.7x on a top-k
-and 5x on a ``head()``, at equal or lower peak RSS. If a future Polars changes
-the interface, pin the previous polars-pylance rather than expecting a fallback.
+That is why this is a plugin rather than the private
+``PyLazyFrame.new_from_dataset_object`` hook behind ``scan_delta``. The hook
+offers a predicate Polars has already lowered for PyArrow, and drops everything
+that language cannot say, which is most of it.
+
+Polars considers the predicate handled once a plugin has been given it, so this
+module makes that true: an exact lowering is left to Lance, and a relaxed one is
+finished per batch here.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,19 +28,21 @@ import polars as pl
 import pyarrow as pa
 
 from ._options import LanceScanOptions
+from ._predicate import VIRTUAL_COLUMNS, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-    # `pyarrow` does not re-export `compute` from its top level, so `pa.compute`
-    # only resolves once something else has imported the submodule.
-    import pyarrow.compute as pc
+# `VIRTUAL_COLUMNS` is imported rather than defined here because the predicate
+# lowering has to refuse the same columns.
 
-# Columns Lance synthesises rather than reads. They are appended to the output by
-# the scanner itself and must be kept out of the `columns=` projection.
-VIRTUAL_COLUMNS = frozenset(
-    {"_rowid", "_rowaddr", "_distance", "_score", "query_index"}
-)
+
+class _FilterRejected(RuntimeError):
+    """Lance refused to plan a scan with the filter we pushed.
+
+    Raised only from the first pull, where Lance validates a filter and before
+    any batch exists, so the caller can restart the scan without it.
+    """
 
 
 @dataclass
@@ -75,7 +77,7 @@ class LanceScanSpec:
         dataset: lance.LanceDataset,
         *,
         columns: list[str] | None = None,
-        filter: pc.Expression | str | None = None,
+        filter: str | None = None,
         limit: int | None = None,
     ) -> lance.LanceScanner:
         kwargs: dict[str, Any] = {
@@ -117,7 +119,7 @@ class LanceScanSpec:
         dataset: lance.LanceDataset,
         *,
         projection: Sequence[str] | None = None,
-        filter: pc.Expression | str | None = None,
+        filter: str | None = None,
         limit: int | None = None,
     ) -> Iterator[pl.DataFrame]:
         """Stream `projection` out of Lance as Polars frames.
@@ -129,7 +131,7 @@ class LanceScanSpec:
         scanner = self.scanner(dataset, columns=columns, filter=filter, limit=limit)
 
         remaining = limit
-        for batch in scanner.to_batches():
+        for batch in self._batches(scanner, filtered=filter is not None):
             if batch.num_rows == 0:
                 continue
             if remaining is not None:
@@ -153,6 +155,27 @@ class LanceScanSpec:
                 frame = frame.select(projection)
             yield frame
 
+    @staticmethod
+    def _batches(
+        scanner: lance.LanceScanner, *, filtered: bool
+    ) -> Iterator[pa.RecordBatch]:
+        """`scanner.to_batches()`, reporting a rejected filter as such.
+
+        Lance validates a filter while planning, on the first pull, so telling
+        that failure from any other lets the caller retry without it.
+        """
+        iterator = iter(scanner.to_batches())
+        try:
+            first = next(iterator, None)
+        except Exception as exc:
+            if not filtered:
+                raise
+            raise _FilterRejected(str(exc)) from exc
+        if first is None:
+            return
+        yield first
+        yield from iterator
+
     def _physical_columns(self, projection: Sequence[str]) -> list[str]:
         # Generated columns are added by the scanner itself and must not appear
         # in `columns=`; an empty result is legal and means "generated only".
@@ -160,111 +183,122 @@ class LanceScanSpec:
 
 
 # ---------------------------------------------------------------------------
-# provider implementation (private polars hook, used by scan_delta/scan_iceberg)
+# the IO plugin
 # ---------------------------------------------------------------------------
 
 
-def _pyarrow_eval_namespace() -> dict[str, Any]:
-    """The namespace Polars' generated PyArrow predicate strings expect.
+def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
+    # Imported by path: `polars` does not re-export its `io` subpackage.
+    from polars.io.plugins import register_io_source
 
-    Mirrors ``polars.io.delta._dataset``; kept in one place so a change upstream
-    surfaces here rather than in the middle of a scan.
-    """
-    from polars._utils.convert import (
-        to_py_date,
-        to_py_datetime,
-        to_py_time,
-        to_py_timedelta,
+    def source(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        return _frames(spec, with_columns, predicate, n_rows, batch_size)
+
+    # `schema` as a callable keeps `scan_lance()` from touching the dataset:
+    # Polars asks for it when the query is resolved, not when it is built.
+    return register_io_source(
+        source, schema=spec.polars_schema, validate_schema=False, is_pure=True
     )
-    from polars.datatypes import Date, Datetime, Duration
-
-    return {
-        "pa": pa,
-        "Date": Date,
-        "Datetime": Datetime,
-        "Duration": Duration,
-        "to_py_date": to_py_date,
-        "to_py_datetime": to_py_datetime,
-        "to_py_time": to_py_time,
-        "to_py_timedelta": to_py_timedelta,
-    }
 
 
-class LanceDatasetProvider:
-    """Implements Polars' (private) dataset-provider interface for Lance."""
+def _frames(
+    spec: LanceScanSpec,
+    with_columns: list[str] | None,
+    predicate: pl.Expr | None,
+    n_rows: int | None,
+    batch_size: int | None,
+) -> Iterator[pl.DataFrame]:
+    """Produce the batches for one resolved scan.
 
-    def __init__(self, spec: LanceScanSpec) -> None:
-        self.spec = spec
-
-    # Interface: schema()
-    def schema(self) -> pa.Schema:
-        return self.spec.arrow_schema()
-
-    # Interface: to_dataset_scan(). Polars omits keys that do not apply, so
-    # every parameter needs a default.
-    def to_dataset_scan(
-        self,
-        *,
-        existing_resolved_version_key: str | None = None,
-        limit: int | None = None,
-        projection: list[str] | None = None,
-        filter_columns: list[str] | None = None,
-        pyarrow_predicate: str | None = None,
-    ) -> tuple[pl.LazyFrame, str] | None:
-        dataset = self.spec.open()
-        version_key = str(dataset.version)
-        if (
-            existing_resolved_version_key is not None
-            and existing_resolved_version_key == version_key
-        ):
-            return None
-
-        pa_filter = None
-        if pyarrow_predicate is not None and self.spec.predicate_pushdown:
-            try:
-                pa_filter = eval(pyarrow_predicate, _pyarrow_eval_namespace())
-            except Exception as exc:
-                warnings.warn(
-                    "polars-pylance: could not evaluate the predicate Polars "
-                    f"generated ({exc!r}); filtering falls back to the engine",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-
-        predicate_applied = pa_filter is not None
-        # The limit may only be pushed into Lance when no rows will be removed
-        # downstream of the scan; otherwise it would truncate before filtering.
-        # Polars is not observed to send both, but be explicit about it.
-        pushed_limit = (
-            limit if (pyarrow_predicate is None or predicate_applied) else None
+    Restarts without the pushed filter if Lance refuses to plan it.
+    """
+    dataset = spec.open()
+    # The engine's batch-size hint is sized in rows with no idea how wide they
+    # are; it is used only where the option asked for Lance's own choice.
+    if batch_size is not None and spec.options.batch_size is None:
+        spec = dataclasses.replace(
+            spec, options=spec.options.replace(batch_size=batch_size)
         )
 
-        spec = self.spec
+    lowered = (
+        to_lance_filter(predicate, schema=spec.polars_schema(dataset))
+        if predicate is not None and spec.predicate_pushdown
+        else None
+    )
+    # An exact lowering keeps the same rows, so Lance can be left to it. A
+    # relaxed one keeps more, and nothing downstream will filter again.
+    residual = None if lowered is not None and lowered.exact else predicate
+    sql = lowered.sql if lowered is not None else None
 
-        def impl(*_args: Any, **_kwargs: Any) -> tuple[Iterator[pl.DataFrame], bool]:
-            # Called with no arguments: all pushdown state is captured here.
-            frames = spec.iter_frames(
-                dataset,
-                projection=projection,
-                filter=pa_filter,
-                limit=pushed_limit,
-            )
-            return frames, predicate_applied
-
-        lf = pl.LazyFrame._scan_python_function(
-            self.spec.arrow_schema(dataset), impl, pyarrow=True, is_pure=True
+    batches = _apply(spec, dataset, with_columns, sql, residual, n_rows)
+    try:
+        first = next(batches)
+    except StopIteration:
+        return
+    except _FilterRejected as exc:
+        warnings.warn(
+            f"polars-pylance: Lance rejected the pushed-down filter ({exc}); "
+            "scanning without it",
+            RuntimeWarning,
+            stacklevel=2,
         )
-        return lf, version_key
+        yield from _apply(spec, dataset, with_columns, None, predicate, n_rows)
+        return
+    yield first
+    yield from batches
 
-    def __repr__(self) -> str:
-        return f"LanceDatasetProvider({self.spec.uri!r}, version={self.spec.version!r})"
+
+def _apply(
+    spec: LanceScanSpec,
+    dataset: lance.LanceDataset,
+    projection: list[str] | None,
+    sql: str | None,
+    residual: pl.Expr | None,
+    n_rows: int | None,
+) -> Iterator[pl.DataFrame]:
+    """Stream the scan, evaluating `residual` on each batch if there is one."""
+    if residual is None:
+        # Lance is doing the whole filter, so the row limit can go down with it.
+        yield from spec.iter_frames(
+            dataset, projection=projection, filter=sql, limit=n_rows
+        )
+        return
+
+    # The limit is counted off on rows that survived `residual`, never pushed
+    # past a filter that has not run yet.
+    columns = _with_predicate_columns(projection, residual)
+    remaining = n_rows
+    for frame in spec.iter_frames(dataset, projection=columns, filter=sql):
+        out = frame.filter(residual)
+        if projection is not None and out.columns != projection:
+            out = out.select(projection)
+        if remaining is not None:
+            if out.height > remaining:
+                out = out.head(remaining)
+            remaining -= out.height
+        if out.height:
+            yield out
+        if remaining is not None and remaining <= 0:
+            return
 
 
-def _provider_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
-    from polars._plr import PyLazyFrame
-    from polars._utils.wrap import wrap_ldf
+def _with_predicate_columns(
+    projection: list[str] | None, predicate: pl.Expr
+) -> list[str] | None:
+    """`projection`, widened to what the predicate still has to read.
 
-    return wrap_ldf(PyLazyFrame.new_from_dataset_object(LanceDatasetProvider(spec)))
+    Polars already projects the filter's columns, but only because it knows the
+    filter runs at the scan.
+    """
+    if projection is None:
+        return None
+    extra = [c for c in predicate.meta.root_names() if c not in projection]
+    return projection + extra if extra else projection
 
 
 # ---------------------------------------------------------------------------
@@ -287,11 +321,17 @@ def scan_lance(
 ) -> pl.LazyFrame:
     """Lazily read a Lance dataset as a Polars :class:`~polars.LazyFrame`.
 
-    Nothing is read when this returns. Column projection, filters and (when no
-    filter is present) row limits are pushed into Lance; batches are pulled only
-    as the query consumes them, so ``.head()`` stops the scan early. Use
-    ``engine="streaming"`` when collecting: the in-memory engine materialises the
-    whole result and gives up the memory advantage.
+    Nothing is read when this returns. Column projections, filters and row
+    limits are pushed into Lance; batches are pulled only as the query consumes
+    them, so ``.head()`` stops the scan early. Use ``engine="streaming"`` when
+    collecting: the in-memory engine materialises the whole result and gives up
+    the memory advantage.
+
+    The filter becomes a Lance SQL filter, so ``is_in``, string functions,
+    arithmetic, temporal parts and list or struct access reach the scanner, none
+    of which a PyArrow expression can carry. A predicate that only partly
+    translates is pushed as far as it goes and finished in Polars.
+    :func:`~polars_pylance.to_lance_filter` shows what a given one lowers to.
 
     Parameters
     ----------
@@ -324,7 +364,7 @@ def scan_lance(
     Examples
     --------
     >>> lf = scan_lance("s3://bucket/data.lance")  # doctest: +SKIP
-    >>> lf.filter(pl.col("label") == 3).select("id", "score").collect(
+    >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
     ...     engine="streaming"
     ... )  # doctest: +SKIP
     """
@@ -347,7 +387,7 @@ def scan_lance(
         predicate_pushdown=predicate_pushdown,
     )
 
-    return _provider_lazyframe(spec)
+    return _io_plugin_lazyframe(spec)
 
 
 def scan_lance_fragments(

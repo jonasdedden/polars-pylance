@@ -20,7 +20,7 @@ def test_spec_is_picklable(lance_uri: str) -> None:
     assert restored.open().count_rows() > 0
 
 
-def test_provider_plan_round_trips(lance_uri: str) -> None:
+def test_plan_round_trips(lance_uri: str) -> None:
     query = scan_lance(lance_uri).filter(pl.col("cat") == "b").select("id", "val")
     blob = query.serialize()
 
@@ -31,7 +31,7 @@ def test_provider_plan_round_trips(lance_uri: str) -> None:
     )
 
 
-def test_provider_plan_is_small(lance_uri: str) -> None:
+def test_plan_is_small(lance_uri: str) -> None:
     """A plan carries a URI and options, never data or an open dataset handle."""
     blob = scan_lance(lance_uri).select("id").serialize()
     assert len(blob) < 8 * 1024, (

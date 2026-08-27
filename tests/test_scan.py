@@ -1,4 +1,4 @@
-"""scan_lance correctness: both implementations must match an eager read."""
+"""scan_lance correctness: the scan must match an eager read."""
 
 from __future__ import annotations
 
@@ -116,7 +116,8 @@ def test_single_fragment_subset(lance_uri: str, expected: pl.DataFrame) -> None:
 
 
 def test_unknown_fragment_raises(lance_uri: str) -> None:
-    with pytest.raises(ValueError, match="no such fragment"):
+    """Reported when the query runs: the scan opens nothing before that."""
+    with pytest.raises(Exception, match="no such fragment"):
         scan_lance(lance_uri, fragments=[9999]).collect(engine="streaming")
 
 

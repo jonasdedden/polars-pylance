@@ -166,3 +166,18 @@ def rich_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
 def rich_frame(rich_uri: str) -> pl.DataFrame:
     """Ground truth for `rich_uri`, materialised eagerly."""
     return pl.from_arrow(lance.dataset(rich_uri).to_table())  # type: ignore[return-value]
+
+
+@pytest.fixture
+def pushed_filters(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every SQL filter string that actually reached Lance's scanner."""
+    filters: list[str] = []
+    original = lance.LanceDataset.scanner
+
+    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("filter") is not None:
+            filters.append(kwargs["filter"])
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(lance.LanceDataset, "scanner", spy)
+    return filters
