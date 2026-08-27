@@ -55,15 +55,32 @@ lf = pll.scan_lance(
 )
 ```
 
-What gets pushed into Lance: the column projection, the filter (as a PyArrow
-expression, so Lance's scalar indices and page statistics apply), and -- when no
-filter follows the scan -- the row limit. `.head()` stops the scan early rather
-than reading to the end.
+What gets pushed into Lance: the column projection, the row limit, and the
+filter, translated into Lance's own SQL filter language so that scalar indices,
+page statistics and late materialisation all apply. `.head()` stops the scan
+early rather than reading to the end.
 
-The scan goes through `PyLazyFrame.new_from_dataset_object`, the hook behind
-`scan_delta`/`scan_iceberg`: Polars resolves it at IR-resolution time and hands
-Lance a ready-made PyArrow predicate plus a pushed-down limit, in ~1 kB of
-serialized plan.
+The translation is what makes the filter worth pushing. `pl.scan_pyarrow_dataset`
+and Polars' `scan_delta`/`scan_iceberg` hook can only offer Lance a PyArrow
+expression, which has no `is_in`, no string functions, no arithmetic and no
+temporal parts; whatever will not fit is dropped and the rows are read anyway.
+`scan_lance` walks the Polars expression itself and emits Lance SQL:
+
+```python
+>>> pll.to_lance_filter(pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]))
+LanceFilter(sql="(starts_with(`cat`, 'b') AND (`id` IN (1, 2)))", exact=True)
+```
+
+A predicate that only partly translates is pushed as far as it goes and finished
+in Polars (`exact=False` says so), so the answer never depends on how much of it
+Lance understood. `predicate_pushdown=False` turns the whole thing off.
+
+52 of 55 tested predicate shapes reach Lance this way, against 11 through
+PyArrow. [`docs/PUSHDOWN.md`](https://github.com/jonasdedden/polars-pylance/blob/main/docs/PUSHDOWN.md)
+has the full table, the constructs that deliberately do not translate, and what
+the difference is worth: **up to 12x** on a selective filter in front of a wide
+column (**19x** with a scalar index) at a seventh of the peak memory, and
+slower on a narrow projection, where there is nothing for Lance to skip.
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.
