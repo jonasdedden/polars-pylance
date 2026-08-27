@@ -10,3 +10,9 @@ dist/
 upstream/
 # Written at build time by uv-dynamic-versioning.
 src/polars_pylance/_version.py
+# Written by bench/infra/run_remote.sh on every run; the committed copy of a
+# run is bench/results-m8id4xl.jsonl.
+bench/results.jsonl
+bench/results.txt
+# Per-user Pulumi stack state, including the passphrase salt.
+bench/infra/Pulumi.*.yaml

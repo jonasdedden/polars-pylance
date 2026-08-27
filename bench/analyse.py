@@ -8,7 +8,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-GIB_PER_MROW = 0.4915  # measured: 190.9 GiB / 388M rows
+GIB_PER_MROW = 0.5072  # measured: 105 GiB / 207M rows
 
 PHASES = {
     "scaling": "generous cap: how peak RSS and runtime grow with dataset size",
@@ -94,7 +94,7 @@ for phase, blurb in PHASES.items():
     )
     if not cases:
         continue
-    print(f"\n{'=' * 78}\n{phase.upper()}  —  {blurb}\n{'=' * 78}")
+    print(f"\n{'=' * 78}\n{phase.upper()}  |  {blurb}\n{'=' * 78}")
     for case in cases:
         sizes = sorted({n for (p, c, n) in by if p == phase and c == case})
         print(f"\n{CASE_LABEL.get(case, case)}  [{case}]")

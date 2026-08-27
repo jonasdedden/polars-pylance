@@ -108,29 +108,31 @@ with once the workers are done.
 ## Memory behaviour
 
 Peak RSS for `polars-pylance` across the size ladder in
-[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 190.7 GiB -- a **190×**
+[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 49.2 GiB, a **49×**
 increase in data:
 
-| | 1 GiB source | 190.7 GiB source |
+| | 1 GiB source | 49.2 GiB source |
 | --- | --- | --- |
-| Projection-only scan -- payload column never read | 0.20 GiB | 0.28 GiB |
-| Sharded fragment scan (`scan_lance_fragments`) | 0.20 GiB | 0.28 GiB |
-| Full scan + aggregate over the payload column | 0.46 GiB | 0.59 GiB |
-| 50% filter + payload aggregate | 0.93 GiB | 2.24 GiB |
-| `sink_lance` (scan → transform → write) | 1.11 GiB | 3.87 GiB |
+| Projection-only scan, payload column never read | 0.20 GiB | 0.25 GiB |
+| Sharded fragment scan (`scan_lance_fragments`) | 0.20 GiB | 0.27 GiB |
+| Full scan + aggregate over the payload column | 0.46 GiB | 0.58 GiB |
+| Substring filter + payload aggregate | 0.22 GiB | 0.32 GiB |
+| 50% filter + payload aggregate | 0.79 GiB | 1.24 GiB |
+| `sink_lance` (scan → transform → write) | 0.99 GiB | 1.60 GiB |
 
-Three things to take from that. **Reads are flat**: a full scan of 190 GiB costs
-0.13 GiB more than a full scan of 1 GiB, because nothing accumulates. Projection
-pushdown is the biggest lever -- not reading the 512-byte column is the difference
-between 0.28 and 0.59 GiB, and it never stops paying. And `sink_lance` grows
-slowly rather than with the result, which is what lets it write a 190 GiB source
-in under 4 GiB of RAM.
+Three things to take from that. **Reads are flat**: a full scan of 49 GiB costs
+0.12 GiB more than a full scan of 1 GiB, because nothing accumulates. Projection
+pushdown is the biggest lever, and a pushed-down filter is the next one: not
+reading the 512-byte column for rows that will not survive is the difference
+between 0.32 and 1.24 GiB. And `sink_lance` grows slowly rather than with the
+result, which is what lets it write a 49 GiB source in under 2 GiB of RAM while
+the eager alternative needs 51 GiB.
 
 ## Development
 
 ```sh
-uv run pytest                    # 69 tests
-uv run pytest -m "not cloud"     # 43 -- what CI runs
+uv run pytest                    # 326 tests
+uv run pytest -m "not cloud"     # 300, what CI runs
 uv run mypy                      # strict, over src, tests and bench
 uv run basedpyright
 uvx ruff check . && uvx ruff format --check .
