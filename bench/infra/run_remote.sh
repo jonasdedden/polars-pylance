@@ -33,9 +33,12 @@ done
 echo "== uploading payload =="
 uv build --wheel --out-dir "$HERE/dist" "$REPO" >/dev/null
 TMP=$(mktemp -d)
-cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/"
-cp "$HERE"/dist/polars_pylance-*.whl "$TMP/"
-tar czf "$TMP/payload.tgz" -C "$TMP" .
+# The archive must not live in the directory being archived: tar notices it
+# growing under itself and exits non-zero, which `set -e` turns into an abort.
+mkdir "$TMP/payload"
+cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/payload/"
+cp "$HERE"/dist/polars_pylance-*.whl "$TMP/payload/"
+tar czf "$TMP/payload.tgz" -C "$TMP/payload" .
 python3 - "$TMP/payload.tgz" > "$TMP/upload.sh" <<'PY'
 import base64, sys, pathlib
 b64 = base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode()
