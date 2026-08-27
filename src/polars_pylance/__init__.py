@@ -18,7 +18,6 @@ from __future__ import annotations
 from ._options import LanceScanOptions
 from ._predicate import LanceFilter, to_lance_filter
 from ._scan import (
-    LanceDatasetProvider,
     LanceScanSpec,
     scan_lance,
     scan_lance_fragments,
@@ -37,7 +36,6 @@ except ImportError:  # pragma: no cover - source tree that was never built
     __version__ = "0.0.0+unknown"
 
 __all__ = [
-    "LanceDatasetProvider",
     "LanceFilter",
     "LanceScanOptions",
     "LanceScanSpec",
