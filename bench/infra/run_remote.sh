@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
-REPO=$(cd ../../.. && pwd)
+REPO=$(cd ../.. && pwd)   # repo root: bench/infra -> bench -> here
 LADDER=${LADDER:-2000000,4000000,8000000,16000000,32000000,48000000,97000000,194000000,388000000}
 BIG_CAP=${BIG_CAP:-55}     # GiB: generous cap, measures how peak RSS scales
 SMALL_CAP=${SMALL_CAP:-8}  # GiB: fixed budget, answers "can it proceed at all"
