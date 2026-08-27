@@ -4,7 +4,7 @@ An IO plugin is handed the whole predicate as a :class:`polars.Expr`. Polars'
 own lowering, behind ``scan_pyarrow_dataset`` and ``scan_delta``, produces a
 PyArrow expression instead and drops what will not fit, which is most of the
 language. This module walks the serialized expression tree and emits the Lance
-equivalent.
+equivalent. ``docs/PUSHDOWN.md`` counts the difference.
 
 A lowering may be a superset: an untranslatable conjunct of an ``AND`` is
 dropped, so ``a > 5 & b.str.contains("x")`` still pushes ``a > 5``. That is only
@@ -14,8 +14,8 @@ the two the caller holds; a relaxed filter narrows the read and
 :mod:`polars_pylance._scan` still evaluates the predicate, while an exact one
 decides the answer on its own.
 
-Constructs whose SQL meaning differs decline rather than guess; each decline is
-pinned by a test.
+Constructs whose SQL meaning differs decline rather than guess. See the table in
+``docs/PUSHDOWN.md``; each decline is pinned by a test.
 """
 
 from __future__ import annotations

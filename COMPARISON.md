@@ -20,7 +20,7 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 | | `polars-lance` (0.5.0) | `polars-pylance` |
 | --- | --- | --- |
 | Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` |
-| Polars hook | `register_io_source` | dataset-provider hook |
+| Polars hook | `register_io_source` | `register_io_source` |
 | Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
@@ -38,14 +38,13 @@ scan and write work. The cost is a 60–68 MB platform wheel per Python version
 
 ### `polars-pylance` (this package)
 
-`polars-pylance` hands Polars a provider object through the private
-`PyLazyFrame.new_from_dataset_object` constructor, which puts a dataset-scan node
-in the query IR rather than an opaque source. Polars resolves the schema up
-front, then calls back with the pushdown already worked out -- projection, a
-PyArrow predicate, a row limit -- and those go straight to
-`lance.LanceDataset.scanner()`, so Lance does the page skipping and the early
-stop and nothing is re-filtered in Python afterwards. It needs `pylance` (a 76 MB
-wheel) but is itself pure Python: no build step, no per-platform wheels, and it
+`polars-pylance` uses the same public hook, and the difference is what it does
+with the arguments. `register_io_source` hands the source the projection, the row
+limit and the *whole* predicate as a `polars.Expr`; polars-pylance translates
+that expression into a Lance SQL filter string and passes it, the projection and
+the limit to `lance.LanceDataset.scanner()`, so Lance does the page skipping,
+the scalar-index lookup and the early stop. It needs `pylance` (a 76 MB wheel)
+but is itself pure Python: no build step, no per-platform wheels, and it
 inherits every Lance feature `pylance` exposes.
 
 ## Read features
@@ -54,7 +53,7 @@ inherits every Lance feature `pylance` exposes.
 | --- | --- | --- |
 | Projection pushdown | yes | yes |
 | Row-limit pushdown | yes | yes (when no filter follows the scan) |
-| Predicate pushdown into Lance | no | yes (ready-made PyArrow expression) |
+| Predicate pushdown into Lance | no | yes (translated to a Lance SQL filter) |
 | Early stop on `.head()` | yes | yes |
 | `storage_options` (S3/Azure/GCS) | yes | yes |
 | Version / tag pinning, time travel | no | yes |
@@ -179,7 +178,7 @@ Two reads where predicate pushdown wins outright:
 | 23.6 GiB | 13.0 s | 4.0 s | **3.2× faster** |
 | 190.7 GiB | 115.2 s | 101.6 s | 1.13× faster |
 
-Lance gets a ready-made PyArrow expression and skips pages; `polars-lance` reads
+Lance gets a SQL filter and skips pages; `polars-lance` reads
 the
 column and filters in Rust afterwards. The advantage is largest in the middle of
 the ladder and narrows at the top, where the query turns I/O-bound and both

@@ -34,10 +34,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # 1.44.0 is the floor because it is the first release with both of the fixes
-    # this package used to work around: the Arrow C stream deadlock on a
-    # PythonDataset scan node (broken 1.43.0-1.43.2) and the unevaluable
-    # `dynamic_pred` node pushed to IO plugins (broken 1.39.0-1.43.2).
+    # 1.44.0 is the floor because it is the first release without the
+    # unevaluable `dynamic_pred` node pushed to IO plugins (broken
+    # 1.39.0-1.43.2), which is the hook `scan_lance` is built on.
     "polars>=1.44.0",
     "pylance>=9",
     "pyarrow",
