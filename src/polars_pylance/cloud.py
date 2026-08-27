@@ -42,12 +42,11 @@ The polars pin
     extra pinning below the floor makes even ``uv lock`` unresolvable, not just
     ``pip install polars-pylance[cloud]``.
 
-    1.44.0 is the floor because 1.43.2 is the last release carrying two bugs
-    this package used to work around: the ``collect_batches`` Arrow C stream
-    deadlocks on the default ``provider`` scan, and a ``sort().head()`` pushes an
-    unevaluable ``dynamic_pred`` node into an IO plugin's predicate. Installing
+    1.44.0 is the floor because 1.43.2 is the last release in which a
+    ``sort().head()`` pushes an unevaluable ``dynamic_pred`` node into an IO
+    plugin's predicate, which is exactly what ``scan_lance`` is. Installing
     polars-cloud alongside polars-pylance downgrades polars into that range and
-    reintroduces both, so it is not a supported workaround -- wait for the
+    reintroduces it, so it is not a supported workaround. Wait for the
     polars-cloud release that tracks 1.44.
 """
 
