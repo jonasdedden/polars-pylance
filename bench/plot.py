@@ -22,8 +22,9 @@ from plotly.subplots import make_subplots
 GIB_PER_MROW = 0.4915  # measured: 190.7 GiB / 388M rows
 
 PHASES = {
-    "scaling": "generous cap — how peak RSS and runtime grow with dataset size",
-    "fixed-budget": "memory pinned, data grown past it — does the job finish?",
+    "scaling": "generous cap: how peak RSS and runtime grow with dataset size",
+    "fixed-budget": "memory pinned, data grown past it: does the job finish?",
+    "indexed": "scalar indices built: what a pushed-down predicate can reach",
 }
 
 CASES: dict[str, str] = {
@@ -32,8 +33,13 @@ CASES: dict[str, str] = {
     "r_filter_lo": "selective filter (val > 0.999)",
     "r_filter_hi": "50% filter + payload aggregate",
     "r_cat": "string predicate (cat == 'a')",
-    "r_head": "head(10) — limit pushdown",
-    "r_topk": "sort + head(10) — top-k",
+    "r_is_in": "set membership + payload",
+    "r_str": "substring search + payload",
+    "r_arith": "computed predicate + payload",
+    "r_temporal": "temporal part + payload",
+    "r_cat_noindex": "cat == 'a', index declined (polars-pylance only)",
+    "r_head": "head(10): limit pushdown",
+    "r_topk": "sort + head(10): top-k",
     "w_sink": "write filtered projection",
     "w_frag": "fragment-parallel write (polars-pylance only)",
     "l_version": "pinned version (polars-pylance only)",
@@ -42,7 +48,11 @@ CASES: dict[str, str] = {
 }
 THEIRS, OURS = "polars-lance", "polars-pylance"
 COLOUR = {THEIRS: "#d1495b", OURS: "#2a9d8f"}
-FAIL_SYMBOL = {"OOM-killed": "x", "panic-unsendable": "triangle-down"}
+FAIL_SYMBOL = {
+    "OOM-killed": "x",
+    "panic-unsendable": "triangle-down",
+    "expr-unsupported": "triangle-up",
+}
 
 
 def _log_ticks(
@@ -245,9 +255,10 @@ def grid(rows_of_data: list[dict[str, Any]], phase: str) -> go.Figure:
 FOCUS = [
     ("scaling", "w_sink", "write-scaling"),
     ("scaling", "r_full", "full-scan-scaling"),
-    ("scaling", "r_cat", "string-predicate-scaling"),
-    ("scaling", "r_filter_lo", "selective-filter-scaling"),
+    ("scaling", "r_arith", "computed-predicate-scaling"),
     ("scaling", "r_filter_hi", "half-filter-scaling"),
+    ("indexed", "r_str", "indexed-substring-scaling"),
+    ("indexed", "r_is_in", "indexed-membership-scaling"),
     ("fixed-budget", "w_sink", "write-fixed-budget"),
 ]
 
@@ -342,6 +353,67 @@ def focus_figure(
         template="plotly_white",
         legend={"orientation": "h", "y": -0.22},
         margin={"l": 70, "r": 70, "t": 60, "b": 90},
+    )
+    return fig
+
+
+# The index multiplier is a comparison between two passes rather than two
+# implementations, so it needs its own panel: (case, filename stem).
+INDEX_FOCUS = [
+    ("r_str", "index-substring"),
+    ("r_is_in", "index-membership"),
+    ("r_cat", "index-lowcardinality"),
+]
+PHASE_COLOUR = {"scaling": "#7a869a", "indexed": "#2a9d8f"}
+PHASE_LABEL = {"scaling": "no index", "indexed": "scalar index"}
+
+
+def index_figure(rows_of_data: list[dict[str, Any]], case: str) -> go.Figure:
+    """One case, polars-pylance only, with and without the index.
+
+    A predicate that never reaches the scanner cannot use an index, so this is a
+    comparison the other implementation has no line on.
+    """
+    fig = go.Figure()
+    seen: list[float] = []
+    for phase in ("scaling", "indexed"):
+        pts = sorted(
+            (
+                r
+                for r in rows_of_data
+                if r["case"] == case
+                and r["impl"] == OURS
+                and r.get("phase") == phase
+                and r["status"] == "ok"
+            ),
+            key=lambda r: r["rows"],
+        )
+        if not pts:
+            continue
+        seen += [pt["seconds"] for pt in pts]
+        fig.add_trace(
+            go.Scatter(
+                x=[gib(pt["rows"]) for pt in pts],
+                y=[pt["seconds"] for pt in pts],
+                mode="lines+markers",
+                name=PHASE_LABEL[phase],
+                line={"color": PHASE_COLOUR[phase], "width": 2.5},
+                marker={"size": 9},
+            )
+        )
+    xv, xt = _log_ticks([gib(r["rows"]) for r in rows_of_data if r["case"] == case])
+    tv, tt = _log_ticks(seen)
+    fig.update_xaxes(
+        type="log", title_text="source dataset (GiB)", tickvals=xv, ticktext=xt
+    )
+    fig.update_yaxes(type="log", title_text="runtime (s)", tickvals=tv, ticktext=tt)
+    fig.update_layout(
+        width=900,
+        height=480,
+        title=f"{CASES[case]}: {OURS}, index vs no index",
+        template="plotly_white",
+        legend={"orientation": "h", "y": -0.22},
+        margin={"l": 70, "r": 40, "t": 60, "b": 90},
     )
     return fig
 
@@ -449,12 +521,17 @@ def main() -> None:
     if args.static:
         static = out / "static"
         static.mkdir(parents=True, exist_ok=True)
-        for phase, case, stem in FOCUS:
-            fig = focus_figure(data, phase, case)
+
+        def write_static(fig: go.Figure, stem: str) -> None:
             for ext in ("png", "svg"):
                 path = static / f"{stem}.{ext}"
                 fig.write_image(path, scale=2 if ext == "png" else 1)
                 print(f"wrote {path}")
+
+        for phase, case, stem in FOCUS:
+            write_static(focus_figure(data, phase, case), stem)
+        for case, stem in INDEX_FOCUS:
+            write_static(index_figure(data, case), stem)
 
     print(f"({len(data)} datapoints)")
 

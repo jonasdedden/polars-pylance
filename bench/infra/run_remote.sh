@@ -33,7 +33,7 @@ done
 echo "== uploading payload =="
 uv build --wheel --out-dir "$HERE/dist" "$REPO" >/dev/null
 TMP=$(mktemp -d)
-cp ../gen.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/"
+cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/"
 cp "$HERE"/dist/polars_pylance-*.whl "$TMP/"
 tar czf "$TMP/payload.tgz" -C "$TMP" .
 python3 - "$TMP/payload.tgz" > "$TMP/upload.sh" <<'PY'
