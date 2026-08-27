@@ -91,9 +91,17 @@ printf 'for i in $(seq 1 2000); do\n  grep -q "BENCHMARK COMPLETE" /mnt/nvme/run
 ./ssm.sh "$TMP/wait.sh" 7200
 
 echo "== fetching results =="
-printf 'cat /mnt/nvme/results.jsonl\n' > "$TMP/fetch.sh"
-./ssm.sh "$TMP/fetch.sh" 300 | grep '^{' > ../results.jsonl
-wc -l < ../results.jsonl
+# SSM truncates StandardOutputContent at 24 KiB, which silently ate two thirds
+# of a nine-tier run. Gzip first: the results compress about 6x, so the base64
+# fits in one response with room to spare.
+printf 'gzip -c /mnt/nvme/results.jsonl | base64 -w0\n' > "$TMP/fetch.sh"
+./ssm.sh "$TMP/fetch.sh" 300 \
+  | grep -E '^[A-Za-z0-9+/=]{100,}$' | base64 -d | gunzip > ../results.jsonl
+REMOTE=$(printf 'wc -l < /mnt/nvme/results.jsonl\n' > "$TMP/count.sh"; \
+         ./ssm.sh "$TMP/count.sh" 120 | grep -E '^[0-9]+$' | head -1)
+LOCAL=$(wc -l < ../results.jsonl)
+echo "records: $LOCAL local, $REMOTE remote"
+[ "$LOCAL" = "$REMOTE" ] || { echo "TRUNCATED FETCH, refusing to analyse" >&2; exit 1; }
 python3 ../analyse.py ../results.jsonl | tee ../results.txt
 
 echo
