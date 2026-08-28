@@ -58,13 +58,8 @@ lf = pll.scan_lance(
 What gets pushed into Lance: the column projection, the row limit, and the
 filter, translated into Lance's own SQL filter language so that scalar indices,
 page statistics and late materialisation all apply. `.head()` stops the scan
-early rather than reading to the end.
-
-The translation is what makes the filter worth pushing. `pl.scan_pyarrow_dataset`
-and Polars' `scan_delta`/`scan_iceberg` hook can only offer Lance a PyArrow
-expression, which has no `is_in`, no string functions, no arithmetic and no
-temporal parts; whatever will not fit is dropped and the rows are read anyway.
-`scan_lance` walks the Polars expression itself and emits Lance SQL:
+early rather than reading to the end. `scan_lance` walks the Polars expression
+itself and emits Lance SQL:
 
 ```python
 >>> pll.to_lance_filter(pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]))
@@ -75,12 +70,7 @@ A predicate that only partly translates is pushed as far as it goes and finished
 in Polars (`exact=False` says so), so the answer never depends on how much of it
 Lance understood. `predicate_pushdown=False` turns the whole thing off.
 
-52 of 55 tested predicate shapes reach Lance this way, against 11 through
-PyArrow. [`docs/PUSHDOWN.md`](https://github.com/jonasdedden/polars-pylance/blob/main/docs/PUSHDOWN.md)
-has the full table, the constructs that deliberately do not translate, and what
-the difference is worth: **up to 12x** on a selective filter in front of a wide
-column (**19x** with a scalar index) at a seventh of the peak memory, and
-slower on a narrow projection, where there is nothing for Lance to skip.
+### Sharded reads
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.
@@ -92,6 +82,8 @@ pll.sink_lance(lf, "out.lance", mode="append", max_rows_per_file=1_000_000)
 pll.sink_lance(updates, "out.lance", mode="merge", on="id")  # upsert
 plan = pll.sink_lance(lf, "out.lance", lazy=True)  # write on collect
 ```
+
+### Sharded writes
 
 For distributed writes, each shard writes its own fragments and a single commit
 makes them one version:
@@ -108,29 +100,41 @@ with once the workers are done.
 ## Memory behaviour
 
 Peak RSS for `polars-pylance` across the size ladder in
-[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 190.7 GiB -- a **190×**
+[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 49.2 GiB, a **49×**
 increase in data:
 
-| | 1 GiB source | 190.7 GiB source |
-| --- | --- | --- |
-| Projection-only scan -- payload column never read | 0.20 GiB | 0.28 GiB |
-| Sharded fragment scan (`scan_lance_fragments`) | 0.20 GiB | 0.28 GiB |
-| Full scan + aggregate over the payload column | 0.46 GiB | 0.59 GiB |
-| 50% filter + payload aggregate | 0.93 GiB | 2.24 GiB |
-| `sink_lance` (scan → transform → write) | 1.11 GiB | 3.87 GiB |
+**Reads**
 
-Three things to take from that. **Reads are flat**: a full scan of 190 GiB costs
-0.13 GiB more than a full scan of 1 GiB, because nothing accumulates. Projection
-pushdown is the biggest lever -- not reading the 512-byte column is the difference
-between 0.28 and 0.59 GiB, and it never stops paying. And `sink_lance` grows
-slowly rather than with the result, which is what lets it write a 190 GiB source
-in under 4 GiB of RAM.
+| | 1 GiB source | 49.2 GiB source |
+| --- | --- | --- |
+| Projection-only scan, payload column never read | 0.20 GiB | 0.25 GiB |
+| Sharded fragment scan (`scan_lance_fragments`) | 0.20 GiB | 0.27 GiB |
+| Substring filter + payload aggregate | 0.22 GiB | 0.32 GiB |
+| 50% filter + payload aggregate | 0.79 GiB | 1.24 GiB |
+| Full scan + aggregate over the payload column | 0.46 GiB | 0.58 GiB |
+
+Reads are flat: a full scan of 49 GiB costs 0.12 GiB more than a full scan of
+1 GiB, because nothing accumulates. Projection pushdown is the biggest lever,
+and a pushed-down filter is the next one: not reading the 512-byte column for
+rows that will not survive is the difference between 0.32 and 1.24 GiB.
+
+**Writes**
+
+| | 1 GiB source | 49.2 GiB source |
+| --- | --- | --- |
+| `sink_lance` (scan → transform → write) | 0.99 GiB | 1.60 GiB |
+| `write_lance_fragments` (parallel, 16 shards) | 0.90 GiB | 7.40 GiB |
+
+`sink_lance` grows slowly rather than with the result, which is what lets it
+write a 49 GiB source in under 2 GiB of RAM where an eager writer needs 51 GiB.
+The fragment-parallel path trades memory for wall time: 16 shards write at once,
+so its peak tracks the shard count.
 
 ## Development
 
 ```sh
-uv run pytest                    # 69 tests
-uv run pytest -m "not cloud"     # 43 -- what CI runs
+uv run pytest
+uv run pytest -m "not cloud"     # what CI runs
 uv run mypy                      # strict, over src, tests and bench
 uv run basedpyright
 uvx ruff check . && uvx ruff format --check .

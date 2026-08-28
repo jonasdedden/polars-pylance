@@ -8,7 +8,7 @@ cd "$BENCH_ROOT"
 
 uv venv -p 3.12 "$BENCH_ROOT/venv"
 uv pip install -q --python "$BENCH_ROOT/venv/bin/python" \
-    "polars==1.44.0" "pylance==10.0.0" pyarrow numpy \
+    "polars==1.44.1" "pylance==10.0.0" pyarrow numpy \
     polars-lance "$BENCH_ROOT"/polars_pylance-*.whl
 
 "$BENCH_ROOT/venv/bin/python" - <<'PY'

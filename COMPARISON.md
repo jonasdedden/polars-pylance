@@ -5,12 +5,12 @@
 a compiled Rust extension linking the `lance` crate, versus polars-pylance's pure
 Python built on `pylance`.
 
-Measured on 2026-08-24 against their published wheel 0.5.0 and this working
-copy, on `polars` 1.44.0 and `pylance` 10.0.0. Used a 1 GiB to 190.7 GiB
-dataset ladder on an AWS instance `m8id.4xlarge` (16 vCPU Xeon 6975P-C,
-64 GiB RAM, 885 GB local NVMe).
+Measured on 2026-08-27 against their published wheel 0.5.0 and this working
+copy, on `polars` 1.44.1 and `pylance` 10.0.0. Used a 1 GiB to 49.2 GiB dataset
+ladder on an AWS instance `m8id.4xlarge` (16 vCPU Xeon 6975P-C, 64 GiB RAM,
+885 GB local NVMe).
 
-212 measurements, reproducible with [`bench`](bench/README.md).
+301 measurements, reproducible with [`bench`](bench/README.md).
 Raw data is committed as `bench/results-m8id4xl.jsonl`.
 
 ---
@@ -24,7 +24,8 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 | Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
-| Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes |
+| Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes, as a Lance SQL filter |
+| Scalar indices usable from a query | no, since no predicate reaches Lance | yes |
 
 ## Architecture
 
@@ -32,8 +33,8 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 
 `polars-lance` calls `register_io_source` with a Rust `LanceScanner` behind it, so
 per-batch work never touches the interpreter. Lance is compiled in: no `pylance`
-at runtime, verified by installing their wheel with only polars present -- both
-scan and write work. The cost is a 60–68 MB platform wheel per Python version
+at runtime, verified by installing the `polars-lance` wheel with only polars present:
+both scan and write work. The cost is a 60–68 MB platform wheel per Python version
 (15 wheels for 0.5.0) and coupling to polars' internal Rust API.
 
 ### `polars-pylance` (this package)
@@ -54,6 +55,10 @@ inherits every Lance feature `pylance` exposes.
 | Projection pushdown | yes | yes |
 | Row-limit pushdown | yes | yes (when no filter follows the scan) |
 | Predicate pushdown into Lance | no | yes (translated to a Lance SQL filter) |
+| Predicate shapes that reach Lance | none | 52 of 55 tested |
+| `is_in`, string functions, arithmetic, temporal parts | filtered afterwards | pushed |
+| BTREE / BITMAP / NGRAM scalar indices | unreachable | used |
+| Late materialisation of wide columns | no | yes, the filter runs first |
 | Early stop on `.head()` | yes | yes |
 | `storage_options` (S3/Azure/GCS) | yes | yes |
 | Version / tag pinning, time travel | no | yes |
@@ -84,45 +89,48 @@ polars_lance.write_lance(lf.collect(), "out.lance")  # full result in memory
 polars_pylance.sink_lance(lf, "out.lance")  # here: streamed batch by batch
 ```
 
-The cost of that shows up as soon as the data is big: writing from a 47.7 GiB
-source, `polars-lance` peaks at **51.26 GiB** against `polars-pylance`'s **2.69 GiB**,
-and past that size it does not finish at all on a 64 GiB machine. See
-[Writes](#writes-this-is-where-it-stops-being-a-trade).
+The cost of that shows up as soon as the data is big: writing from a 49.2 GiB
+source, `polars-lance` peaks at **51.22 GiB** against `polars-pylance`'s
+**1.60 GiB**. See [the write benchmarks](#write-benchmarks).
 
-## Some correctness & stability issues of `polars-lance`
+## Correctness and stability issues in `polars-lance`
 
-Unfortunately I also stumbled over some issues in `polars-lance` where evaluation of
-predicates lead to crashes or the scanner in general behaved unstably:
+I ran into a few problems while benchmarking. They look easily fixable, and are
+reported upstream rather than dissected here:
 
-- https://github.com/jorritsandbrink/polars-lance/issues/10
-- https://github.com/jorritsandbrink/polars-lance/issues/11
-
-A handful of benchmark tests actually weren't executable because of this reason with
-`polars-lance`, but I won't go into too much detail here since I think this potentially
-are easily fixable bugs.
+- [#10](https://github.com/jorritsandbrink/polars-lance/issues/10): the scanner
+  is `unsendable`, so a scan aborts probabilistically. The benchmark retries
+  three times and `r_proj` still has no result above 2 GiB.
+- [#11](https://github.com/jorritsandbrink/polars-lance/issues/11): predicates
+  containing `is_in`, `is_null`, `is_nan` and friends fail to deserialize,
+  because the linked `polars` crate is behind the Python one. The benchmark
+  retries those with Polars' predicate pushdown disabled, which runs and is the
+  same work, since `polars-lance` pushes no predicate into Lance either way.
+- [#14](https://github.com/jorritsandbrink/polars-lance/issues/14): the reason 
+  `bench/analyse.py` compares answers rather than only times: the same mismatch
+  can decode into a *different* operation instead of failing, and then the query
+  is silently wrong.
 
 # Benchmark results
 
 ## Write benchmarks
 
-![write: `polars-lance` peak tracks the result and OOMs past 47.7 GiB](bench/plots/static/write-scaling.png)
+![write: `polars-lance` peak tracks the result, ours stays flat](bench/plots/static/write-scaling.png)
 
 | write filtered projection | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
-| 3.9 GiB | 4.5 s / 4.67 GiB | 1.5 s / 2.17 GiB | 3.0× faster, 0.46× mem |
-| 23.6 GiB | 23.2 s / 25.68 GiB | 8.2 s / 4.46 GiB | 2.8× faster, 0.17× mem |
-| 47.7 GiB | 61.8 s / 51.26 GiB | 23.2 s / **2.69 GiB** | 2.7× faster, **0.05× mem** |
-| 95.4 GiB | **OOM** | 52.2 s / 2.61 GiB | |
-| 190.7 GiB | **OOM** | 108.8 s / 3.87 GiB | |
+| 4.1 GiB | 4.4 s / 4.65 GiB | 1.4 s / 1.42 GiB | 3.1× faster, 0.31× mem |
+| 16.2 GiB | 15.4 s / 17.23 GiB | 5.5 s / 1.70 GiB | 2.8× faster, 0.10× mem |
+| 24.3 GiB | 23.7 s / 25.65 GiB | 8.3 s / 1.71 GiB | 2.9× faster, 0.07× mem |
+| 49.2 GiB | 64.3 s / 51.22 GiB | 23.1 s / **1.60 GiB** | 2.8× faster, **0.03× mem** |
 
 `write_lance` takes a materialised `DataFrame`, so its peak tracks the result:
-51.26 GiB to write from a 47.7 GiB source. Past that it does not complete at all
-on a 64 GiB machine. `sink_lance` streams, so `polars-pylance` is flat at
-2.6–4.5 GiB and
-also 2.7–3.0× faster, because materialising costs time nobody spends when
-streaming.
+51.22 GiB to write from a 49.2 GiB source, which is most of a 64 GiB machine.
+`sink_lance` streams, so `polars-pylance` is flat at 1.0–1.7 GiB across a 49×
+range of input, and also 2.8–3.1× faster, because materialising costs time
+nobody spends when streaming.
 
-### The question that matters: a fixed budget of 8GiB RAM
+### A fixed budget of 8GiB RAM
 
 The previous **scaling** pass uses a generous cap so nothing is constrained,
 and shows how peak RSS and runtime grow with the data.
@@ -130,56 +138,96 @@ The **fixed-budget** pass pins memory at 8 GiB with swap
 disabled and grows the data past it, which is the question that decides whether
 a job exists at all:
 
-| write, 8 GiB budget | `polars-lance` | `polars-pylance` |
-| --- | --- | --- |
-| 3.9 GiB | 6.5 s / 4.67 GiB | 1.5 s / 2.31 GiB |
-| 7.9 GiB | **OOM-killed** | 5.8 s / 3.50 GiB |
-| 47.7 GiB | **OOM-killed** | 27.8 s / 3.47 GiB |
-| 190.7 GiB | **OOM-killed** | 115.0 s / 6.11 GiB |
-
 ![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.png)
 
-In 8 GiB, `polars-lance` writes at most ~4 GiB of source. Ours writes 190.7 GiB -- a
-**48× larger workload in the same memory**. Reads are fine on both under the
-same budget, so this is specific to the write path.
+| write, 8 GiB budget | `polars-lance` | `polars-pylance` |
+| --- | --- | --- |
+| 4.1 GiB | 6.5 s / 4.67 GiB | 1.4 s / 1.32 GiB |
+| 8.1 GiB | **OOM-killed** | 3.0 s / 1.50 GiB |
+| 24.3 GiB | **OOM-killed** | 12.3 s / 1.57 GiB |
+| 49.2 GiB | **OOM-killed** | 27.8 s / 1.79 GiB |
+
+In 8 GiB, `polars-lance` writes at most ~4 GiB of source. `polars-pylance` writes 
+49.2 GiB, the largest tier measured, at 1.79 GiB peak, and the ladder stopped before 
+the streaming writer did. Reads are fine on both under the same budget, so this is
+specific to the write path.
 
 ## Read benchmarks
+
+### Predicate pushdown
+
+Four predicates, each in front of the payload column, at 49.2 GiB:
+
+| predicate | `polars-lance` | `polars-pylance` | |
+| --- | --- | --- | --- |
+| `val * 2 > 1.999` | 27.8 s / 1.38 GiB | 0.5 s / 0.46 GiB | **52× faster, 3x lighter** |
+| `id.is_in(200 ids)` | 28.4 s / 2.83 GiB | 0.8 s / 0.24 GiB | **36× faster, 12× lighter** |
+| `ts.dt.hour() < 1` | 27.0 s / 1.45 GiB | 1.3 s / 0.83 GiB | **22× faster, 1.8x lighter** |
+| `text.str.contains("-rare")` | 28.6 s / 1.57 GiB | 1.6 s / 0.32 GiB | **18× faster, 4.9x lighter** |
+
+`polars-lance` receives the predicate and filters after reading, which is the
+acknowledged `TODO`. `polars-pylance` translates the Polars expression into a
+Lance SQL filter, so the scanner evaluates it, skips pages it cannot match, and
+never materialises the 512-byte payload for rows that do not survive.
+
+Three of those four are measured with Polars' predicate pushdown turned off on
+the `polars-lance` side, because its scan node refuses the expression outright
+(see [above](#correctness-and-stability-issues-in-polars-lance)).
+
+![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.png)
+
+None of these four can be expressed as a PyArrow expression, which is the
+ceiling for `pl.scan_pyarrow_dataset` and for Polars' own `scan_delta` and
+`scan_iceberg` hook. Of 55 predicate shapes run through a real scan, that route
+gets 11 to Lance and this one gets 52. `docs/PUSHDOWN.md` has the table and the
+three deliberate exceptions.
+
+A predicate that only partly translates is pushed as far as it goes and finished
+in Polars, so the answer never depends on how much of it Lance understood.
+
+### Full scan
 
 ![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.png)
 
 | full scan + payload aggregate | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
-| 1.0 GiB | 0.6 s / 1.17 GiB | 0.7 s / 0.46 GiB |
-| 23.6 GiB | 13.3 s / 1.26 GiB | 15.2 s / 0.57 GiB |
-| 190.7 GiB | 111.2 s / 1.31 GiB | 134.2 s / 0.59 GiB |
+| 1.0 GiB | 0.7 s / 1.14 GiB | 0.7 s / 0.46 GiB |
+| 16.2 GiB | 9.1 s / 1.26 GiB | 10.3 s / 0.58 GiB |
+| 49.2 GiB | 27.1 s / 1.36 GiB | 32.9 s / 0.58 GiB |
 
-`polars-lance` is 1.14–1.23× faster on a full scan at *every* tier -- the per-batch
-Python cost, and it neither grows nor shrinks with scale. Both stream: neither
-peak grows with the data. But `polars-pylance` holds 0.46 → 0.59 GiB while the
-source grows 190×, against their 1.17 → 1.31 GiB, so we run in **0.4× their memory**
-throughout.
+`polars-lance` is 1.1–1.2× faster on a full scan at *every* tier. That is the
+per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
+so neither peak grows with the data, but `polars-pylance` holds 0.46 → 0.58 GiB
+while the source grows 49×, against `polars-lance`'s 1.14 → 1.36 GiB.
 
-| string predicate | selective filter |
-| --- | --- |
-| ![full scan: runtime and peak memory vs dataset size](bench/plots/static/string-predicate-scaling.png) | ![selective filter: memory inverts as data grows](bench/plots/static/selective-filter-scaling.png) |
+### Scalar indices
 
-On filtered reads the memory story inverts as data grows. For
-`filter(val > 0.999)`, `polars-lance` climbs 0.14 → 0.78 GiB across the ladder
-while `polars-pylance` stays 0.21 → 0.28 GiB: at 1 GiB it uses 1.5× polars-lance's
-memory, at 190 GiB it uses 0.36×. The crossover is around 8 GiB. Same shape on
-the string predicate (1.50× → 0.28×).
+An index cannot help a filter that never reaches the scanner, so building one
+changes nothing on the `polars-lance` side. The same queries, after BTREE
+indices on `id` and `val`, BITMAP on `cat` and NGRAM on `text`:
 
-![50% filter: pushdown wins on time, costs memory](bench/plots/static/half-filter-scaling.png)
-Two reads where predicate pushdown wins outright:
-
-| 50% filter + payload aggregate | `polars-lance` | `polars-pylance` | |
+| predicate, 49.2 GiB | `polars-lance` | `polars-pylance`, no index | `polars-pylance`, indexed |
 | --- | --- | --- | --- |
-| 3.9 GiB | 2.2 s | 0.8 s | **2.9× faster** |
-| 23.6 GiB | 13.0 s | 4.0 s | **3.2× faster** |
-| 190.7 GiB | 115.2 s | 101.6 s | 1.13× faster |
+| `id.is_in(200 ids)` | 28.9 s | 0.8 s | **0.2 s** |
+| `text.str.contains("-rare")` | 28.9 s | 1.6 s | **0.3 s** |
+| `val > 0.999` | 0.4 s | 0.9 s | 0.4 s |
 
-Lance gets a SQL filter and skips pages; `polars-lance` reads
-the
-column and filters in Rust afterwards. The advantage is largest in the middle of
-the ladder and narrows at the top, where the query turns I/O-bound and both
-implementations wait on the same NVMe.
+| membership, indexed | substring, indexed |
+| --- | --- |
+| ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.png) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.png) |
+
+`polars-lance` line climbs with the data and `polars-pylance` is flat, which is **186×** on
+membership and **106×** on substring at the top tier.
+
+The same two queries with and without the index, `polars-pylance` only, is where the index
+itself shows up:
+
+| membership, BTREE | substring, NGRAM |
+| --- | --- |
+| ![is_in with and without a BTREE index](bench/plots/static/index-membership.png) | ![contains with and without an NGRAM index](bench/plots/static/index-substring.png) |
+
+The indexed lines are flat while the unindexed ones grow, which is the whole
+point of an index and is visible only because the predicate got there.
+
+`ts.dt.hour() < 1` is the control: no index can answer a computed temporal part,
+and it does not move (1.25 s to 1.32 s).
