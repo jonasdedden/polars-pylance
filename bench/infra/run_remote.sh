@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
-REPO=$(cd ../../.. && pwd)
+REPO=$(cd ../.. && pwd)   # repo root: bench/infra -> bench -> here
 LADDER=${LADDER:-2000000,4000000,8000000,16000000,32000000,48000000,97000000,194000000,388000000}
 BIG_CAP=${BIG_CAP:-55}     # GiB: generous cap, measures how peak RSS scales
 SMALL_CAP=${SMALL_CAP:-8}  # GiB: fixed budget, answers "can it proceed at all"
@@ -31,17 +31,41 @@ until [[ "$(aws ssm describe-instance-information \
 done
 
 echo "== uploading payload =="
+# Fresh: `dist/` keeps one wheel per commit, and copying them all would ship a
+# stale build as well as inflating the upload.
+rm -rf "$HERE/dist"
 uv build --wheel --out-dir "$HERE/dist" "$REPO" >/dev/null
 TMP=$(mktemp -d)
-cp ../gen.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/"
-cp "$HERE"/dist/polars_pylance-*.whl "$TMP/"
-tar czf "$TMP/payload.tgz" -C "$TMP" .
-python3 - "$TMP/payload.tgz" > "$TMP/upload.sh" <<'PY'
-import base64, sys, pathlib
-b64 = base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode()
-print(f"set -eu\nmkdir -p /mnt/nvme\necho '{b64}' | base64 -d > /mnt/nvme/payload.tgz\ncd /mnt/nvme && tar xzf payload.tgz && ls -1 /mnt/nvme")
-PY
-./ssm.sh "$TMP/upload.sh" 300
+# The archive must not live in the directory being archived: tar notices it
+# growing under itself and exits non-zero, which `set -e` turns into an abort.
+mkdir "$TMP/payload"
+cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/payload/"
+cp "$HERE"/dist/polars_pylance-*.whl "$TMP/payload/"
+tar czf "$TMP/payload.tgz" -C "$TMP/payload" .
+
+# SSM takes its parameters through argv, and Linux caps a single argument at
+# 128 KiB whatever ARG_MAX says, so the archive goes up in chunks and is
+# reassembled on the far side. CHUNK is sized so a chunk plus its own base64
+# wrapper stays well under both that and the SSM parameter limit.
+CHUNK=40000
+base64 -w0 < "$TMP/payload.tgz" > "$TMP/payload.b64"
+split -b "$CHUNK" "$TMP/payload.b64" "$TMP/chunk."
+printf 'set -eu\nmkdir -p /mnt/nvme\nrm -f /mnt/nvme/payload.b64\n' > "$TMP/start.sh"
+./ssm.sh "$TMP/start.sh" 120 > /dev/null
+N=$(ls "$TMP"/chunk.* | wc -l)
+i=0
+for c in "$TMP"/chunk.*; do
+  i=$((i + 1))
+  echo "  chunk $i/$N ($(stat -c%s "$c") bytes)"
+  {
+    printf "set -eu\ncat >> /mnt/nvme/payload.b64 <<'CHUNK_EOF'\n"
+    cat "$c"
+    printf "\nCHUNK_EOF\n"
+  } > "$TMP/put.sh"
+  ./ssm.sh "$TMP/put.sh" 120 > /dev/null
+done
+printf 'set -eu\ncd /mnt/nvme\ntr -d "\\n" < payload.b64 | base64 -d > payload.tgz\ntar xzf payload.tgz\nrm -f payload.b64 payload.tgz\nls -1 /mnt/nvme\n' > "$TMP/unpack.sh"
+./ssm.sh "$TMP/unpack.sh" 300
 
 echo "== bootstrapping python env =="
 printf 'set -eu\nBENCH_ROOT=/mnt/nvme bash /mnt/nvme/bootstrap.sh\n' > "$TMP/boot.sh"
@@ -67,9 +91,17 @@ printf 'for i in $(seq 1 2000); do\n  grep -q "BENCHMARK COMPLETE" /mnt/nvme/run
 ./ssm.sh "$TMP/wait.sh" 7200
 
 echo "== fetching results =="
-printf 'cat /mnt/nvme/results.jsonl\n' > "$TMP/fetch.sh"
-./ssm.sh "$TMP/fetch.sh" 300 | grep '^{' > ../results.jsonl
-wc -l < ../results.jsonl
+# SSM truncates StandardOutputContent at 24 KiB, which silently ate two thirds
+# of a nine-tier run. Gzip first: the results compress about 6x, so the base64
+# fits in one response with room to spare.
+printf 'gzip -c /mnt/nvme/results.jsonl | base64 -w0\n' > "$TMP/fetch.sh"
+./ssm.sh "$TMP/fetch.sh" 300 \
+  | grep -E '^[A-Za-z0-9+/=]{100,}$' | base64 -d | gunzip > ../results.jsonl
+REMOTE=$(printf 'wc -l < /mnt/nvme/results.jsonl\n' > "$TMP/count.sh"; \
+         ./ssm.sh "$TMP/count.sh" 120 | grep -E '^[0-9]+$' | head -1)
+LOCAL=$(wc -l < ../results.jsonl)
+echo "records: $LOCAL local, $REMOTE remote"
+[ "$LOCAL" = "$REMOTE" ] || { echo "TRUNCATED FETCH, refusing to analyse" >&2; exit 1; }
 python3 ../analyse.py ../results.jsonl | tee ../results.txt
 
 echo

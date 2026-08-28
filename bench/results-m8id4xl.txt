@@ -1,174 +1,258 @@
 
 ==============================================================================
-SCALING  —  generous cap: how peak RSS and runtime grow with dataset size
+SCALING  |  generous cap: how peak RSS and runtime grow with dataset size
 ==============================================================================
 
 full scan + aggregate over payload  [r_full]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.6s / 1.17G |       0.7s / 0.46G | 1.17x time, 0.39x mem
-       2.0G |       1.1s / 1.15G |       1.4s / 0.51G | 1.23x time, 0.44x mem
-       3.9G |       2.2s / 1.15G |       2.7s / 0.54G | 1.22x time, 0.47x mem
-       7.9G |       4.3s / 1.20G |       5.3s / 0.56G | 1.21x time, 0.47x mem
-      15.7G |       8.6s / 1.26G |      10.3s / 0.56G | 1.19x time, 0.44x mem
-      23.6G |      13.3s / 1.26G |      15.2s / 0.57G | 1.14x time, 0.45x mem
-      47.7G |      27.0s / 1.37G |      31.9s / 0.58G | 1.18x time, 0.42x mem
-      95.4G |      54.7s / 1.36G |      67.1s / 0.58G | 1.23x time, 0.43x mem
-     190.7G |     111.2s / 1.31G |     134.2s / 0.59G | 1.21x time, 0.45x mem
+       1.0G |       0.7s / 1.14G |       0.7s / 0.46G | 1.11x time, 0.40x mem
+       2.0G |       1.2s / 1.15G |       1.4s / 0.48G | 1.18x time, 0.42x mem
+       4.1G |       2.3s / 1.19G |       2.7s / 0.55G | 1.16x time, 0.46x mem
+       8.1G |       4.5s / 1.15G |       5.3s / 0.59G | 1.19x time, 0.51x mem
+      16.2G |       9.1s / 1.26G |      10.3s / 0.58G | 1.13x time, 0.46x mem
+      24.3G |      13.2s / 1.27G |      15.0s / 0.58G | 1.14x time, 0.46x mem
+      49.2G |      27.1s / 1.36G |      32.9s / 0.58G | 1.21x time, 0.43x mem
 
 projection-only aggregate (val)  [r_proj]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.0s / 0.12G |       0.0s / 0.20G | 1.89x time, 1.72x mem
-       2.0G |       0.0s / 0.13G |       0.0s / 0.22G | 2.66x time, 1.63x mem
-       3.9G |            *panic* |       0.1s / 0.23G | 
-       7.9G |            *panic* |       0.1s / 0.24G | 
-      15.7G |            *panic* |       0.2s / 0.24G | 
-      23.6G |            *panic* |       0.4s / 0.25G | 
-      47.7G |            *panic* |       0.7s / 0.27G | 
-      95.4G |            *panic* |       1.5s / 0.28G | 
-     190.7G |            *panic* |       3.1s / 0.28G | 
+       1.0G |       0.0s / 0.12G |       0.0s / 0.20G | 1.70x time, 1.73x mem
+       2.0G |       0.0s / 0.13G |       0.0s / 0.22G | 2.05x time, 1.67x mem
+       4.1G |            *panic* |       0.1s / 0.23G | 
+       8.1G |            *panic* |       0.1s / 0.24G | 
+      16.2G |            *panic* |       0.2s / 0.24G | 
+      24.3G |            *panic* |       0.4s / 0.25G | 
+      49.2G |            *panic* |       0.7s / 0.25G | 
 
 highly selective filter (val > 0.999)  [r_filter_lo]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.0s / 0.14G |       0.0s / 0.21G | 1.31x time, 1.53x mem
-       2.0G |       0.0s / 0.16G |       0.0s / 0.23G | 1.35x time, 1.43x mem
-       3.9G |       0.0s / 0.20G |       0.1s / 0.23G | 1.61x time, 1.18x mem
-       7.9G |       0.1s / 0.28G |       0.1s / 0.24G | 1.65x time, 0.87x mem
-      15.7G |       0.1s / 0.45G |       0.2s / 0.25G | 1.80x time, 0.57x mem
-      23.6G |       0.2s / 0.54G |       0.4s / 0.26G | 1.65x time, 0.49x mem
-      47.7G |       0.4s / 0.64G |       0.7s / 0.26G | 1.86x time, 0.41x mem
-      95.4G |       0.7s / 0.79G |       1.3s / 0.27G | 1.71x time, 0.34x mem
-     190.7G |       1.5s / 0.78G |       2.6s / 0.28G | 1.74x time, 0.36x mem
+       1.0G |       0.0s / 0.14G |       0.0s / 0.22G | 1.23x time, 1.59x mem
+       2.0G |       0.0s / 0.16G |       0.1s / 0.24G | 1.86x time, 1.52x mem
+       4.1G |       0.0s / 0.20G |       0.1s / 0.24G | 1.99x time, 1.22x mem
+       8.1G |       0.1s / 0.28G |       0.2s / 0.27G | 2.18x time, 0.96x mem
+      16.2G |       0.1s / 0.43G |       0.3s / 0.29G | 2.16x time, 0.66x mem
+      24.3G |       0.2s / 0.55G |       0.5s / 0.30G | 2.28x time, 0.55x mem
+      49.2G |       0.4s / 0.73G |       0.9s / 0.32G | 2.24x time, 0.44x mem
 
 50% filter + payload aggregate  [r_filter_hi]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.6s / 1.18G |       0.2s / 0.93G | 0.40x time, 0.79x mem
-       2.0G |       1.2s / 1.24G |       0.4s / 1.15G | 0.36x time, 0.93x mem
-       3.9G |       2.2s / 1.25G |       0.8s / 1.41G | 0.34x time, 1.12x mem
-       7.9G |       4.4s / 1.27G |       1.4s / 1.54G | 0.32x time, 1.22x mem
-      15.7G |       8.8s / 1.34G |       2.7s / 1.69G | 0.31x time, 1.26x mem
-      23.6G |      13.0s / 1.34G |       4.0s / 1.71G | 0.31x time, 1.28x mem
-      47.7G |      27.5s / 1.37G |      12.5s / 1.87G | 0.46x time, 1.37x mem
-      95.4G |      58.3s / 1.44G |      49.0s / 2.20G | 0.84x time, 1.53x mem
-     190.7G |     115.2s / 1.46G |     101.6s / 2.24G | 0.88x time, 1.54x mem
+       1.0G |       0.6s / 1.19G |       0.2s / 0.79G | 0.37x time, 0.67x mem
+       2.0G |       1.2s / 1.20G |       0.4s / 0.91G | 0.34x time, 0.76x mem
+       4.1G |       2.3s / 1.25G |       0.8s / 1.03G | 0.34x time, 0.82x mem
+       8.1G |       4.5s / 1.35G |       1.4s / 1.13G | 0.32x time, 0.84x mem
+      16.2G |       8.7s / 1.31G |       2.7s / 1.17G | 0.31x time, 0.90x mem
+      24.3G |      13.3s / 1.32G |       4.0s / 1.19G | 0.30x time, 0.90x mem
+      49.2G |      28.3s / 1.40G |      15.5s / 1.24G | 0.55x time, 0.88x mem
 
 string predicate (cat == 'a')  [r_cat]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.0s / 0.14G |       0.0s / 0.21G | 1.10x time, 1.50x mem
-       2.0G |       0.1s / 0.16G |       0.1s / 0.22G | 1.21x time, 1.42x mem
-       3.9G |       0.1s / 0.19G |       0.1s / 0.23G | 1.16x time, 1.22x mem
-       7.9G |       0.2s / 0.26G |       0.3s / 0.23G | 1.22x time, 0.91x mem
-      15.7G |       0.4s / 0.38G |       0.5s / 0.23G | 1.25x time, 0.61x mem
-      23.6G |       0.6s / 0.46G |       0.8s / 0.24G | 1.17x time, 0.51x mem
-      47.7G |       1.3s / 0.70G |       1.4s / 0.24G | 1.11x time, 0.34x mem
-      95.4G |       2.5s / 0.78G |       3.4s / 0.25G | 1.40x time, 0.32x mem
-     190.7G |       4.9s / 0.85G |       6.0s / 0.24G | 1.23x time, 0.28x mem
+       1.0G |       0.1s / 0.14G |       0.1s / 0.22G | 0.96x time, 1.54x mem
+       2.0G |       0.1s / 0.16G |       0.1s / 0.23G | 1.37x time, 1.46x mem
+       4.1G |       0.1s / 0.19G |       0.2s / 0.24G | 1.35x time, 1.26x mem
+       8.1G |       0.2s / 0.26G |       0.3s / 0.27G | 1.32x time, 1.06x mem
+      16.2G |       0.4s / 0.39G |       0.6s / 0.29G | 1.69x time, 0.74x mem
+      24.3G |       0.7s / 0.48G |       0.9s / 0.29G | 1.39x time, 0.60x mem
+      49.2G |       1.3s / 0.71G |       1.7s / 0.30G | 1.32x time, 0.42x mem
+
+set membership (id.is_in(200)) + payload  [r_is_in]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.35G+ |       0.0s / 0.20G | 0.07x time, 0.15x mem
+       2.0G |      1.1s / 2.35G+ |       0.1s / 0.21G | 0.05x time, 0.09x mem
+       4.1G |      2.2s / 2.67G+ |       0.1s / 0.21G | 0.03x time, 0.08x mem
+       8.1G |      4.5s / 2.75G+ |       0.1s / 0.22G | 0.03x time, 0.08x mem
+      16.2G |      9.1s / 2.80G+ |       0.2s / 0.23G | 0.02x time, 0.08x mem
+      24.3G |     13.8s / 2.92G+ |       0.4s / 0.23G | 0.03x time, 0.08x mem
+      49.2G |     28.4s / 2.83G+ |       0.8s / 0.24G | 0.03x time, 0.08x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
+
+substring search (text.str.contains) + payload  [r_str]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.31G+ |       0.1s / 0.22G | 0.09x time, 0.17x mem
+       2.0G |      1.2s / 1.31G+ |       0.1s / 0.23G | 0.07x time, 0.18x mem
+       4.1G |      2.3s / 1.38G+ |       0.1s / 0.24G | 0.07x time, 0.17x mem
+       8.1G |      4.4s / 1.43G+ |       0.3s / 0.26G | 0.06x time, 0.18x mem
+      16.2G |      9.2s / 1.46G+ |       0.5s / 0.29G | 0.06x time, 0.20x mem
+      24.3G |     13.3s / 1.45G+ |       0.8s / 0.29G | 0.06x time, 0.20x mem
+      49.2G |     28.6s / 1.57G+ |       1.6s / 0.32G | 0.05x time, 0.21x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
+
+computed predicate (val * 2 > 1.999) + payload  [r_arith]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |       0.6s / 1.19G |       0.0s / 0.21G | 0.05x time, 0.18x mem
+       2.0G |       1.1s / 1.22G |       0.0s / 0.23G | 0.04x time, 0.19x mem
+       4.1G |       2.3s / 1.23G |       0.1s / 0.23G | 0.03x time, 0.19x mem
+       8.1G |       4.3s / 1.26G |       0.1s / 0.27G | 0.03x time, 0.21x mem
+      16.2G |       8.7s / 1.28G |       0.2s / 0.28G | 0.03x time, 0.22x mem
+      24.3G |      12.9s / 1.32G |       0.3s / 0.30G | 0.02x time, 0.23x mem
+      49.2G |      27.8s / 1.38G |       0.5s / 0.46G | 0.02x time, 0.34x mem
+
+temporal part (ts.dt.hour() < 1) + payload  [r_temporal]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.21G+ |       0.1s / 0.30G | 0.09x time, 0.25x mem
+       2.0G |      1.1s / 1.23G+ |       0.1s / 0.36G | 0.07x time, 0.30x mem
+       4.1G |      2.3s / 1.25G+ |       0.1s / 0.43G | 0.06x time, 0.34x mem
+       8.1G |      4.4s / 1.28G+ |       0.2s / 0.48G | 0.05x time, 0.37x mem
+      16.2G |      8.5s / 1.29G+ |       0.4s / 0.58G | 0.05x time, 0.45x mem
+      24.3G |     13.1s / 1.34G+ |       0.6s / 0.70G | 0.05x time, 0.53x mem
+      49.2G |     27.0s / 1.45G+ |       1.3s / 0.83G | 0.05x time, 0.57x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
 
 head(10) - limit pushdown  [r_head]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.0s / 0.09G |       0.0s / 0.19G | 1.36x time, 2.00x mem
-       2.0G |       0.0s / 0.09G |       0.0s / 0.19G | 1.41x time, 1.99x mem
-       3.9G |       0.0s / 0.09G |       0.0s / 0.19G | 1.24x time, 1.98x mem
-       7.9G |       0.0s / 0.09G |       0.0s / 0.19G | 1.25x time, 1.97x mem
-      15.7G |       0.0s / 0.10G |       0.0s / 0.19G | 1.11x time, 1.97x mem
-      23.6G |       0.0s / 0.10G |       0.0s / 0.19G | 1.43x time, 1.97x mem
-      47.7G |       0.0s / 0.09G |       0.0s / 0.19G | 1.39x time, 1.97x mem
-      95.4G |       0.0s / 0.09G |       0.0s / 0.18G | 1.42x time, 1.98x mem
-     190.7G |       0.0s / 0.09G |       0.0s / 0.18G | 1.31x time, 1.98x mem
+       1.0G |       0.0s / 0.10G |       0.0s / 0.19G | 1.50x time, 1.97x mem
+       2.0G |       0.0s / 0.10G |       0.0s / 0.19G | 1.37x time, 1.96x mem
+       4.1G |       0.0s / 0.10G |       0.0s / 0.19G | 1.74x time, 1.95x mem
+       8.1G |       0.0s / 0.10G |       0.0s / 0.19G | 1.59x time, 1.94x mem
+      16.2G |       0.0s / 0.10G |       0.0s / 0.19G | 1.56x time, 1.94x mem
+      24.3G |       0.0s / 0.10G |       0.0s / 0.19G | 1.58x time, 1.96x mem
+      49.2G |       0.0s / 0.10G |       0.0s / 0.18G | 1.42x time, 1.92x mem
 
 sort + head(10) - top-k  [r_topk]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.6s / 1.47G |       1.1s / 1.41G | 1.71x time, 0.96x mem
-       2.0G |       1.2s / 2.40G |       2.1s / 2.55G | 1.74x time, 1.07x mem
-       3.9G |       2.4s / 4.59G |       4.2s / 4.87G | 1.76x time, 1.06x mem
-       7.9G |       4.8s / 8.73G |       8.4s / 9.35G | 1.77x time, 1.07x mem
-      15.7G |      9.4s / 17.10G |     16.7s / 18.34G | 1.79x time, 1.07x mem
-      23.6G |     14.2s / 25.46G |     25.2s / 27.32G | 1.78x time, 1.07x mem
-      47.7G |     29.4s / 51.34G |     51.2s / 54.16G | 1.74x time, 1.05x mem
+       1.0G |       0.6s / 1.52G |       1.1s / 1.56G | 1.73x time, 1.03x mem
+       2.0G |       1.3s / 2.65G |       2.3s / 2.88G | 1.77x time, 1.08x mem
+       4.1G |       2.5s / 4.97G |       4.5s / 5.43G | 1.77x time, 1.09x mem
+       8.1G |       4.9s / 9.50G |      9.0s / 10.58G | 1.82x time, 1.11x mem
+      16.2G |      9.9s / 18.56G |     18.1s / 20.70G | 1.83x time, 1.12x mem
+      24.3G |     15.1s / 27.74G |     27.3s / 30.92G | 1.81x time, 1.11x mem
+      49.2G |            **OOM** |            **OOM** | 
 
 write filtered projection  [w_sink]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       1.7s / 1.40G |       0.5s / 1.11G | 0.31x time, 0.79x mem
-       2.0G |       2.7s / 2.50G |       0.9s / 1.65G | 0.32x time, 0.66x mem
-       3.9G |       4.5s / 4.67G |       1.5s / 2.17G | 0.34x time, 0.46x mem
-       7.9G |       8.0s / 8.86G |       2.9s / 3.27G | 0.36x time, 0.37x mem
-      15.7G |     15.1s / 17.30G |       5.5s / 4.25G | 0.37x time, 0.25x mem
-      23.6G |     23.2s / 25.68G |       8.2s / 4.46G | 0.35x time, 0.17x mem
-      47.7G |     61.8s / 51.26G |      23.2s / 2.69G | 0.38x time, 0.05x mem
-      95.4G |            **OOM** |      52.2s / 2.61G | 
-     190.7G |            **OOM** |     108.8s / 3.87G | 
+       1.0G |       1.7s / 1.41G |       0.4s / 0.99G | 0.24x time, 0.70x mem
+       2.0G |       2.7s / 2.49G |       0.8s / 1.20G | 0.28x time, 0.48x mem
+       4.1G |       4.4s / 4.65G |       1.4s / 1.42G | 0.33x time, 0.31x mem
+       8.1G |       8.1s / 8.83G |       2.8s / 1.41G | 0.35x time, 0.16x mem
+      16.2G |     15.4s / 17.23G |       5.5s / 1.70G | 0.36x time, 0.10x mem
+      24.3G |     23.7s / 25.65G |       8.3s / 1.71G | 0.35x time, 0.07x mem
+      49.2G |     64.3s / 51.22G |      23.1s / 1.60G | 0.36x time, 0.03x mem
 
 fragment-parallel write (polars-pylance only)  [w_frag]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |                n/a |       0.5s / 1.14G | 
-       2.0G |                n/a |       0.9s / 1.53G | 
-       3.9G |                n/a |       1.1s / 2.54G | 
-       7.9G |                n/a |       1.5s / 4.22G | 
-      15.7G |                n/a |       2.4s / 7.00G | 
-      23.6G |                n/a |       3.9s / 7.80G | 
-      47.7G |                n/a |     20.9s / 14.21G | 
-      95.4G |                n/a |     79.5s / 32.29G | 
-     190.7G |                n/a |    143.2s / 44.19G | 
+       1.0G |                n/a |       0.4s / 0.90G | 
+       2.0G |                n/a |       0.8s / 1.29G | 
+       4.1G |                n/a |       1.0s / 1.83G | 
+       8.1G |                n/a |       1.4s / 2.49G | 
+      16.2G |                n/a |       2.4s / 3.93G | 
+      24.3G |                n/a |       3.7s / 4.93G | 
+      49.2G |                n/a |      19.6s / 7.40G | 
 
 pinned version / time travel (polars-pylance only)  [l_version]
      source |       polars-lance |     polars-pylance | ratio
        1.0G |                n/a |       0.0s / 0.19G | 
-       2.0G |                n/a |       0.0s / 0.19G | 
-       3.9G |                n/a |       0.0s / 0.19G | 
-       7.9G |                n/a |       0.1s / 0.19G | 
-      15.7G |                n/a |       0.1s / 0.19G | 
-      23.6G |                n/a |       0.2s / 0.18G | 
-      47.7G |                n/a |       0.4s / 0.18G | 
-      95.4G |                n/a |       0.8s / 0.18G | 
-     190.7G |                n/a |       1.4s / 0.18G | 
+       2.0G |                n/a |       0.0s / 0.20G | 
+       4.1G |                n/a |       0.1s / 0.20G | 
+       8.1G |                n/a |       0.1s / 0.21G | 
+      16.2G |                n/a |       0.2s / 0.21G | 
+      24.3G |                n/a |       0.3s / 0.22G | 
+      49.2G |                n/a |       0.6s / 0.22G | 
 
 _rowid column (polars-pylance only)  [l_rowid]
      source |       polars-lance |     polars-pylance | ratio
        1.0G |                n/a |       0.0s / 0.19G | 
        2.0G |                n/a |       0.0s / 0.19G | 
-       3.9G |                n/a |       0.0s / 0.19G | 
-       7.9G |                n/a |       0.1s / 0.19G | 
-      15.7G |                n/a |       0.2s / 0.19G | 
-      23.6G |                n/a |       0.2s / 0.18G | 
-      47.7G |                n/a |       0.5s / 0.18G | 
-      95.4G |                n/a |       0.9s / 0.18G | 
-     190.7G |                n/a |       2.2s / 0.18G | 
+       4.1G |                n/a |       0.0s / 0.19G | 
+       8.1G |                n/a |       0.1s / 0.19G | 
+      16.2G |                n/a |       0.2s / 0.19G | 
+      24.3G |                n/a |       0.2s / 0.18G | 
+      49.2G |                n/a |       0.5s / 0.18G | 
 
 sharded fragment scan (polars-pylance only)  [l_fragments]
      source |       polars-lance |     polars-pylance | ratio
        1.0G |                n/a |       0.0s / 0.20G | 
        2.0G |                n/a |       0.0s / 0.22G | 
-       3.9G |                n/a |       0.1s / 0.23G | 
-       7.9G |                n/a |       0.1s / 0.24G | 
-      15.7G |                n/a |       0.3s / 0.25G | 
-      23.6G |                n/a |       0.4s / 0.24G | 
-      47.7G |                n/a |       0.8s / 0.28G | 
-      95.4G |                n/a |       1.7s / 0.27G | 
-     190.7G |                n/a |       3.1s / 0.28G | 
+       4.1G |                n/a |       0.1s / 0.23G | 
+       8.1G |                n/a |       0.1s / 0.25G | 
+      16.2G |                n/a |       0.3s / 0.26G | 
+      24.3G |                n/a |       0.4s / 0.25G | 
+      49.2G |                n/a |       0.8s / 0.27G | 
 
 ==============================================================================
-FIXED-BUDGET  —  memory pinned, data grown past it: does the job finish?
+FIXED-BUDGET  |  memory pinned, data grown past it: does the job finish?
 ==============================================================================
 
 full scan + aggregate over payload  [r_full]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       0.6s / 1.14G |       0.7s / 0.47G | 1.13x time, 0.41x mem
+       1.0G |       0.6s / 1.14G |       0.8s / 0.47G | 1.17x time, 0.41x mem
        2.0G |       1.2s / 1.15G |       1.4s / 0.47G | 1.16x time, 0.41x mem
-       3.9G |       2.3s / 1.20G |       2.6s / 0.52G | 1.13x time, 0.44x mem
-       7.9G |       4.7s / 1.15G |       5.2s / 0.55G | 1.10x time, 0.47x mem
-      15.7G |       9.2s / 1.19G |      10.5s / 0.59G | 1.14x time, 0.49x mem
-      23.6G |      14.1s / 1.22G |      16.4s / 0.57G | 1.17x time, 0.47x mem
-      47.7G |      29.7s / 1.29G |      35.3s / 0.58G | 1.19x time, 0.45x mem
-      95.4G |      60.3s / 1.31G |      71.1s / 0.58G | 1.18x time, 0.44x mem
-     190.7G |     122.1s / 1.46G |     143.2s / 0.60G | 1.17x time, 0.41x mem
+       4.1G |       2.3s / 1.15G |       2.6s / 0.52G | 1.13x time, 0.45x mem
+       8.1G |       4.6s / 1.15G |       5.2s / 0.58G | 1.13x time, 0.51x mem
+      16.2G |       9.6s / 1.15G |      11.1s / 0.58G | 1.16x time, 0.51x mem
+      24.3G |      14.7s / 1.15G |      17.0s / 0.59G | 1.16x time, 0.51x mem
+      49.2G |      28.2s / 1.27G |      32.4s / 0.59G | 1.15x time, 0.46x mem
 
 write filtered projection  [w_sink]
      source |       polars-lance |     polars-pylance | ratio
-       1.0G |       1.8s / 1.43G |       0.5s / 1.15G | 0.28x time, 0.81x mem
-       2.0G |       2.7s / 2.52G |       0.9s / 1.61G | 0.32x time, 0.64x mem
-       3.9G |       6.5s / 4.67G |       1.5s / 2.31G | 0.23x time, 0.50x mem
-       7.9G |            **OOM** |       5.8s / 3.50G | 
-      15.7G |            **OOM** |       8.4s / 4.63G | 
-      23.6G |            **OOM** |      13.0s / 4.36G | 
-      47.7G |            **OOM** |      27.8s / 3.47G | 
-      95.4G |            **OOM** |      57.3s / 4.93G | 
-     190.7G |            **OOM** |     115.0s / 6.11G | 
+       1.0G |       1.8s / 1.42G |       0.4s / 1.00G | 0.23x time, 0.70x mem
+       2.0G |       2.6s / 2.50G |       0.8s / 1.10G | 0.29x time, 0.44x mem
+       4.1G |       6.5s / 4.67G |       1.4s / 1.32G | 0.22x time, 0.28x mem
+       8.1G |            **OOM** |       3.0s / 1.50G | 
+      16.2G |            **OOM** |       7.3s / 1.64G | 
+      24.3G |            **OOM** |      12.3s / 1.57G | 
+      49.2G |            **OOM** |      27.8s / 1.79G | 
+
+==============================================================================
+INDEXED  |  scalar indices built: what a pushed-down predicate can reach
+==============================================================================
+
+highly selective filter (val > 0.999)  [r_filter_lo]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |       0.1s / 0.13G |       0.0s / 0.21G | 0.40x time, 1.60x mem
+       2.0G |       0.0s / 0.16G |       0.0s / 0.23G | 0.92x time, 1.46x mem
+       4.1G |       0.1s / 0.20G |       0.1s / 0.24G | 1.00x time, 1.22x mem
+       8.1G |       0.1s / 0.28G |       0.1s / 0.25G | 1.00x time, 0.92x mem
+      16.2G |       0.1s / 0.41G |       0.2s / 0.27G | 1.01x time, 0.66x mem
+      24.3G |       0.2s / 0.54G |       0.2s / 0.28G | 1.09x time, 0.52x mem
+      49.2G |       0.4s / 0.69G |       0.4s / 0.29G | 1.13x time, 0.42x mem
+
+string predicate (cat == 'a')  [r_cat]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |       0.0s / 0.14G |       0.2s / 0.32G | 4.26x time, 2.31x mem
+       2.0G |       0.1s / 0.16G |       0.3s / 0.44G | 4.94x time, 2.80x mem
+       4.1G |       0.1s / 0.19G |       0.7s / 0.56G | 5.31x time, 2.95x mem
+       8.1G |       0.2s / 0.25G |       1.3s / 0.67G | 5.49x time, 2.65x mem
+      16.2G |       0.5s / 0.39G |       2.5s / 0.82G | 5.59x time, 2.11x mem
+      24.3G |       0.7s / 0.47G |       3.7s / 1.08G | 5.57x time, 2.29x mem
+      49.2G |       1.4s / 0.65G |       7.5s / 1.42G | 5.51x time, 2.18x mem
+
+set membership (id.is_in(200)) + payload  [r_is_in]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.35G+ |       0.0s / 0.22G | 0.08x time, 0.16x mem
+       2.0G |      1.2s / 2.35G+ |       0.0s / 0.22G | 0.04x time, 0.09x mem
+       4.1G |      2.4s / 2.72G+ |       0.1s / 0.22G | 0.02x time, 0.08x mem
+       8.1G |      4.7s / 2.74G+ |       0.1s / 0.22G | 0.01x time, 0.08x mem
+      16.2G |      9.7s / 2.76G+ |       0.1s / 0.22G | 0.01x time, 0.08x mem
+      24.3G |     14.7s / 2.81G+ |       0.1s / 0.22G | 0.01x time, 0.08x mem
+      49.2G |     28.9s / 2.84G+ |       0.2s / 0.23G | 0.01x time, 0.08x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
+
+substring search (text.str.contains) + payload  [r_str]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.27G+ |       0.0s / 0.20G | 0.03x time, 0.16x mem
+       2.0G |      1.2s / 1.30G+ |       0.0s / 0.20G | 0.02x time, 0.16x mem
+       4.1G |      2.3s / 1.36G+ |       0.0s / 0.21G | 0.01x time, 0.15x mem
+       8.1G |      4.5s / 1.44G+ |       0.0s / 0.21G | 0.01x time, 0.14x mem
+      16.2G |      9.3s / 1.45G+ |       0.1s / 0.21G | 0.01x time, 0.14x mem
+      24.3G |     14.8s / 1.47G+ |       0.1s / 0.21G | 0.01x time, 0.15x mem
+      49.2G |     28.9s / 1.62G+ |       0.3s / 0.22G | 0.01x time, 0.14x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
+
+temporal part (ts.dt.hour() < 1) + payload  [r_temporal]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |      0.6s / 1.20G+ |       0.1s / 0.30G | 0.09x time, 0.25x mem
+       2.0G |      1.2s / 1.23G+ |       0.1s / 0.37G | 0.06x time, 0.30x mem
+       4.1G |      2.2s / 1.27G+ |       0.1s / 0.41G | 0.06x time, 0.32x mem
+       8.1G |      4.4s / 1.28G+ |       0.2s / 0.50G | 0.05x time, 0.39x mem
+      16.2G |      9.3s / 1.28G+ |       0.5s / 0.61G | 0.05x time, 0.48x mem
+      24.3G |     14.0s / 1.31G+ |       0.7s / 0.72G | 0.05x time, 0.55x mem
+      49.2G |     27.8s / 1.49G+ |       1.3s / 0.78G | 0.05x time, 0.52x mem
+  + scan refused the predicate; measured with pushdown disabled, which is the same work
+
+same, with use_scalar_index=False (polars-pylance only)  [r_cat_noindex]
+     source |       polars-lance |     polars-pylance | ratio
+       1.0G |                n/a |       0.1s / 0.22G | 
+       2.0G |                n/a |       0.1s / 0.23G | 
+       4.1G |                n/a |       0.2s / 0.24G | 
+       8.1G |                n/a |       0.3s / 0.26G | 
+      16.2G |                n/a |       0.6s / 0.29G | 
+      24.3G |                n/a |       1.0s / 0.30G | 
+      49.2G |                n/a |       1.8s / 0.30G | 

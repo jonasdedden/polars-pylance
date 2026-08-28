@@ -23,10 +23,16 @@ import pyarrow as pa
 
 PAYLOAD = 512
 CATS = np.array(["a", "b", "c", "d"])
+# One row in RARE_EVERY carries the "-rare" token, so a substring predicate has
+# a selectivity a page-skipping reader can act on.
+RARE_EVERY = 10_000
+EPOCH = np.datetime64("2024-01-01T00:00:00", "us")
 _FIELDS: list[pa.Field[Any]] = [
     pa.field("id", pa.int64()),
     pa.field("cat", pa.string()),
     pa.field("val", pa.float64()),
+    pa.field("text", pa.string()),
+    pa.field("ts", pa.timestamp("us")),
     pa.field("payload", pa.binary(PAYLOAD)),
 ]
 SCHEMA = pa.schema(_FIELDS)
@@ -38,11 +44,21 @@ def batches(rows: int, chunk: int = 100_000, seed: int = 0) -> Iterator[pa.Recor
     for start in range(0, rows, chunk):
         n = min(chunk, rows - start)
         ids = np.arange(start, start + n, dtype=np.int64)
+        # numpy rather than an f-string per row: at the top of the ladder that
+        # is 388M of them.
+        text = np.char.add(
+            np.char.add("row-", np.char.zfill(ids.astype("U9"), 9)),
+            np.where(ids % RARE_EVERY == 0, "-rare", "-common"),
+        )
         yield pa.record_batch(
             [
                 pa.array(ids),
                 pa.array(CATS[ids % 4]),
                 pa.array(rng.random(n)),
+                pa.array(text),
+                pa.array(
+                    EPOCH + ids.astype("timedelta64[s]").astype("timedelta64[us]")
+                ),
                 pa.FixedSizeBinaryArray.from_buffers(
                     pa.binary(PAYLOAD), n, [None, pa.py_buffer(rng.bytes(n * PAYLOAD))]
                 ),
