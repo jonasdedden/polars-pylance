@@ -8,8 +8,7 @@ that into a Lance SQL filter, which is the widest filter language Lance accepts.
 That is why this is a plugin rather than the private
 ``PyLazyFrame.new_from_dataset_object`` hook behind ``scan_delta``. The hook
 offers a predicate Polars has already lowered for PyArrow, and drops everything
-that language cannot say, which is most of it. ``docs/PUSHDOWN.md`` measures the
-difference.
+that language cannot say, which is most of it.
 
 Polars considers the predicate handled once a plugin has been given it, so this
 module makes that true: an exact lowering is left to Lance, and a relaxed one is
