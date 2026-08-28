@@ -89,6 +89,15 @@ path = "src/polars_pylance/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/polars_pylance"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src/polars_pylance",
+    "/tests",
+    # Anchored: a bare `README.md` is a gitignore-style pattern that would also
+    # pull in `bench/README.md`.
+    "/README.md",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [

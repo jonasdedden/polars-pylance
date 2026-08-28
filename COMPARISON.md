@@ -115,7 +115,7 @@ reported upstream rather than dissected here:
 
 ## Write benchmarks
 
-![write: `polars-lance` peak tracks the result, ours stays flat](bench/plots/static/write-scaling.png)
+![write: `polars-lance` peak tracks the result, ours stays flat](bench/plots/static/write-scaling.svg)
 
 | write filtered projection | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
@@ -138,7 +138,7 @@ The **fixed-budget** pass pins memory at 8 GiB with swap
 disabled and grows the data past it, which is the question that decides whether
 a job exists at all:
 
-![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.png)
+![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.svg)
 
 | write, 8 GiB budget | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
@@ -174,7 +174,7 @@ Three of those four are measured with Polars' predicate pushdown turned off on
 the `polars-lance` side, because its scan node refuses the expression outright
 (see [above](#correctness-and-stability-issues-in-polars-lance)).
 
-![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.png)
+![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.svg)
 
 None of these four can be expressed as a PyArrow expression, which is the
 ceiling for `pl.scan_pyarrow_dataset` and for Polars' own `scan_delta` and
@@ -187,7 +187,7 @@ in Polars, so the answer never depends on how much of it Lance understood.
 
 ### Full scan
 
-![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.png)
+![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.svg)
 
 | full scan + payload aggregate | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
@@ -214,7 +214,7 @@ indices on `id` and `val`, BITMAP on `cat` and NGRAM on `text`:
 
 | membership, indexed | substring, indexed |
 | --- | --- |
-| ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.png) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.png) |
+| ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.svg) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.svg) |
 
 `polars-lance` line climbs with the data and `polars-pylance` is flat, which is **186×** on
 membership and **106×** on substring at the top tier.
@@ -224,7 +224,7 @@ itself shows up:
 
 | membership, BTREE | substring, NGRAM |
 | --- | --- |
-| ![is_in with and without a BTREE index](bench/plots/static/index-membership.png) | ![contains with and without an NGRAM index](bench/plots/static/index-substring.png) |
+| ![is_in with and without a BTREE index](bench/plots/static/index-membership.svg) | ![contains with and without an NGRAM index](bench/plots/static/index-substring.svg) |
 
 The indexed lines are flat while the unindexed ones grow, which is the whole
 point of an index and is visible only because the predicate got there.
