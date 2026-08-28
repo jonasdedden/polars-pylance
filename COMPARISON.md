@@ -95,41 +95,26 @@ source, `polars-lance` peaks at **51.22 GiB** against `polars-pylance`'s
 
 ## Correctness and stability issues in `polars-lance`
 
-These are almost certainly easy to fix, and they are reported:
+I ran into a few problems while benchmarking. They look easily fixable, and are
+reported upstream rather than dissected here:
 
-- https://github.com/jorritsandbrink/polars-lance/issues/10
-- https://github.com/jorritsandbrink/polars-lance/issues/11
+- [#10](https://github.com/jorritsandbrink/polars-lance/issues/10): the scanner
+  is `unsendable`, so a scan aborts probabilistically. The benchmark retries
+  three times and `r_proj` still has no result above 2 GiB.
+- [#11](https://github.com/jorritsandbrink/polars-lance/issues/11): predicates
+  containing `is_in`, `is_null`, `is_nan` and friends fail to deserialize,
+  because the linked `polars` crate is behind the Python one. The benchmark
+  retries those with Polars' predicate pushdown disabled, which runs and is the
+  same work, since `polars-lance` pushes no predicate into Lance either way.
 
-They are worth stating because two of them affect the benchmark, and one of them
-affects answers.
+Not reported yet, and the reason `bench/analyse.py` compares answers rather than
+only times: the same mismatch can decode into a *different* operation instead of
+failing, and then the query is silently wrong.
 
-**Expressions do not survive the version boundary.** `polars-lance` links its own
-`polars` crate and re-decodes the predicate that Polars already handed it as a
-`pl.Expr`. Against `polars` 1.44, `is_in`, `is_between`, `is_null`, `abs`,
-`starts_with`, `dt.hour` and `is_nan` fail to decode, and `str.contains` arrives
-as `is_leap_year`. The error escapes its scan node rather than being reported as
-"predicate not applied", so the query dies where the engine could simply have
-filtered afterwards; `register_io_source` provides exactly that path and Polars
-itself takes it when its own decode fails. Nothing about the query is
-inexpressible: the same query runs if Polars' predicate pushdown is turned off,
-which is why the benchmark retries that way rather than recording a failure.
-
-**Two predicates return the wrong answer.** Same cause, no error. On 4M rows:
-
-| predicate | correct | `polars-lance` |
+| predicate, 1000 rows | correct | `polars-lance` 0.5.0 |
 | --- | --- | --- |
-| `-pl.col("id") < -3_999_990` | 9 rows | **0 rows** |
-| `pl.col("val").fill_null(0.0) > 0.9999` | 406 rows | **0 rows** |
-
-A mis-decoded variant that happens to land on a valid operation is silently
-wrong rather than loudly broken. `bench/analyse.py` therefore compares the two
-implementations' answers and prints `DISAGREE` in place of a speed ratio, since
-a ratio between two different answers means nothing.
-
-**The scanner is not `Send`.** A scan can abort with
-`PyLanceScanner is unsendable, but sent to another thread`. It is probabilistic,
-so the benchmark retries three times; even so, `r_proj` failed all three at five
-of the seven tiers and has no result above 2 GiB.
+| `-pl.col("id") < -990` | 9 | **0** |
+| `pl.col("val").fill_null(0.0) > 0.99` | 19 | **1000** |
 
 # Benchmark results
 
@@ -174,25 +159,6 @@ specific to the write path.
 
 ## Read benchmarks
 
-### Full scan: they are faster, we are lighter
-
-![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.png)
-
-| full scan + payload aggregate | `polars-lance` | `polars-pylance` |
-| --- | --- | --- |
-| 1.0 GiB | 0.7 s / 1.14 GiB | 0.7 s / 0.46 GiB |
-| 16.2 GiB | 9.1 s / 1.26 GiB | 10.3 s / 0.58 GiB |
-| 49.2 GiB | 27.1 s / 1.36 GiB | 32.9 s / 0.58 GiB |
-
-`polars-lance` is 1.1–1.2× faster on a full scan at *every* tier. That is the
-per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
-so neither peak grows with the data, but `polars-pylance` holds 0.46 → 0.58 GiB
-while the source grows 49×, against their 1.14 → 1.36 GiB. We run in **0.4×
-their memory** throughout.
-
-When there is no filter, that is the whole story. The rest of this section is
-about what happens when there is one.
-
 ### Predicate pushdown: the filter decides how much gets decoded
 
 `polars-lance` receives the predicate and filters after reading, which is the
@@ -233,11 +199,27 @@ three deliberate exceptions.
 A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.
 
+### Full scan
+
+![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.png)
+
+| full scan + payload aggregate | `polars-lance` | `polars-pylance` |
+| --- | --- | --- |
+| 1.0 GiB | 0.7 s / 1.14 GiB | 0.7 s / 0.46 GiB |
+| 16.2 GiB | 9.1 s / 1.26 GiB | 10.3 s / 0.58 GiB |
+| 49.2 GiB | 27.1 s / 1.36 GiB | 32.9 s / 0.58 GiB |
+
+`polars-lance` is 1.1–1.2× faster on a full scan at *every* tier. That is the
+per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
+so neither peak grows with the data, but `polars-pylance` holds 0.46 → 0.58 GiB
+while the source grows 49×, against their 1.14 → 1.36 GiB. We run in **0.4×
+their memory** throughout.
+
 ### Scalar indices: only reachable if the predicate arrives
 
-An index cannot help a filter that never reaches the scanner, so this comparison
-has a line only on one side. The same queries, after BTREE indices on `id` and
-`val`, BITMAP on `cat` and NGRAM on `text`:
+An index cannot help a filter that never reaches the scanner, so building one
+changes nothing on the `polars-lance` side. The same queries, after BTREE
+indices on `id` and `val`, BITMAP on `cat` and NGRAM on `text`:
 
 | predicate, 49.2 GiB | `polars-lance` | `polars-pylance`, no index | `polars-pylance`, indexed |
 | --- | --- | --- | --- |
@@ -245,13 +227,22 @@ has a line only on one side. The same queries, after BTREE indices on `id` and
 | `text.str.contains("-rare")` | 28.9 s | 1.6 s | **0.3 s** |
 | `val > 0.999` | 0.4 s | 0.9 s | 0.4 s |
 
+| membership, indexed | substring, indexed |
+| --- | --- |
+| ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.png) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.png) |
+
+Their line climbs with the data and ours is flat, which is **186×** on
+membership and **106×** on substring at the top tier.
+
+The same two queries with and without the index, ours only, is where the index
+itself shows up:
+
 | membership, BTREE | substring, NGRAM |
 | --- | --- |
 | ![is_in with and without a BTREE index](bench/plots/static/index-membership.png) | ![contains with and without an NGRAM index](bench/plots/static/index-substring.png) |
 
 The indexed lines are flat while the unindexed ones grow, which is the whole
-point of an index and is visible only because the predicate got there. Against
-`polars-lance` that is **186×** on membership and **106×** at the top tier.
+point of an index and is visible only because the predicate got there.
 
 `ts.dt.hour() < 1` is the control: no index can answer a computed temporal part,
 and it does not move (1.25 s to 1.32 s).
