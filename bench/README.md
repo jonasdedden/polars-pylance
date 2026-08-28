@@ -97,9 +97,11 @@ than left as gaps, so "did not finish" never looks like "was not measured".
 Pages link plotly from the CDN by default; `--offline` writes a sibling
 `plotly.min.js` instead.
 
-`--static` additionally writes PNG and SVG of the selected panels into
-`plots/static/` (needs `kaleido`); those are the ones embedded in
-[`COMPARISON.md`](../COMPARISON.md).
+`--static` additionally writes the selected panels into `plots/static/` (needs
+`kaleido`); those are the ones embedded in
+[`COMPARISON.md`](../COMPARISON.md). `--format` picks the image format and
+defaults to `svg`, which is what is committed; `--format png` writes a 2x raster
+instead, for somewhere that will not take vector.
 
 ### Viewing the interactive pages
 
@@ -113,8 +115,8 @@ one here shows markup. Two ways to actually look at them:
   [htmlpreview.github.io](https://htmlpreview.github.io/), e.g.
   `https://htmlpreview.github.io/?https://github.com/jonasdedden/polars-lance/blob/main/bench/plots/scaling.html`
 
-The static PNGs in `COMPARISON.md` exist precisely because neither of those is a
-click, and the headline results should not need one.
+The static images in `COMPARISON.md` exist precisely because neither of those is
+a click, and the headline results should not need one.
 
 ## Layout
 

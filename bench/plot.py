@@ -497,8 +497,17 @@ def main() -> None:
     ap.add_argument(
         "--static",
         action="store_true",
-        help="also write the FOCUS panels as PNG and SVG for embedding in "
+        help="also write the FOCUS panels as static images for embedding in "
         "COMPARISON.md (needs kaleido)",
+    )
+    ap.add_argument(
+        "--format",
+        choices=("svg", "png"),
+        default="svg",
+        help="format for --static images. svg is the default and is what "
+        "COMPARISON.md embeds: it renders identically on GitHub at roughly an "
+        "eighth of the bytes, and stays crisp at any zoom. png is raster, "
+        "written at 2x, and is not checked in",
     )
     args = ap.parse_args()
     out = args.out or args.results.parent
@@ -525,10 +534,11 @@ def main() -> None:
         static.mkdir(parents=True, exist_ok=True)
 
         def write_static(fig: go.Figure, stem: str) -> None:
-            for ext in ("png", "svg"):
-                path = static / f"{stem}.{ext}"
-                fig.write_image(path, scale=2 if ext == "png" else 1)
-                print(f"wrote {path}")
+            path = static / f"{stem}.{args.format}"
+            # Vector output is resolution-independent, so 2x only buys the
+            # raster format anything.
+            fig.write_image(path, scale=2 if args.format == "png" else 1)
+            print(f"wrote {path}")
 
         for phase, case, stem in FOCUS:
             write_static(focus_figure(data, phase, case), stem)
