@@ -143,14 +143,14 @@ The **fixed-budget** pass pins memory at 8 GiB with swap
 disabled and grows the data past it, which is the question that decides whether
 a job exists at all:
 
+![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.png)
+
 | write, 8 GiB budget | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
 | 4.1 GiB | 6.5 s / 4.67 GiB | 1.4 s / 1.32 GiB |
 | 8.1 GiB | **OOM-killed** | 3.0 s / 1.50 GiB |
 | 24.3 GiB | **OOM-killed** | 12.3 s / 1.57 GiB |
 | 49.2 GiB | **OOM-killed** | 27.8 s / 1.79 GiB |
-
-![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.png)
 
 In 8 GiB, `polars-lance` writes at most ~4 GiB of source. Ours writes 49.2 GiB,
 the largest tier measured, at 1.79 GiB peak, and the ladder stopped before the
@@ -159,36 +159,27 @@ specific to the write path.
 
 ## Read benchmarks
 
-### Predicate pushdown: the filter decides how much gets decoded
+### Predicate pushdown
+
+Four predicates, each in front of the payload column, at 49.2 GiB:
+
+| predicate | `polars-lance` | `polars-pylance` | |
+| --- | --- | --- | --- |
+| `val * 2 > 1.999` | 27.8 s / 1.38 GiB | 0.5 s / 0.46 GiB | **52× faster, 3x lighter** |
+| `id.is_in(200 ids)` | 28.4 s / 2.83 GiB | 0.8 s / 0.24 GiB | **36× faster, 12× lighter** |
+| `ts.dt.hour() < 1` | 27.0 s / 1.45 GiB | 1.3 s / 0.83 GiB | **22× faster, 1.8x lighter** |
+| `text.str.contains("-rare")` | 28.6 s / 1.57 GiB | 1.6 s / 0.32 GiB | **18× faster, 4.9x lighter** |
 
 `polars-lance` receives the predicate and filters after reading, which is the
 acknowledged `TODO`. `polars-pylance` translates the Polars expression into a
 Lance SQL filter, so the scanner evaluates it, skips pages it cannot match, and
 never materialises the 512-byte payload for rows that do not survive.
 
-Four predicates, each in front of the payload column, at 49.2 GiB:
-
-| predicate | `polars-lance` | `polars-pylance` | |
-| --- | --- | --- | --- |
-| `val * 2 > 1.999` | 27.8 s / 1.38 GiB | 0.5 s / 0.46 GiB | **52× faster** |
-| `id.is_in(200 ids)` | 28.4 s / 2.83 GiB | 0.8 s / 0.24 GiB | **36× faster, 12× lighter** |
-| `ts.dt.hour() < 1` | 27.0 s / 1.45 GiB | 1.3 s / 0.83 GiB | **22× faster** |
-| `text.str.contains("-rare")` | 28.6 s / 1.57 GiB | 1.6 s / 0.32 GiB | **18× faster** |
-
 Three of those four are measured with Polars' predicate pushdown turned off on
 the `polars-lance` side, because its scan node refuses the expression outright
-(see [above](#correctness-and-stability-issues-in-polars-lance)). That is a
-generous reading rather than a handicap: it pushes no predicate into Lance
-either way, so it is the same work, and it is what the query would have done had
-the scan degraded instead of raising. `val * 2 > 1.999` runs natively on both
-and is the one to trust most; it is also the widest gap.
+(see [above](#correctness-and-stability-issues-in-polars-lance)).
 
 ![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.png)
-
-The gap widens with the ladder, because their side is a full scan and ours is
-not: `val * 2 > 1.999` goes from 19× at 1 GiB to 52× at 49.2 GiB, and
-`id.is_in(...)` from 15× to 36×. Their runtime tracks the dataset; ours tracks
-the result.
 
 None of these four can be expressed as a PyArrow expression, which is the
 ceiling for `pl.scan_pyarrow_dataset` and for Polars' own `scan_delta` and
@@ -215,7 +206,7 @@ so neither peak grows with the data, but `polars-pylance` holds 0.46 → 0.58 Gi
 while the source grows 49×, against their 1.14 → 1.36 GiB. We run in **0.4×
 their memory** throughout.
 
-### Scalar indices: only reachable if the predicate arrives
+### Scalar indices
 
 An index cannot help a filter that never reaches the scanner, so building one
 changes nothing on the `polars-lance` side. The same queries, after BTREE
@@ -246,60 +237,3 @@ point of an index and is visible only because the predicate got there.
 
 `ts.dt.hour() < 1` is the control: no index can answer a computed temporal part,
 and it does not move (1.25 s to 1.32 s).
-
-### An index is not free
-
-![a BITMAP index on four values, asked for a quarter of the table](bench/plots/static/index-lowcardinality.png)
-
-| `cat == 'a'`, keeps 25% | 1.0 GiB | 16.2 GiB | 49.2 GiB |
-| --- | --- | --- | --- |
-| `polars-lance` | 0.0 s | 0.5 s | 1.4 s |
-| `polars-pylance`, BITMAP index | 0.2 s | 2.5 s | **7.5 s** |
-| `polars-pylance`, `use_scalar_index=False` | 0.1 s | 0.6 s | 1.8 s |
-
-A BITMAP index over four distinct values, asked for a predicate that keeps a
-quarter of the table, produces a row-id list bigger than the scan it replaces
-and is **5.5× slower** than not having it. That is a property of the index
-rather than of the reader, and it is one argument away:
-`LanceScanOptions(use_scalar_index=False)` puts it back to 1.3× their time, in
-0.46× their memory.
-
-The rule it illustrates: pushdown pays when the filter is selective or guards a
-wide column, and an index pays when it is selective. Neither is a free win, and
-this is the case in the matrix that shows the other direction.
-
-### Filtered reads without the payload
-
-| string predicate | selective filter |
-| --- | --- |
-| ![string predicate: memory inverts as data grows](bench/plots/static/string-predicate-scaling.png) | ![selective filter: memory inverts as data grows](bench/plots/static/selective-filter-scaling.png) |
-
-Where the projection is narrow there is nothing to skip, and pushing the filter
-into Lance costs more than it saves: `val > 0.999` is 2.2× slower for us and
-`cat == 'a'` 1.3× slower. The memory story inverts as the data grows, though.
-`polars-lance` climbs 0.14 → 0.73 GiB across the ladder while `polars-pylance`
-holds 0.22 → 0.32 GiB, so at 1 GiB we use 1.6× their memory and at 49.2 GiB we
-use 0.44×. The crossover is around 8 GiB, and the string predicate has the same
-shape.
-
-![50% filter: pushdown wins on time and on memory](bench/plots/static/half-filter-scaling.png)
-
-Halfway between the two is a filter that keeps 50% of the rows and does drag the
-payload along:
-
-| 50% filter + payload aggregate | `polars-lance` | `polars-pylance` | |
-| --- | --- | --- | --- |
-| 4.1 GiB | 2.3 s | 0.8 s | **2.9× faster** |
-| 24.3 GiB | 13.3 s | 4.0 s | **3.3× faster** |
-| 49.2 GiB | 28.3 s | 15.5 s | 1.8× faster |
-
-Lance gets a SQL filter and skips pages; `polars-lance` reads the column and
-filters in Rust afterwards. The advantage narrows at the top tier, where the
-query turns I/O-bound and both implementations wait on the same NVMe.
-
-### Where nothing separates them
-
-`head(10)` stops immediately on both, under 0.02 s at a flat 0.10 GiB for
-`polars-lance` and 0.19 GiB for us, at every tier. `sort().head(10)`
-materialises on both and is OOM-killed on both at 49.2 GiB under the 55 GiB cap,
-which measures the machine rather than either package.
