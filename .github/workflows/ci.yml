@@ -36,7 +36,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       # Strictness and the file list live in `[tool.mypy]`, so this matches what
       # `mypy` does locally.
-      - run: uv run --only-group typing mypy
+      - run: uv run --no-default-groups --group typing mypy
 
   basedpyright:
     name: basedpyright
@@ -49,7 +49,7 @@ jobs:
           cache-suffix: ${{ github.job }}
       # Strictness and the file list live in `[tool.basedpyright]`, so this matches what
       # `basedpyright` does locally.
-      - run: uv run --only-group typing basedpyright
+      - run: uv run --no-default-groups --group typing basedpyright
 
   pytest:
     name: pytest (${{ matrix.python-version }})
