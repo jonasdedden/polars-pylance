@@ -46,7 +46,7 @@ import pyarrow as pa
 import pyarrow.fs as pafs
 
 from ._sink import (
-    _dataset_exists,
+    _dataset_exists,  # pyright: ignore[reportPrivateUsage]
     commit_lance_fragments,
     fragment_write_mode,
 )
@@ -445,7 +445,9 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
         return schema
     if isinstance(schema, pl.LazyFrame):
         return schema.collect_schema().to_arrow()
-    if isinstance(schema, pl.Schema):
+    # The last branch is unreachable for a caller who obeys the signature, and
+    # is the whole point for one who does not.
+    if isinstance(schema, pl.Schema):  # pyright: ignore[reportUnnecessaryIsInstance]
         return schema.to_arrow()
     msg = (
         "schema must be a pyarrow.Schema, polars.Schema or LazyFrame, "

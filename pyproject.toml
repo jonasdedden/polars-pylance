@@ -197,19 +197,27 @@ include = ["src", "tests"]
 
 typeCheckingMode = "strict"
 
-# Strict, minus the families that report a dependency's typing rather than this
-# code. `lance` and `polars` annotate their own returns loosely, so the
-# `reportUnknown*` family fires on every value that crosses either boundary.
+# Makes a `# pyright: ignore[...]` that has stopped being needed an error, so
+# the suppressions below expire on their own when the typing they work around
+# improves. Also covers the handful of mypy `# type: ignore` comments.
+reportUnnecessaryTypeIgnoreComment = "error"
+
+# Strict, minus the one family that reports a dependency's typing rather than
+# this code: `lance` and `polars` annotate their own returns loosely, so
+# `reportUnknown*` fires on every value that crosses either boundary. That is
+# 95 lines, almost all of them a bare call into one of the two, which is why
+# this is a switch rather than 95 comments. To find out whether an upgrade has
+# fixed it, comment these four out and run basedpyright.
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownLambdaType = false
-# `dtype in (pl.Float32, pl.Float64)` compares a `DataType` against the class
-# objects, which polars' own `__eq__` supports and its annotations do not.
-reportUnnecessaryContains = false
-# The tests reach into `_scan` and `_Lowering` on purpose, and `_remote`
-# shares `_dataset_exists` with `_sink`.
-reportPrivateUsage = false
-# Both remaining sites are the deliberate runtime check behind a signature an
-# untyped caller can still get wrong.
-reportUnnecessaryIsInstance = false
+
+# Everything else that strict reports is suppressed where it happens:
+# `# pyright: ignore[reportPrivateUsage]` in `_remote.py`,
+# `# pyright: ignore[reportUnnecessaryIsInstance]` in `_as_arrow_schema`.
+
+# The tests reach into `_scan`, `_Lowering` and `_Decline` on purpose.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = "none"

@@ -400,7 +400,7 @@ class _Lowering:
             rendered = [_scalar(v, values.dtype) for v in values]
         except _Decline:
             return None, False
-        if values.dtype in (pl.Float32, pl.Float64):
+        if isinstance(values.dtype, (pl.Float32, pl.Float64)):
             column = column.as_double()
         return f"({column.sql} IN ({', '.join(rendered)}))", True
 
@@ -481,7 +481,7 @@ class _Lowering:
         """Whether `name` is already a float column, so a promotion is a no-op."""
         if self.schema is None or not isinstance(name, str):
             return False
-        return self.schema.get(name) in (pl.Float32, pl.Float64)
+        return isinstance(self.schema.get(name), (pl.Float32, pl.Float64))
 
     def _is_text(self, name: Json) -> bool:
         """Whether `name` is a text column, so a `+` on it means concatenation."""
@@ -839,8 +839,8 @@ def _literal(node: Json) -> _Value:
     dtype = series.dtype
     return _Value(
         _scalar(series.item(), dtype),
-        is_float_literal=dtype in (pl.Float32, pl.Float64),
-        is_string=dtype == pl.String or isinstance(dtype, (pl.Categorical, pl.Enum)),
+        is_float_literal=isinstance(dtype, (pl.Float32, pl.Float64)),
+        is_string=isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)),
     )
 
 
@@ -866,24 +866,25 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         return "NULL"
     if dtype == pl.Boolean:
         return "TRUE" if value else "FALSE"
-    if dtype in (pl.String, pl.Categorical) or isinstance(
-        dtype, (pl.Enum, pl.Categorical)
-    ):
+    if isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)):
         return _string_literal(str(value))
-    if dtype in (
-        pl.Int8,
-        pl.Int16,
-        pl.Int32,
-        pl.Int64,
-        pl.UInt8,
-        pl.UInt16,
-        pl.UInt32,
-        pl.UInt64,
+    if isinstance(
+        dtype,
+        (
+            pl.Int8,
+            pl.Int16,
+            pl.Int32,
+            pl.Int64,
+            pl.UInt8,
+            pl.UInt16,
+            pl.UInt32,
+            pl.UInt64,
+        ),
     ):
         if not isinstance(value, (int, float)):
             raise _Decline
         return str(int(value))
-    if dtype in (pl.Float32, pl.Float64):
+    if isinstance(dtype, (pl.Float32, pl.Float64)):
         if not isinstance(value, (int, float)):
             raise _Decline
         number = float(value)
