@@ -764,21 +764,11 @@ def _field(body: dict[str, Json], name: str) -> Json:
     return body[name]
 
 
-def _tag(value: Json) -> str:
-    """A name the IR uses as a tag: an operator, a dtype, a function."""
-    if not isinstance(value, str):
-        raise _Decline
-    return value
-
-
 def _unpack(node: Json) -> tuple[str, Json]:
     """Split a single-key IR node into its tag and body."""
     if not isinstance(node, dict) or len(node) != 1:
         raise _Decline
-    kind, body = next(iter(node.items()))
-    if not isinstance(kind, str):
-        raise _Decline
-    return kind, body
+    return next(iter(node.items()))
 
 
 def _function(node: Json) -> tuple[tuple[str, ...], Json]:
