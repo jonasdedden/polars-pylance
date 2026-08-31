@@ -10,8 +10,6 @@ name = "polars-pylance"
 dynamic = ["version"]
 description = "Lazy, streaming Lance <-> Polars integration: scan_lance() and sink_lance()"
 readme = "README.md"
-# The distribution name carries the token `pylance`, not `lance`, so these keep
-# a bare `lance` in the metadata PyPI searches.
 keywords = ["polars", "lance", "arrow", "lazyframe", "streaming"]
 requires-python = ">=3.10"
 authors = [{ name = "Jonas Dedden" }]
@@ -36,8 +34,7 @@ classifiers = [
 dependencies = [
     # 1.44.0 was the first release without the unevaluable `dynamic_pred`
     # node pushed to IO plugins (broken 1.39.0-1.43.2), which is the hook
-    # `scan_lance` is built on -- but it was yanked for a when/then/otherwise
-    # regression, and 1.44.1 is also the first release to annotate
+    # `scan_lance` is built on. 1.44.1 is also the first release to annotate
     # `collect_batches` as what it returns, which `sink_lance` relies on.
     "polars>=1.44.1",
     "pylance>=9",
@@ -59,17 +56,11 @@ test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
 # stub package, and without it every pyarrow symbol degrades to `Any`.
 typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
-# Locked rather than run through `uvx`: every rule ruff has is selected, so a
-# release that adds one would otherwise fail CI on an unrelated branch. Pinned
-# here, an upgrade arrives as a version bump to review.
+# Pinned here because "ALL" rules.
 lint = ["ruff>=0.16.5"]
 # Only for `bench/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
-# `dev` is installed by default by `uv run` and `uv sync`, so a bare
-# `uv run pytest`, `uv run mypy` or `uv run ruff` needs no flags. mypy and
-# basedpyright both check `tests/`, which imports pytest, so those two groups
-# are not separable in practice -- hence one `dev` that pulls them all in.
 dev = [
     { include-group = "test" },
     { include-group = "typing" },
@@ -82,8 +73,6 @@ source = "uv-dynamic-versioning"
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
-# Builds without git metadata -- from an unpacked sdist, or Dependabot's
-# `uv lock --upgrade-package` -- would otherwise fail outright.
 fallback-version = "0.0.0"
 
 # Writes the resolved version into the package so `__version__` never drifts.
@@ -114,23 +103,17 @@ filterwarnings = [
     "error",
     # `register_io_source` (scan_lance), `collect_batches` (sink_lance) and
     # `sink_batches` (the Polars Cloud write) all still carry polars'
-    # `@unstable()` in 1.44.1. Building on them is the point of this package,
-    # not something to warn about. Only fires under `warn_unstable`, off by
-    # default, so this is a safety net for anyone who turns it on rather than
-    # something the suite hits.
+    # `@unstable()` in 1.44.1.
     "ignore::polars.exceptions.UnstableWarning",
 ]
 
 [tool.ruff]
-# `line-length` is ruff's own default of 88.
 src = ["src", "tests", "bench"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    # ruff warns that this one conflicts with its own formatter. Satisfying it
-    # adds trailing commas that the magic trailing comma then expands: 358
-    # lines the formatter immediately wants back.
+    # ruff warns that this one conflicts with its own formatter.
     "COM812",
     # The licence is declared once, in project metadata, not per file.
     "CPY001",
@@ -138,8 +121,8 @@ ignore = [
     # would otherwise pick anyway, named so it stops warning about the clash.
     "D203",
     "D213",
-    # Docstring summaries here are noun phrases -- "The path a filesystem
-    # expects", not "Return the path" -- consistently, on purpose.
+    # Docstring summaries here are noun phrases such as "The path a filesystem
+    # expects", not "Return the path"; consistently, on purpose.
     "D401",
     # `_Decline` and `_FilterRejected` are control-flow signals, and read
     # better without the suffix N818 wants.
@@ -216,10 +199,6 @@ reportUnknownMemberType = false
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownLambdaType = false
-
-# Everything else that strict reports is suppressed where it happens:
-# `# pyright: ignore[reportPrivateUsage]` in `_remote.py`,
-# `# pyright: ignore[reportUnnecessaryIsInstance]` in `_as_arrow_schema`.
 
 # The tests reach into `_scan`, `_Lowering` and `_Decline` on purpose.
 [[tool.basedpyright.executionEnvironments]]

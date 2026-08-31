@@ -20,10 +20,6 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: ${{ github.job }}
-      # `uv run` rather than `uvx`, so this is the ruff in `uv.lock`: with
-      # every rule selected, an unpinned ruff would fail the day it ships a
-      # new one. `--only-group lint` keeps the job to just ruff.
-      # `--output-format=github` turns findings into inline annotations.
       - name: lint
         run: uv run --only-group lint ruff check --output-format=github .
       - name: format
@@ -39,10 +35,8 @@ jobs:
           enable-cache: true
           cache-suffix: ${{ github.job }}
       # Strictness and the file list live in `[tool.mypy]`, so this matches what
-      # `mypy` does locally. Covers src and tests; `bench/` is checked by ruff
-      # only. The `dev` group is installed by default, which is where mypy and
-      # the stubs come from.
-      - run: uv run mypy
+      # `mypy` does locally.
+      - run: uv run --only-group typing mypy
 
   basedpyright:
     name: basedpyright
@@ -53,9 +47,9 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: ${{ github.job }}
-      # Run through `uv run` rather than `uvx` so basedpyright resolves imports
-      # against the project's environment instead of a bare interpreter.
-      - run: uv run basedpyright
+      # Strictness and the file list live in `[tool.basedpyright]`, so this matches what
+      # `basedpyright` does locally.
+      - run: uv run --only-group typing basedpyright
 
   pytest:
     name: pytest (${{ matrix.python-version }})
@@ -70,10 +64,8 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: ${{ github.job }}-${{ matrix.python-version }}
-      # `-m "not cloud"` deselects the Polars Cloud write path. Those tests pass
-      # on their own, but polars-cloud pins `polars==1.43.2` -- below this
-      # package's floor -- so the dependency it exercises cannot be installed
-      # here. Drop the flag once a polars-cloud release tracks polars 1.44.
+      # `-m "not cloud"` deselects the Polars Cloud write path. Drop the flag
+      # once a polars-cloud release tracks polars 1.44.
       # Only the `test` group: the type checkers are irrelevant here, and this
       # job installs five times over.
       - run: uv run --python ${{ matrix.python-version }} --no-default-groups --group test pytest -q -m "not cloud"
