@@ -15,6 +15,7 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
+from conftest import ScannerCall
 from polars_pylance import scan_lance
 
 DIM = 16
@@ -105,7 +106,7 @@ def test_full_text_query_matches_indexed_terms(tmp_path: Path) -> None:
 
 
 def test_limit_is_pushed_into_the_scan(
-    tmp_path: Path, scanner_calls: list[dict[str, object]]
+    tmp_path: Path, scanner_calls: list[ScannerCall]
 ) -> None:
     """`head()` stops the scan rather than reading to the end.
 
@@ -120,6 +121,6 @@ def test_limit_is_pushed_into_the_scan(
     out = scan_lance(uri).head(7).collect(engine="streaming")
 
     assert out.height == 7
-    assert any(call.get("limit") == 7 for call in scanner_calls), (
+    assert any(call.limit == 7 for call in scanner_calls), (
         f"no scanner call carried the row limit: {scanner_calls}"
     )

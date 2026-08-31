@@ -16,7 +16,6 @@ from __future__ import annotations
 import io
 import pickle
 import warnings
-from typing import Any, cast
 
 import lance
 import numpy as np
@@ -24,6 +23,7 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
+from conftest import ScannerCall
 from polars_pylance import LanceScanSpec, scan_lance
 
 DIM = 32
@@ -36,18 +36,29 @@ def _search(
     query: list[float],
     *,
     prefilter: str | pl.Expr | None = None,
-    **search: Any,
+    metric: str | None = None,
+    nprobes: int | None = None,
+    use_index: bool | None = None,
 ) -> pl.LazyFrame:
     """A k-nearest `scan_lance`, with the `nearest` dict lifted out of the tests.
 
-    Extra keyword arguments are search tuning and go into that dict, so this
-    stays as wide as Lance's own `nearest`.
+    The search tuning is spelled out rather than forwarded as `**kwargs`, so a
+    misspelled knob is a type error here instead of a key Lance ignores.
     """
-    return scan_lance(
-        uri,
-        nearest={"column": "vector", "q": query, "k": K, **search},
-        prefilter=prefilter,
-    )
+    # `scan_lance` takes `nearest` as a `dict[str, Any]`; spelling the values
+    # out keeps this side of the call checked.
+    nearest: dict[str, str | int | list[float]] = {
+        "column": "vector",
+        "q": query,
+        "k": K,
+    }
+    if metric is not None:
+        nearest["metric"] = metric
+    if nprobes is not None:
+        nearest["nprobes"] = nprobes
+    if use_index is not None:
+        nearest["use_index"] = use_index
+    return scan_lance(uri, nearest=nearest, prefilter=prefilter)
 
 
 @pytest.fixture(scope="session")
@@ -94,7 +105,11 @@ def prefiltered_ids(split_uri: tuple[str, list[float]]) -> list[int]:
         prefilter=True,
         columns=["id"],
     )
-    return cast("list[int]", scanner.to_table()["id"].to_pylist())
+    ids: list[int] = []
+    for value in scanner.to_table()["id"].to_pylist():
+        assert isinstance(value, int)
+        ids.append(value)
+    return ids
 
 
 # -- the two semantics ------------------------------------------------------
@@ -162,21 +177,21 @@ def test_prefilter_composes_with_a_downstream_filter(
 
 
 def test_prefilter_reaches_lance_as_prefilter(
-    split_uri: tuple[str, list[float]], scanner_calls: list[dict[str, Any]]
+    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
 ) -> None:
     uri, query = split_uri
     _search(uri, query, prefilter="cat = 'far'").select("id").collect(
         engine="streaming"
     )
 
-    pushed = [c for c in scanner_calls if c.get("filter") is not None]
+    pushed = [c for c in scanner_calls if c.filter is not None]
     assert pushed, f"no filter reached Lance: {scanner_calls}"
-    assert all(c["filter"] == "cat = 'far'" for c in pushed)
-    assert all(c.get("prefilter") is True for c in pushed)
+    assert all(c.filter == "cat = 'far'" for c in pushed)
+    assert all(c.prefilter is True for c in pushed)
 
 
 def test_downstream_filter_is_never_pushed_as_a_prefilter(
-    split_uri: tuple[str, list[float]], scanner_calls: list[dict[str, Any]]
+    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
 ) -> None:
     """The guarantee this module exists for, pinned at the Lance call.
 
@@ -191,7 +206,7 @@ def test_downstream_filter_is_never_pushed_as_a_prefilter(
         .select("id")
         .collect(engine="streaming")
     )
-    assert not any(c.get("prefilter") for c in scanner_calls), (
+    assert not any(c.prefilter for c in scanner_calls), (
         f"a downstream filter was pushed as a prefilter: {scanner_calls}"
     )
 
@@ -221,7 +236,7 @@ def test_prefilter_polars_expression_must_lower_exactly(
 
 
 def test_prefilter_expression_is_rejected_before_any_read(
-    split_uri: tuple[str, list[float]], scanner_calls: list[dict[str, Any]]
+    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
 ) -> None:
     """The refusal lands at the call site, not deep in a collect."""
     uri, query = split_uri
@@ -314,7 +329,7 @@ def test_prefilter_without_a_search_restricts_the_scan(
 
 
 def test_search_tuning_survives_a_prefilter(
-    split_uri: tuple[str, list[float]], scanner_calls: list[dict[str, Any]]
+    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
 ) -> None:
     """Search tuning and the prefilter reach Lance side by side, untouched."""
     uri, query = split_uri
@@ -327,16 +342,17 @@ def test_search_tuning_survives_a_prefilter(
         prefilter="cat = 'far'",
     ).select("id").collect(engine="streaming")
 
-    pushed = [c for c in scanner_calls if c.get("nearest")]
+    pushed = [c for c in scanner_calls if c.nearest is not None]
     assert pushed, f"no nearest reached Lance: {scanner_calls}"
-    nearest = pushed[-1]["nearest"]
-    assert nearest["column"] == "vector"
-    assert nearest["k"] == K
-    assert nearest["metric"] == "cosine"
-    assert nearest["nprobes"] == 4
-    assert nearest["use_index"] is False
-    assert pushed[-1]["filter"] == "cat = 'far'"
-    assert pushed[-1]["prefilter"] is True
+    nearest = pushed[-1].nearest
+    assert nearest is not None
+    assert nearest.column == "vector"
+    assert nearest.k == K
+    assert nearest.metric == "cosine"
+    assert nearest.nprobes == 4
+    assert nearest.use_index is False
+    assert pushed[-1].filter == "cat = 'far'"
+    assert pushed[-1].prefilter is True
 
 
 # -- it still ships ---------------------------------------------------------

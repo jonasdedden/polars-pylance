@@ -7,22 +7,21 @@ the other direction a filter pushed so far that rows go missing.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from pathlib import Path
 
 import lance
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
+from conftest import ScannerCall, spy_on_scanner
 from polars_pylance import scan_lance
 from polars_pylance._predicate import LanceFilter
 
 
-def _scan_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _scan_calls(calls: list[ScannerCall]) -> list[ScannerCall]:
     """Drop the schema-probing call, which projects nothing and filters nothing."""
-    return [
-        c for c in calls if c.get("columns") is not None or c.get("filter") is not None
-    ]
+    return [c for c in calls if c.columns is not None or c.filter is not None]
 
 
 # ---------------------------------------------------------------------------
@@ -31,16 +30,18 @@ def _scan_calls(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def test_projection_reaches_lance(
-    lance_uri: str, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
     scan_lance(lance_uri).select("id", "val").collect(engine="streaming")
     calls = _scan_calls(scanner_calls)
     assert calls, "no projected scan reached Lance"
-    assert all(set(c["columns"]) <= {"id", "val"} for c in calls)
+    for call in calls:
+        assert call.columns is not None
+        assert set(call.columns) <= {"id", "val"}
 
 
 def test_filter_columns_are_read_but_not_returned(
-    lance_uri: str, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
     got = (
         scan_lance(lance_uri)
@@ -49,18 +50,20 @@ def test_filter_columns_are_read_but_not_returned(
         .collect(engine="streaming")
     )
     assert got.columns == ["id"]
-    assert all("payload" not in c["columns"] for c in _scan_calls(scanner_calls))
+    for call in _scan_calls(scanner_calls):
+        assert call.columns is not None
+        assert "payload" not in call.columns
 
 
 def test_limit_reaches_lance_without_filter(
-    lance_uri: str, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
     scan_lance(lance_uri).select("id").head(5).collect(engine="streaming")
-    assert 5 in [c.get("limit") for c in _scan_calls(scanner_calls)]
+    assert 5 in [c.limit for c in _scan_calls(scanner_calls)]
 
 
 def test_limit_is_not_pushed_past_an_unapplied_filter(
-    lance_uri: str, expected: pl.DataFrame, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, expected: pl.DataFrame, scanner_calls: list[ScannerCall]
 ) -> None:
     """A pushed limit with a filter still to come would truncate early.
 
@@ -77,13 +80,13 @@ def test_limit_is_not_pushed_past_an_unapplied_filter(
     want = expected.filter(pl.col("cat") == "d").sort("id").head(3)
     assert got["id"].to_list() == want["id"].to_list()
     for call in _scan_calls(scanner_calls):
-        assert not (call.get("limit") and call.get("filter") is None), (
+        assert not (call.limit and call.filter is None), (
             "limit pushed into Lance while the filter was handled downstream"
         )
 
 
 def test_scan_options_reach_lance(
-    lance_uri: str, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
     from polars_pylance import LanceScanOptions
 
@@ -91,20 +94,20 @@ def test_scan_options_reach_lance(
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
     calls = _scan_calls(scanner_calls)
     assert calls
-    assert all(c["io_buffer_size"] == 8 * 1024 * 1024 for c in calls)
+    assert all(c.io_buffer_size == 8 * 1024 * 1024 for c in calls)
     # The option beats the engine's batch-size hint, which is sized in rows with
     # no idea how wide they are.
-    assert all(c["batch_size"] == 1_234 for c in calls)
+    assert all(c.batch_size == 1_234 for c in calls)
 
 
 def test_the_engine_batch_size_hint_is_used_when_no_option_asks_otherwise(
-    lance_uri: str, scanner_calls: list[dict[str, Any]]
+    lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
     from polars_pylance import LanceScanOptions
 
     options = LanceScanOptions(batch_size=None)
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
-    sizes = {c.get("batch_size") for c in _scan_calls(scanner_calls)}
+    sizes = {c.batch_size for c in _scan_calls(scanner_calls)}
     assert sizes and None not in sizes
 
 
@@ -361,7 +364,7 @@ def test_head_after_a_residual_filter_counts_surviving_rows(
 
 
 def test_an_indexed_column_keeps_its_index(
-    tmp_path: Any, rich_frame: pl.DataFrame
+    tmp_path: Path, rich_frame: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A `CAST` around an indexed column costs the index, so it must not appear."""
     uri = str(tmp_path / "indexed.lance")
@@ -369,24 +372,21 @@ def test_an_indexed_column_keeps_its_index(
     dataset = lance.dataset(uri)
     dataset.create_scalar_index("val", index_type="BTREE")
 
+    # Recording starts here, rather than at fixture time, so building the index
+    # above does not count as a pushed-down filter.
     filters: list[str] = []
-    original = lance.LanceDataset.scanner
 
-    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("filter") is not None:
-            filters.append(kwargs["filter"])
-        return original(self, *args, **kwargs)
+    def record(call: ScannerCall) -> None:
+        if call.filter is not None:
+            filters.append(call.filter)
 
-    lance.LanceDataset.scanner = spy  # type: ignore[method-assign]
-    try:
-        got = (
-            scan_lance(uri)
-            .filter(pl.col("val") > 0.999)
-            .select(pl.len())
-            .collect(engine="streaming")
-        )
-    finally:
-        lance.LanceDataset.scanner = original  # type: ignore[method-assign]
+    spy_on_scanner(monkeypatch, record)
+    got = (
+        scan_lance(uri)
+        .filter(pl.col("val") > 0.999)
+        .select(pl.len())
+        .collect(engine="streaming")
+    )
 
     assert filters == ["(`val` > 0.999)"]
     assert got.item() == rich_frame.filter(pl.col("val") > 0.999).height
