@@ -71,8 +71,7 @@ def _log_ticks(
     decade = math.floor(math.log10(lo))
     vals: list[float] = []
     while decade <= math.ceil(math.log10(hi)):
-        for mant in (1, 2, 5):
-            vals.append(mant * 10.0**decade)
+        vals.extend(mant * 10.0**decade for mant in (1, 2, 5))
         decade += 1
     vals = [v for v in vals if lo / 2.5 <= v <= hi * 2.5]
 
@@ -124,7 +123,7 @@ def grid(rows_of_data: list[dict[str, Any]], phase: str) -> go.Figure:
         vertical_spacing=0.10,
     )
 
-    METRICS = (
+    metrics = (
         ("seconds", "runtime (s)", "solid", "circle", False),
         ("peak_gib", "peak RSS (GiB)", "dot", "diamond", True),
     )
@@ -149,7 +148,7 @@ def grid(rows_of_data: list[dict[str, Any]], phase: str) -> go.Figure:
                 key=lambda r: r["rows"],
             )
             ok = [pt for pt in pts if pt["status"] == "ok"]
-            for key, label, dash, symbol, secondary in METRICS:
+            for key, label, dash, symbol, secondary in metrics:
                 if not ok:
                     continue
                 fig.add_trace(
@@ -427,7 +426,7 @@ def ratio_figure(rows_of_data: list[dict[str, Any]]) -> go.Figure:
     )
     for col, key in ((1, "seconds"), (2, "peak_gib")):
         all_ratios: list[float] = []
-        for case in CASES:
+        for case, label in CASES.items():
             pairs = []
             for n in sorted({r["rows"] for r in rows_of_data if r["case"] == case}):
                 d = {
@@ -448,10 +447,10 @@ def ratio_figure(rows_of_data: list[dict[str, Any]]) -> go.Figure:
                     x=[p[0] for p in pairs],
                     y=[p[1] for p in pairs],
                     mode="lines+markers",
-                    name=CASES[case],
+                    name=label,
                     legendgroup=case,
                     showlegend=(col == 1),
-                    hovertemplate=f"<b>{CASES[case]}</b><br>%{{x:.1f}} GiB<br>"
+                    hovertemplate=f"<b>{label}</b><br>%{{x:.1f}} GiB<br>"
                     f"ratio %{{y:.2f}}x<extra></extra>",
                 ),
                 row=1,
@@ -517,9 +516,9 @@ def main() -> None:
     seen = {str(r["phase"]) for r in data if r.get("phase")}
     phases = [p for p in PHASES if p in seen] + sorted(seen - set(PHASES))
 
-    pages: list[tuple[str, go.Figure]] = []
-    for phase in phases:
-        pages.append((f"{phase}.html", grid(data, phase)))
+    pages: list[tuple[str, go.Figure]] = [
+        (f"{phase}.html", grid(data, phase)) for phase in phases
+    ]
     pages.append(("ratios.html", ratio_figure(data)))
 
     for name, fig in pages:

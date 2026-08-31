@@ -10,8 +10,6 @@ name = "polars-pylance"
 dynamic = ["version"]
 description = "Lazy, streaming Lance <-> Polars integration: scan_lance() and sink_lance()"
 readme = "README.md"
-# The distribution name carries the token `pylance`, not `lance`, so these keep
-# a bare `lance` in the metadata PyPI searches.
 keywords = ["polars", "lance", "arrow", "lazyframe", "streaming"]
 requires-python = ">=3.10"
 authors = [{ name = "Jonas Dedden" }]
@@ -34,10 +32,11 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # 1.44.0 is the floor because it is the first release without the
-    # unevaluable `dynamic_pred` node pushed to IO plugins (broken
-    # 1.39.0-1.43.2), which is the hook `scan_lance` is built on.
-    "polars>=1.44.0",
+    # 1.44.0 was the first release without the unevaluable `dynamic_pred`
+    # node pushed to IO plugins (broken 1.39.0-1.43.2), which is the hook
+    # `scan_lance` is built on. 1.44.1 is also the first release to annotate
+    # `collect_batches` as what it returns, which `sink_lance` relies on.
+    "polars>=1.44.1",
     "pylance>=9",
     "pyarrow",
 ]
@@ -49,27 +48,29 @@ Issues = "https://github.com/jonasdedden/polars-pylance/issues"
 Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
 Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md"
 
-# Uncomment once polars-cloud allows polars 1.44.0. It pins `polars==1.43.2`
-# today, which makes `uv lock` fail outright rather than just the extra.
-# [project.optional-dependencies]
-# cloud = ["polars-cloud>=0.10"]
-
 [dependency-groups]
 # cloudpickle is what polars uses to serialize a callback sink into a cloud
 # plan. It normally arrives with polars-cloud; listed here so the remote-write
 # tests still run without it.
 test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
-# stub package, and without it every pyarrow symbol degrades to `Any`.
-typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
+# stub package. `test` included because `tests/`'s type checking depends on it.
+typing = [
+    "mypy>=1.11",
+    "basedpyright>=1.20",
+    "pyarrow-stubs>=20",
+    { include-group = "test" },
+]
+# Pinned here because "ALL" rules.
+lint = ["ruff>=0.16.5"]
 # Only for `bench/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
-# `dev` is installed by default by `uv run` and `uv sync`, so a bare
-# `uv run pytest` or `uv run mypy` needs no flags. mypy and basedpyright both
-# check `tests/`, which imports pytest, so the two groups are not separable in
-# practice -- hence one `dev` that pulls in both.
-dev = [{ include-group = "test" }, { include-group = "typing" }]
+dev = [
+    { include-group = "test" },
+    { include-group = "typing" },
+    { include-group = "lint" },
+]
 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
@@ -77,8 +78,6 @@ source = "uv-dynamic-versioning"
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
-# Builds without git metadata -- from an unpacked sdist, or Dependabot's
-# `uv lock --upgrade-package` -- would otherwise fail outright.
 fallback-version = "0.0.0"
 
 # Writes the resolved version into the package so `__version__` never drifts.
@@ -105,20 +104,81 @@ markers = [
     "cloud: exercises the Polars Cloud write path",
 ]
 filterwarnings = [
-    # scan_lance and sink_lance are built on polars APIs marked unstable; that is
-    # a documented property of this package, not something to be warned about.
+    # The suite raises no warning today, so a new one is a finding.
+    "error",
+    # `register_io_source` (scan_lance), `collect_batches` (sink_lance) and
+    # `sink_batches` (the Polars Cloud write) all still carry polars'
+    # `@unstable()` in 1.44.1.
     "ignore::polars.exceptions.UnstableWarning",
 ]
 
 [tool.ruff]
-line-length = 88
 src = ["src", "tests", "bench"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = ["ALL"]
+ignore = [
+    # ruff warns that this one conflicts with its own formatter.
+    "COM812",
+    # The licence is declared once, in project metadata, not per file.
+    "CPY001",
+    # Each of these pairs is mutually exclusive; these are the halves ruff
+    # would otherwise pick anyway, named so it stops warning about the clash.
+    "D203",
+    "D213",
+    # Docstring summaries here are noun phrases such as "The path a filesystem
+    # expects", not "Return the path"; consistently, on purpose.
+    "D401",
+    # `_Decline` and `_FilterRejected` are control-flow signals, and read
+    # better without the suffix N818 wants.
+    "N818",
+    # Imports are deferred in a few places to keep import cost off the module
+    # path; each one says why where it sits.
+    "PLC0415",
+    # `scan_lance`, `sink_lance` and friends take many keyword options because
+    # Lance does. Splitting them up would be worse.
+    "PLR0913",
+    "PLR0917",
+    # `assert` is how this codebase narrows a type the checker cannot, and it
+    # is what the tests are built out of.
+    "S101",
+]
 
 [tool.ruff.lint.per-file-ignores]
-"bench/*" = ["T201"]
+# The tests are built out of `assert`, literal comparisons and fixtures that
+# are requested for their side effects; and pytest collects them by name, so
+# the docstring rules for public callables do not apply.
+"tests/*" = [
+    "A002",
+    "ARG005",
+    "D100",
+    "D103",
+    "DTZ001",
+    "FBT003",
+    "PLR2004",
+    "PLW0177",
+    "S301",
+    "S311",
+]
+# Benchmark scripts: they print, they shell out, and they are run by path
+# rather than imported.
+"bench/*" = [
+    "ANN401",
+    "BLE001",
+    "D103",
+    "INP001",
+    "PLR2004",
+    "PLW0603",
+    "S110",
+    "S603",
+    "T201",
+]
+# `filter` is the argument name Lance's own `scanner()` uses; renaming it here
+# would make the passthrough read worse.
+"src/polars_pylance/_scan.py" = ["A002"]
+# The lowering is one dispatch chain per IR position, so it is all returns and
+# branches, and `len(args) != 2` is clearer than a named constant.
+"src/polars_pylance/_predicate.py" = ["C901", "PLR0911", "PLR0912", "PLR2004"]
 
 [tool.mypy]
 strict = true
@@ -127,7 +187,25 @@ files = ["src", "tests"]
 [tool.basedpyright]
 include = ["src", "tests"]
 
-# "standard" rather than basedpyright's stricter default: the `reportAny` and
-# `reportUnknown*` families fire on every value that passes through pyarrow,
-# which has no stubs, so they report the dependency rather than this code.
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
+
+# Makes a `# pyright: ignore[...]` that has stopped being needed an error, so
+# the suppressions below expire on their own when the typing they work around
+# improves. Also covers the handful of mypy `# type: ignore` comments.
+reportUnnecessaryTypeIgnoreComment = "error"
+
+# Strict, minus the one family that reports a dependency's typing rather than
+# this code: `lance` and `polars` annotate their own returns loosely, so
+# `reportUnknown*` fires on every value that crosses either boundary. That is
+# 95 lines, almost all of them a bare call into one of the two, which is why
+# this is a switch rather than 95 comments. To find out whether an upgrade has
+# fixed it, comment these four out and run basedpyright.
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+
+# The tests reach into `_scan`, `_Lowering` and `_Decline` on purpose.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = "none"

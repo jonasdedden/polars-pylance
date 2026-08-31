@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import pickle
 import warnings
+from typing import TYPE_CHECKING
 
 import lance
 import numpy as np
@@ -23,8 +24,10 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
-from conftest import ScannerCall
 from polars_pylance import LanceScanSpec, scan_lance
+
+if TYPE_CHECKING:
+    from conftest import ScannerCall
 
 DIM = 32
 ROWS = 2_000
@@ -118,7 +121,7 @@ def prefiltered_ids(split_uri: tuple[str, list[float]]) -> list[int]:
 def test_prefilter_ranks_only_the_rows_it_admits(
     split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
 ) -> None:
-    """k rows come back, all of them matching, ranked among themselves."""
+    """Exactly k rows come back, all matching, ranked among themselves."""
     uri, query = split_uri
     out = (
         _search(uri, query, prefilter="cat = 'far'")

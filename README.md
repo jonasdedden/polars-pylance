@@ -5,8 +5,7 @@ Lazy, streaming [Lance](https://lance.org) ↔ [Polars](https://pola.rs) integra
 `scan_lance()` returns a real `LazyFrame`: the Polars optimizer pushes column
 projections, filters and row limits down into Lance, and batches are pulled only
 as the streaming engine consumes them. `sink_lance()` writes a query into Lance
-batch by batch. Neither direction holds the dataset -- or a whole fragment -- in
-memory.
+batch by batch. Neither direction holds the dataset or a whole fragment in memory.
 
 ```python
 import polars as pl
@@ -41,7 +40,7 @@ Polars has no native Lance reader or writer
 open since 2024). Lance datasets do implement the PyArrow dataset protocol, so
 `pl.scan_pyarrow_dataset` works, but it cannot push down row limits, cannot pin a
 dataset version, cannot reach vector or full-text search, and leaves Lance's
-read-ahead defaults -- `io_buffer_size` alone defaults to 2 GiB -- untouched.
+read-ahead defaults untouched where `io_buffer_size` alone defaults to 2 GiB.
 
 ## Reading
 
@@ -113,7 +112,7 @@ shards = pll.scan_lance_fragments("in.lance")
 pll.write_lance_fragments([s.filter(pl.col("ok")) for s in shards], "out.lance")
 ```
 
-`commit_lance_fragments()` is that second half on its own -- publish fragments
+`commit_lance_fragments()` is that second half on its own for publishing fragments
 someone else wrote. It is what the [Polars Cloud](#polars-cloud) path commits
 with once the workers are done.
 
@@ -165,7 +164,7 @@ uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 ## Polars Cloud
 
 > **Not installable today.** polars-cloud 0.10 pins `polars==1.43.2`, below this
-> package's `polars>=1.44.0` floor, so there is no `cloud` extra and the two
+> package's `polars>=1.44.1` floor, so there is no `cloud` extra and the two
 > cannot be resolved together. Everything in this section is written and kept
 > working against the 0.10 API; it becomes usable when polars-cloud ships a
 > release tracking 1.44.
@@ -180,7 +179,7 @@ Cloud rejects a context whose polars version differs from the client's.
 
 polars-cloud 0.10 added `sink_batches()`, which hands each result batch to a
 Python callable. That callable is **cloudpickled into the serialized query
-plan**, so it runs on the workers -- Lance no longer has to be a sink format
+plan**, so it runs on the workers. Lance no longer has to be a sink format;
 Polars Cloud knows about, and the write is genuinely distributed rather than
 streamed back through the client.
 
@@ -206,13 +205,13 @@ lists the staging prefix and makes every fragment one version with a single
 commit.
 
 polars-cloud documents that the callback "might be called multiple times from
-different workers", and appending a fragment is not idempotent -- so each staging
+different workers", and appending a fragment is not idempotent. So each staging
 object is named after a deterministic digest of its batch, and a replayed batch
 overwrites its own metadata instead of adding a second copy. `tests/test_remote.py`
 delivers every batch twice and asserts the row count is unchanged. Pass
 `fragment_key=` if your query has a natural key, such as a partition column;
 the default digest would collapse two *distinct* batches that are byte-identical.
-Replays do leave their earlier data files unreferenced -- reclaim them with
+Replays do leave their earlier data files unreferenced. Reclaim them with
 `dataset.cleanup_old_versions(..., delete_unverified=True)`.
 
 Drive the query yourself with `stage_lance_sink()` when you want to pick a

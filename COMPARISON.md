@@ -21,7 +21,7 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 | --- | --- | --- |
 | Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` |
 | Polars hook | `register_io_source` | `register_io_source` |
-| Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.0`, `pylance>=9`, `pyarrow` |
+| Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.1`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
 | Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes, as a Lance SQL filter |

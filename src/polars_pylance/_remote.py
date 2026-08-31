@@ -46,7 +46,7 @@ import pyarrow as pa
 import pyarrow.fs as pafs
 
 from ._sink import (
-    _dataset_exists,
+    _dataset_exists,  # pyright: ignore[reportPrivateUsage]
     commit_lance_fragments,
     fragment_write_mode,
 )
@@ -194,7 +194,7 @@ class _FragmentWriter:
 
     def __call__(self, df: pl.DataFrame) -> None:
         if df.height == 0:
-            return None
+            return
 
         schema = self.schema()
         table = df.to_arrow()
@@ -227,7 +227,7 @@ class _FragmentWriter:
         fs.create_dir(prefix, recursive=True)
         with fs.open_output_stream(posixpath.join(prefix, f"{key}.json")) as sink:
             sink.write(payload)
-        return None
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +301,7 @@ class StagedLanceSink:
         ValueError
             If nothing was staged. An empty commit would replace the dataset
             with nothing, which is never what a failed remote query meant.
+
         """
         fragments = self.staged_fragments()
         if not fragments:
@@ -339,7 +340,7 @@ def stage_lance_sink(
     staging_filesystem: pafs.FileSystem | None = None,
     staging_storage_options: dict[str, str] | None = None,
     fragment_key: Callable[[pl.DataFrame], str] | None = None,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> StagedLanceSink:
     """Build a worker-side Lance writer for ``sink_batches``.
 
@@ -392,6 +393,7 @@ def stage_lance_sink(
     ... )  # doctest: +SKIP
     >>> query.await_result()  # doctest: +SKIP
     >>> staged.commit()  # doctest: +SKIP
+
     """
     uri = target.uri if isinstance(target, lance.LanceDataset) else str(target)
     arrow_schema = _as_arrow_schema(schema)
@@ -443,7 +445,9 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
         return schema
     if isinstance(schema, pl.LazyFrame):
         return schema.collect_schema().to_arrow()
-    if isinstance(schema, pl.Schema):
+    # The last branch is unreachable for a caller who obeys the signature, and
+    # is the whole point for one who does not.
+    if isinstance(schema, pl.Schema):  # pyright: ignore[reportUnnecessaryIsInstance]
         return schema.to_arrow()
     msg = (
         "schema must be a pyarrow.Schema, polars.Schema or LazyFrame, "
@@ -452,8 +456,13 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
     raise TypeError(msg)
 
 
-def sink_lance_remote(
-    remote: Any,
+# `remote` is a `polars_cloud.LazyFrameRemote` or `ExecuteRemote`, both of which
+# polars-cloud annotates -- it ships `py.typed`. It is `Any` here only because
+# polars-cloud cannot be installed alongside this package (it pins
+# `polars==1.43.2`, below the floor), so the name cannot be imported even under
+# `TYPE_CHECKING` without failing the type checkers on every run.
+def sink_lance_remote(  # noqa: D417 - the staging parameters are documented once, on `stage_lance_sink`
+    remote: Any,  # noqa: ANN401 - see the note above about polars-cloud
     target: str | Path | lance.LanceDataset,
     *,
     schema: pa.Schema | pl.Schema | None = None,
@@ -466,9 +475,12 @@ def sink_lance_remote(
     staging_storage_options: dict[str, str] | None = None,
     fragment_key: Callable[[pl.DataFrame], str] | None = None,
     cleanup: bool = True,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset:
     """Run a Polars Cloud query and write its output to Lance from the workers.
+
+    The staging parameters are documented on :func:`stage_lance_sink`, which
+    receives them unchanged.
 
     Submits `remote` with a worker-side fragment writer, waits for it, and
     commits every staged fragment as one dataset version.
@@ -476,8 +488,9 @@ def sink_lance_remote(
     Parameters
     ----------
     remote
-        A ``polars_cloud.LazyFrameRemote``, i.e. the result of
-        ``lf.remote(ctx)`` and any of ``.distributed()`` / ``.single_node()``.
+        A ``polars_cloud.LazyFrameRemote`` -- the result of ``lf.remote(ctx)``
+        -- or the ``ExecuteRemote`` that ``.distributed()`` /
+        ``.single_node()`` return.
     target
         Destination URI, path, or an existing :class:`lance.LanceDataset`.
     schema
@@ -513,6 +526,7 @@ def sink_lance_remote(
     >>> sink_lance_remote(
     ...     lf.remote(ctx).distributed(), "s3://bucket/out.lance", mode="overwrite"
     ... )  # doctest: +SKIP
+
     """
     if schema is None:
         lf = getattr(remote, "lf", None)
@@ -522,10 +536,10 @@ def sink_lance_remote(
                 "output schema; pass `schema=`"
             )
             raise TypeError(msg)
-        # `remote` is untyped, so `lf` is `Any` and whatever it returns here
-        # is unchecked. `_as_arrow_schema` would reject a non-schema further in;
-        # this says so where the value enters, and narrows away the `None` the
-        # parameter still declares.
+        # `lf` came through `Any`, so what it returns here is unchecked.
+        # `_as_arrow_schema` would reject a non-schema further in; this says so
+        # where the value enters, and narrows away the `None` the parameter
+        # still declares.
         collected = lf.collect_schema()
         if not isinstance(collected, pl.Schema):
             msg = (

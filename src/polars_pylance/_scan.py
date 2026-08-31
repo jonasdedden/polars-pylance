@@ -20,18 +20,19 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import lance
 import polars as pl
-import pyarrow as pa
 
 from ._options import LanceScanOptions
 from ._predicate import VIRTUAL_COLUMNS, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+    from pathlib import Path
+
+    import pyarrow as pa
 
 # `VIRTUAL_COLUMNS` is imported rather than defined here because the predicate
 # lowering has to refuse the same columns.
@@ -156,7 +157,7 @@ class LanceScanSpec:
                 if remaining <= 0:
                     break
                 if batch.num_rows > remaining:
-                    batch = batch.slice(0, remaining)
+                    batch = batch.slice(0, remaining)  # noqa: PLW2901
                 remaining -= batch.num_rows
 
             if batch.num_columns == 0:
@@ -451,6 +452,7 @@ def scan_lance(
     >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
     ...     engine="streaming"
     ... )  # doctest: +SKIP
+
     """
     if isinstance(source, lance.LanceDataset):
         uri = source.uri
@@ -479,7 +481,7 @@ def scan_lance_fragments(
     source: str | Path | lance.LanceDataset,
     *,
     n_shards: int | None = None,
-    **kwargs: Any,
+    **kwargs: Any,  # noqa: ANN401 - forwarded to `scan_lance` as given
 ) -> list[pl.LazyFrame]:
     """Return one LazyFrame per fragment (or per shard) of a Lance dataset.
 
@@ -492,6 +494,7 @@ def scan_lance_fragments(
     --------
     >>> shards = scan_lance_fragments("data.lance", n_shards=4)  # doctest: +SKIP
     >>> pl.concat(shards).collect(engine="streaming")  # doctest: +SKIP
+
     """
     dataset = (
         source

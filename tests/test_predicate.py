@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import datetime as dt
 import random
-from collections.abc import Callable
+import threading
+from typing import TYPE_CHECKING
 
 import lance
 import polars as pl
@@ -23,6 +24,9 @@ from polars_pylance._predicate import (
     _Lowering,
     to_lance_filter,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # shape: one construct at a time
@@ -54,8 +58,10 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "is_finite",
         pl.col("odd").is_finite(),
-        "(NOT isnan(`odd`) AND `odd` != CAST('inf' AS double) "
-        "AND `odd` != CAST('-inf' AS double))",
+        (
+            "(NOT isnan(`odd`) AND `odd` != CAST('inf' AS double) "
+            "AND `odd` != CAST('-inf' AS double))"
+        ),
     ),
     ("is_in", pl.col("id").is_in([1, 2]), "(`id` IN (1, 2))"),
     ("is_in empty", pl.col("id").is_in([]), "FALSE"),
@@ -461,9 +467,29 @@ def test_random_nested_predicates_are_sound(
 
 
 def test_untranslatable_predicate_does_not_raise() -> None:
-    """Anything unexpected in the tree is a decline, never an exception."""
+    """Anything unexpected in the tree is a decline, never an exception.
+
+    A UDF does serialize, so this is the walk declining an `AnonymousFunction`
+    node rather than the serialization guard below.
+    """
     opaque = pl.col("id").map_elements(lambda x: x, return_dtype=pl.Boolean)
+    assert opaque.meta.serialize(format="json")
     assert to_lance_filter(opaque) is None
+
+
+def test_a_predicate_that_will_not_serialize_declines() -> None:
+    """The other way to end up with no tree: polars refuses to serialize it.
+
+    A UDF closing over something unpicklable fails in `meta.serialize`, so the
+    lowering never gets a tree to walk. It still costs only the pushdown.
+    """
+    lock = threading.Lock()
+    predicate = pl.col("id").map_elements(
+        lambda x: (lock, x)[1], return_dtype=pl.Boolean
+    )
+    with pytest.raises(pl.exceptions.ComputeError):
+        predicate.meta.serialize(format="json")
+    assert to_lance_filter(predicate) is None
 
 
 # A node of the shape the walk expects, with one thing about it wrong. Polars
@@ -505,7 +531,7 @@ def test_a_malformed_node_declines_in_value_position(node: Json) -> None:
         _Lowering(max_in_list=16).value(node)
 
 
-def test_lowering_is_pure_of_dataset_knowledge(rich_uri: str) -> None:
+def test_lowering_is_pure_of_dataset_knowledge() -> None:
     """The lowering never touches the dataset; it works from the expression alone."""
     assert to_lance_filter(pl.col("nonexistent") > 1) is not None
 

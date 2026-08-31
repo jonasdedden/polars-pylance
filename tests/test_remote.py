@@ -80,7 +80,7 @@ def test_nothing_is_published_before_commit(tmp_path: Path, lance_uri: str) -> N
     staged = stage_lance_sink(out, lf)
     _run(staged, lf)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="was not found"):
         lance.dataset(out)
     assert staged.staged_fragments()
 
@@ -340,8 +340,10 @@ def test_pickled_callback_writes(tmp_path: Path, lance_uri: str) -> None:
 
 
 def test_callback_survives_into_a_cloud_plan(tmp_path: Path, lance_uri: str) -> None:
-    """The whole premise: the writer is serialized with the plan, so it runs
-    on the workers rather than on the client.
+    """The whole premise: the writer ships inside the plan.
+
+    It is serialized with the query plan, so it runs on the workers rather than
+    on the client.
 
     Skipped below polars 1.43, which rejects a callback sink outright with
     "logical plan ineligible for execution on Polars Cloud". That is the same

@@ -13,13 +13,15 @@ import os
 import shutil
 import sys
 import time
-from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import lance
 import numpy as np
 import pyarrow as pa
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 PAYLOAD = 512
 CATS = np.array(["a", "b", "c", "d"])
@@ -68,16 +70,14 @@ def batches(rows: int, chunk: int = 100_000, seed: int = 0) -> Iterator[pa.Recor
 
 
 def on_disk_gib(uri: str) -> float:
-    total = sum(
-        os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(uri) for f in fs
-    )
+    total = sum(p.stat().st_size for p in Path(uri).rglob("*") if p.is_file())
     return total / 1024**3
 
 
 ROOT.mkdir(parents=True, exist_ok=True)
 for rows in [int(x) for x in sys.argv[1:]]:
     uri = str(ROOT / f"{rows // 1_000_000}m.lance")
-    if os.path.exists(uri):
+    if Path(uri).exists():
         try:
             if lance.dataset(uri).count_rows() == rows:
                 have = on_disk_gib(uri)

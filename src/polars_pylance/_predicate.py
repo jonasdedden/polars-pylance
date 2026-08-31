@@ -136,6 +136,7 @@ class LanceFilter:
         True when the filter keeps exactly the rows the predicate keeps. False
         when part of the predicate was dropped, leaving a superset; the caller
         must then keep evaluating the predicate.
+
     """
 
     sql: str
@@ -167,7 +168,7 @@ def to_lance_filter(
     max_in_list: int = MAX_IN_LIST,
     schema: pl.Schema | None = None,
 ) -> LanceFilter | None:
-    """Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
+    r"""Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
 
     Parameters
     ----------
@@ -185,16 +186,23 @@ def to_lance_filter(
     >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
     LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
     >>> to_lance_filter(
-    ...     pl.col("cat").str.extract(r"(\\d+)").is_null() & (pl.col("id") > 3)
+    ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3)
     ... )
     LanceFilter(sql='(`id` > 3)', exact=False)
     >>> to_lance_filter(pl.col("id").hash() > 3) is None
     True
+
     """
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
-    except Exception:
-        # A predicate that will not serialize (a Python UDF) was never lowerable.
+    except Exception:  # noqa: BLE001 - see below
+        # No tree means nothing to lower, and pushdown is optional, so this
+        # declines rather than reaching the caller. The failure this is known to
+        # catch is a `ComputeError` from a UDF closing over something
+        # unpicklable; the family polars raises here is not documented, and a
+        # wrong guess would turn a missed optimization into a failed query. A
+        # plain UDF does serialize -- it is declined by the walk, as an
+        # `AnonymousFunction` node it has no spelling for.
         return None
 
     lowering = _Lowering(max_in_list=max_in_list, schema=schema)
@@ -339,7 +347,7 @@ class _Lowering:
                 f"NOT isnan({{0}}) AND {{0}} != {_POS_INF} AND {{0}} != {_NEG_INF}",
             )
         if name in (("Boolean", "AllHorizontal"), ("Boolean", "AnyHorizontal")):
-            return self._horizontal(name[1] == "AllHorizontal", args)
+            return self._horizontal(args, all_=name[1] == "AllHorizontal")
         if name == ("Boolean", "IsIn"):
             return self._is_in(_options(payload), args)
         if name == ("Boolean", "IsBetween"):
@@ -357,7 +365,9 @@ class _Lowering:
             return None, False
         return f"({template.format(value.sql)})", True
 
-    def _horizontal(self, all_: bool, args: Sequence[Json]) -> tuple[str | None, bool]:
+    def _horizontal(
+        self, args: Sequence[Json], *, all_: bool
+    ) -> tuple[str | None, bool]:
         parts: list[str] = []
         exact = True
         for arg in args:
@@ -396,7 +406,7 @@ class _Lowering:
             rendered = [_scalar(v, values.dtype) for v in values]
         except _Decline:
             return None, False
-        if values.dtype in (pl.Float32, pl.Float64):
+        if isinstance(values.dtype, (pl.Float32, pl.Float64)):
             column = column.as_double()
         return f"({column.sql} IN ({', '.join(rendered)}))", True
 
@@ -477,7 +487,7 @@ class _Lowering:
         """Whether `name` is already a float column, so a promotion is a no-op."""
         if self.schema is None or not isinstance(name, str):
             return False
-        return self.schema.get(name) in (pl.Float32, pl.Float64)
+        return isinstance(self.schema.get(name), (pl.Float32, pl.Float64))
 
     def _is_text(self, name: Json) -> bool:
         """Whether `name` is a text column, so a `+` on it means concatenation."""
@@ -835,8 +845,8 @@ def _literal(node: Json) -> _Value:
     dtype = series.dtype
     return _Value(
         _scalar(series.item(), dtype),
-        is_float_literal=dtype in (pl.Float32, pl.Float64),
-        is_string=dtype == pl.String or isinstance(dtype, (pl.Categorical, pl.Enum)),
+        is_float_literal=isinstance(dtype, (pl.Float32, pl.Float64)),
+        is_string=isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)),
     )
 
 
@@ -862,24 +872,25 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         return "NULL"
     if dtype == pl.Boolean:
         return "TRUE" if value else "FALSE"
-    if dtype in (pl.String, pl.Categorical) or isinstance(
-        dtype, (pl.Enum, pl.Categorical)
-    ):
+    if isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)):
         return _string_literal(str(value))
-    if dtype in (
-        pl.Int8,
-        pl.Int16,
-        pl.Int32,
-        pl.Int64,
-        pl.UInt8,
-        pl.UInt16,
-        pl.UInt32,
-        pl.UInt64,
+    if isinstance(
+        dtype,
+        (
+            pl.Int8,
+            pl.Int16,
+            pl.Int32,
+            pl.Int64,
+            pl.UInt8,
+            pl.UInt16,
+            pl.UInt32,
+            pl.UInt64,
+        ),
     ):
         if not isinstance(value, (int, float)):
             raise _Decline
         return str(int(value))
-    if dtype in (pl.Float32, pl.Float64):
+    if isinstance(dtype, (pl.Float32, pl.Float64)):
         if not isinstance(value, (int, float)):
             raise _Decline
         number = float(value)
