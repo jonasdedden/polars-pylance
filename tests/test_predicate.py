@@ -16,7 +16,13 @@ import lance
 import polars as pl
 import pytest
 
-from polars_pylance._predicate import LanceFilter, to_lance_filter
+from polars_pylance._predicate import (
+    Json,
+    LanceFilter,
+    _Decline,
+    _Lowering,
+    to_lance_filter,
+)
 
 # ---------------------------------------------------------------------------
 # shape: one construct at a time
@@ -458,6 +464,45 @@ def test_untranslatable_predicate_does_not_raise() -> None:
     """Anything unexpected in the tree is a decline, never an exception."""
     opaque = pl.col("id").map_elements(lambda x: x, return_dtype=pl.Boolean)
     assert to_lance_filter(opaque) is None
+
+
+# A node of the shape the walk expects, with one thing about it wrong. Polars
+# does not emit these today; the IR is versioned and has changed shape between
+# releases, and this is what the module promises to do when it next does.
+MALFORMED: list[tuple[str, Json]] = [
+    ("body is a list", {"BinaryExpr": ["not", "a", "dict"]}),
+    ("function body is a list", {"Function": ["input"]}),
+    ("operands missing", {"BinaryExpr": {"op": "Eq"}}),
+    ("operator is not a name", {"BinaryExpr": {"op": 7, "left": 1, "right": 2}}),
+    ("alias has no input", {"Alias": []}),
+    ("input is not a list", {"Function": {"function": "Abs", "input": 3}}),
+    (
+        "dtype is not a name",
+        {"Cast": {"dtype": {"Literal": 5}, "expr": {"Column": "a"}}},
+    ),
+    ("cast has no expression", {"Cast": {"dtype": {"Literal": "Int64"}}}),
+    ("column is not a name", {"Column": 3}),
+    ("node is not an object", ["BinaryExpr"]),
+    ("node is empty", {}),
+]
+
+
+@pytest.mark.parametrize("node", [pytest.param(n, id=name) for name, n in MALFORMED])
+def test_a_malformed_node_declines_rather_than_raising(node: Json) -> None:
+    """A shape surprise costs the pushdown, never the query.
+
+    `to_lance_filter` promises `None` for anything it cannot lower. Reading a
+    node without first establishing its shape would raise `AttributeError` or
+    `KeyError` out of that promise instead.
+    """
+    assert _Lowering(max_in_list=16).predicate(node) == (None, False)
+
+
+@pytest.mark.parametrize("node", [pytest.param(n, id=name) for name, n in MALFORMED])
+def test_a_malformed_node_declines_in_value_position(node: Json) -> None:
+    """Value position has no relaxed form, so it declines by raising `_Decline`."""
+    with pytest.raises(_Decline):
+        _Lowering(max_in_list=16).value(node)
 
 
 def test_lowering_is_pure_of_dataset_knowledge(rich_uri: str) -> None:
