@@ -38,7 +38,7 @@ import posixpath
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import lance
 import polars as pl
@@ -522,9 +522,18 @@ def sink_lance_remote(
                 "output schema; pass `schema=`"
             )
             raise TypeError(msg)
-        # `remote` is untyped, so `lf` is `Any` and assigning from it would
-        # leave `schema` declared-optional; name the type to narrow it.
-        schema = cast("pl.Schema", lf.collect_schema())
+        # `remote` is untyped, so `lf` is `Any` and whatever it returns here
+        # is unchecked. `_as_arrow_schema` would reject a non-schema further in;
+        # this says so where the value enters, and narrows away the `None` the
+        # parameter still declares.
+        collected = lf.collect_schema()
+        if not isinstance(collected, pl.Schema):
+            msg = (
+                "`remote.lf.collect_schema()` did not return a Polars schema; "
+                "pass `schema=`"
+            )
+            raise TypeError(msg)
+        schema = collected
 
     staged = stage_lance_sink(
         target,
