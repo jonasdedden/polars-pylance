@@ -800,8 +800,13 @@ test = [
 ]
 typing = [
     { name = "basedpyright" },
+    { name = "cloudpickle" },
     { name = "mypy" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pyarrow-stubs" },
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -833,8 +838,11 @@ test = [
 ]
 typing = [
     { name = "basedpyright", specifier = ">=1.20" },
+    { name = "cloudpickle" },
     { name = "mypy", specifier = ">=1.11" },
+    { name = "numpy" },
     { name = "pyarrow-stubs", specifier = ">=20" },
+    { name = "pytest", specifier = ">=8" },
 ]
 
 [[package]]
