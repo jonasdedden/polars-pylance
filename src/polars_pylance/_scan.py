@@ -120,9 +120,7 @@ class LanceScanSpec:
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
         arrow = self.arrow_schema(dataset)
         empty = pl.from_arrow(arrow.empty_table())
-        # `from_arrow` is annotated `DataFrame | Series`; a table is always the
-        # former. S101: narrowing, not validation.
-        assert isinstance(empty, pl.DataFrame)  # noqa: S101
+        assert isinstance(empty, pl.DataFrame)
         return empty.schema
 
     # -- batch production --------------------------------------------------
@@ -170,7 +168,7 @@ class LanceScanSpec:
                 continue
 
             frame = pl.from_arrow(batch)
-            assert isinstance(frame, pl.DataFrame)  # noqa: S101
+            assert isinstance(frame, pl.DataFrame)
             if projection is not None and frame.columns != list(projection):
                 # Lance appends generated columns after the requested ones; the
                 # engine expects exactly the projection, in order.

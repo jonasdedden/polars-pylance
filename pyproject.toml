@@ -151,6 +151,9 @@ ignore = [
     # Lance does. Splitting them up would be worse.
     "PLR0913",
     "PLR0917",
+    # `assert` is how this codebase narrows a type the checker cannot, and it
+    # is what the tests are built out of.
+    "S101",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -166,7 +169,6 @@ ignore = [
     "FBT003",
     "PLR2004",
     "PLW0177",
-    "S101",
     "S301",
     "S311",
 ]

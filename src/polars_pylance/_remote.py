@@ -164,7 +164,7 @@ def _content_key(df: pl.DataFrame) -> str:
     # buffers() is [validity, values]; the validity buffer is None here because
     # hash_rows never produces nulls, but the values buffer is always present.
     values_buffer = hashes.buffers()[1]
-    assert values_buffer is not None  # noqa: S101 - narrowing, see above
+    assert values_buffer is not None
     values = memoryview(values_buffer)
     digest.update(values[hashes.offset * 8 : (hashes.offset + len(hashes)) * 8])
     return digest.hexdigest()

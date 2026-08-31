@@ -134,6 +134,5 @@ def convert_parquet_to_lance(
         chunk_size=chunk_size,
         **lance_write_kwargs,
     )
-    # `sink_lance` returns a LazyFrame only when `lazy=True`.
-    assert isinstance(dataset, lance.LanceDataset)  # noqa: S101
+    assert isinstance(dataset, lance.LanceDataset)
     return dataset
