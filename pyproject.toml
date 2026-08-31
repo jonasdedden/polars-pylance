@@ -118,10 +118,12 @@ markers = [
 filterwarnings = [
     # The suite raises no warning today, so a new one is a finding.
     "error",
-    # scan_lance and sink_lance are built on polars APIs marked unstable; that is
-    # a documented property of this package, not something to be warned about.
-    # Only fires under `warn_unstable`, off by default, so this is a safety net
-    # for anyone who turns it on rather than something the suite hits.
+    # `register_io_source` (scan_lance), `collect_batches` (sink_lance) and
+    # `sink_batches` (the Polars Cloud write) all still carry polars'
+    # `@unstable()` in 1.44.1. Building on them is the point of this package,
+    # not something to warn about. Only fires under `warn_unstable`, off by
+    # default, so this is a safety net for anyone who turns it on rather than
+    # something the suite hits.
     "ignore::polars.exceptions.UnstableWarning",
 ]
 
