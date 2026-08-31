@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import random
+import threading
 from typing import TYPE_CHECKING
 
 import lance
@@ -466,9 +467,29 @@ def test_random_nested_predicates_are_sound(
 
 
 def test_untranslatable_predicate_does_not_raise() -> None:
-    """Anything unexpected in the tree is a decline, never an exception."""
+    """Anything unexpected in the tree is a decline, never an exception.
+
+    A UDF does serialize, so this is the walk declining an `AnonymousFunction`
+    node rather than the serialization guard below.
+    """
     opaque = pl.col("id").map_elements(lambda x: x, return_dtype=pl.Boolean)
+    assert opaque.meta.serialize(format="json")
     assert to_lance_filter(opaque) is None
+
+
+def test_a_predicate_that_will_not_serialize_declines() -> None:
+    """The other way to end up with no tree: polars refuses to serialize it.
+
+    A UDF closing over something unpicklable fails in `meta.serialize`, so the
+    lowering never gets a tree to walk. It still costs only the pushdown.
+    """
+    lock = threading.Lock()
+    predicate = pl.col("id").map_elements(
+        lambda x: (lock, x)[1], return_dtype=pl.Boolean
+    )
+    with pytest.raises(pl.exceptions.ComputeError):
+        predicate.meta.serialize(format="json")
+    assert to_lance_filter(predicate) is None
 
 
 # A node of the shape the walk expects, with one thing about it wrong. Polars

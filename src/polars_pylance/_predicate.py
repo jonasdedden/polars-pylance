@@ -195,8 +195,14 @@ def to_lance_filter(
     """
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
-    except Exception:  # noqa: BLE001 - any failure here means "not lowerable"
-        # A predicate that will not serialize (a Python UDF) was never lowerable.
+    except Exception:  # noqa: BLE001 - see below
+        # No tree means nothing to lower, and pushdown is optional, so this
+        # declines rather than reaching the caller. The failure this is known to
+        # catch is a `ComputeError` from a UDF closing over something
+        # unpicklable; the family polars raises here is not documented, and a
+        # wrong guess would turn a missed optimization into a failed query. A
+        # plain UDF does serialize -- it is declined by the walk, as an
+        # `AnonymousFunction` node it has no spelling for.
         return None
 
     lowering = _Lowering(max_in_list=max_in_list, schema=schema)
