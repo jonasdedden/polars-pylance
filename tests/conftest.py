@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import Any
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from typing import ParamSpec, TypeVar
 
 import lance
 import numpy as np
@@ -13,7 +14,7 @@ ROWS = 60_000
 PAYLOAD = 64
 CATS = np.array(["a", "b", "c", "d"])
 
-_FIELDS: list[pa.Field[Any]] = [
+_FIELDS: list[pa.Field[pa.DataType]] = [
     pa.field("id", pa.int64()),
     pa.field("cat", pa.string()),
     pa.field("val", pa.float64()),
@@ -61,17 +62,120 @@ def expected(lance_uri: str) -> pl.DataFrame:
     return pl.from_arrow(lance.dataset(lance_uri).to_table())  # type: ignore[return-value]
 
 
+_T = TypeVar("_T")
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _typed(value: object, kind: type[_T]) -> _T:
+    """`value`, held to the type Lance's signature says that argument has."""
+    assert isinstance(value, kind), f"expected {kind.__name__}, got {value!r}"
+    return value
+
+
+def _optional(value: object, kind: type[_T]) -> _T | None:
+    return None if value is None else _typed(value, kind)
+
+
+def _elements(value: object, kind: type[_T]) -> list[_T]:
+    assert isinstance(value, list), f"expected a list, got {value!r}"
+    return [_typed(item, kind) for item in value]
+
+
+@dataclass(frozen=True)
+class NearestSearch:
+    """The `nearest` argument of a scanner call: one vector search request."""
+
+    column: str
+    q: list[float]
+    k: int
+    metric: str | None = None
+    nprobes: int | None = None
+    use_index: bool | None = None
+
+
+@dataclass(frozen=True)
+class ScannerCall:
+    """One `LanceDataset.scanner` call, with its arguments given their types.
+
+    Lance takes its scan arguments as a couple of dozen differently typed
+    keyword arguments, so the narrowing happens once here rather than at every
+    assertion. Only what the tests read is kept.
+    """
+
+    columns: list[str] | None = None
+    filter: str | None = None
+    limit: int | None = None
+    prefilter: bool | None = None
+    batch_size: int | None = None
+    io_buffer_size: int | None = None
+    nearest: NearestSearch | None = None
+
+
+def _nearest(value: object) -> NearestSearch:
+    assert isinstance(value, Mapping), f"expected a mapping, got {value!r}"
+    return NearestSearch(
+        column=_typed(value["column"], str),
+        q=_elements(value["q"], float),
+        k=_typed(value["k"], int),
+        metric=_optional(value.get("metric"), str),
+        nprobes=_optional(value.get("nprobes"), int),
+        use_index=_optional(value.get("use_index"), bool),
+    )
+
+
+def _scanner_call(kwargs: Mapping[str, object]) -> ScannerCall:
+    columns = kwargs.get("columns")
+    nearest = kwargs.get("nearest")
+    return ScannerCall(
+        columns=None if columns is None else _elements(columns, str),
+        filter=_optional(kwargs.get("filter"), str),
+        limit=_optional(kwargs.get("limit"), int),
+        prefilter=_optional(kwargs.get("prefilter"), bool),
+        batch_size=_optional(kwargs.get("batch_size"), int),
+        io_buffer_size=_optional(kwargs.get("io_buffer_size"), int),
+        nearest=None if nearest is None else _nearest(nearest),
+    )
+
+
+def _recording(
+    fn: Callable[_P, _R], record: Callable[[Mapping[str, object]], None]
+) -> Callable[_P, _R]:
+    """`fn`, with `record` shown the keyword arguments of every call.
+
+    A `ParamSpec` rather than a `*args: Any` wrapper: this is installed in
+    `fn`'s place, so it has to keep `fn`'s signature, and this holds it to that.
+    """
+
+    def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+        record(kwargs)
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def spy_on_scanner(
+    monkeypatch: pytest.MonkeyPatch, record: Callable[[ScannerCall], None]
+) -> None:
+    """Send every `LanceDataset.scanner` call to `record` for the rest of a test.
+
+    Exposed alongside the fixtures below because a test that builds an index
+    first has to start recording after it, rather than at fixture time.
+    """
+
+    def observe(kwargs: Mapping[str, object]) -> None:
+        record(_scanner_call(kwargs))
+
+    monkeypatch.setattr(
+        lance.LanceDataset, "scanner", _recording(lance.LanceDataset.scanner, observe)
+    )
+
+
 @pytest.fixture
-def scanner_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+def scanner_calls(monkeypatch: pytest.MonkeyPatch) -> list[ScannerCall]:
     """Record the arguments Lance itself receives, options and all."""
-    calls: list[dict[str, Any]] = []
-    original = lance.LanceDataset.scanner
-
-    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
-        calls.append(kwargs)
-        return original(self, *args, **kwargs)
-
-    monkeypatch.setattr(lance.LanceDataset, "scanner", spy)
+    calls: list[ScannerCall] = []
+    spy_on_scanner(monkeypatch, calls.append)
     return calls
 
 
@@ -83,8 +187,24 @@ def frames_yielded(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     counter = [0]
     original = _scan.LanceScanSpec.iter_frames
 
-    def spy(self: Any, dataset: Any, **kwargs: Any) -> Any:
-        for frame in original(self, dataset, **kwargs):
+    def spy(
+        self: _scan.LanceScanSpec,
+        dataset: lance.LanceDataset,
+        *,
+        projection: Sequence[str] | None = None,
+        filter: str | None = None,
+        limit: int | None = None,
+        prefilter: bool = False,
+    ) -> Iterator[pl.DataFrame]:
+        frames = original(
+            self,
+            dataset,
+            projection=projection,
+            filter=filter,
+            limit=limit,
+            prefilter=prefilter,
+        )
+        for frame in frames:
             counter[0] += 1
             yield frame
 
@@ -97,7 +217,7 @@ def frames_yielded(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 RICH_ROWS = 2_000
 WORDS = np.array(["alpha", "beta", "gamma", "delta"])
 
-_RICH_FIELDS: list[pa.Field[Any]] = [
+_RICH_FIELDS: list[pa.Field[pa.DataType]] = [
     pa.field("id", pa.int64()),
     pa.field("cat", pa.string()),
     pa.field("text", pa.string()),
@@ -172,12 +292,10 @@ def rich_frame(rich_uri: str) -> pl.DataFrame:
 def pushed_filters(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Every SQL filter string that actually reached Lance's scanner."""
     filters: list[str] = []
-    original = lance.LanceDataset.scanner
 
-    def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
-        if kwargs.get("filter") is not None:
-            filters.append(kwargs["filter"])
-        return original(self, *args, **kwargs)
+    def record(call: ScannerCall) -> None:
+        if call.filter is not None:
+            filters.append(call.filter)
 
-    monkeypatch.setattr(lance.LanceDataset, "scanner", spy)
+    spy_on_scanner(monkeypatch, record)
     return filters
