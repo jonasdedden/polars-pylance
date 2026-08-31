@@ -59,7 +59,9 @@ def lance_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
 @pytest.fixture(scope="session")
 def expected(lance_uri: str) -> pl.DataFrame:
     """Ground truth, computed the eager way we are trying to avoid."""
-    return pl.from_arrow(lance.dataset(lance_uri).to_table())  # type: ignore[return-value]
+    frame = pl.from_arrow(lance.dataset(lance_uri).to_table())
+    assert isinstance(frame, pl.DataFrame)
+    return frame
 
 
 _T = TypeVar("_T")
@@ -285,7 +287,9 @@ def rich_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
 @pytest.fixture(scope="session")
 def rich_frame(rich_uri: str) -> pl.DataFrame:
     """Ground truth for `rich_uri`, materialised eagerly."""
-    return pl.from_arrow(lance.dataset(rich_uri).to_table())  # type: ignore[return-value]
+    frame = pl.from_arrow(lance.dataset(rich_uri).to_table())
+    assert isinstance(frame, pl.DataFrame)
+    return frame
 
 
 @pytest.fixture

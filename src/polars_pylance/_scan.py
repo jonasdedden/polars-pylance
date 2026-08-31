@@ -21,7 +21,7 @@ import dataclasses
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import lance
 import polars as pl
@@ -118,7 +118,9 @@ class LanceScanSpec:
 
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
         arrow = self.arrow_schema(dataset)
-        return cast("pl.DataFrame", pl.from_arrow(arrow.empty_table())).schema
+        empty = pl.from_arrow(arrow.empty_table())
+        assert isinstance(empty, pl.DataFrame)
+        return empty.schema
 
     # -- batch production --------------------------------------------------
 
@@ -164,7 +166,8 @@ class LanceScanSpec:
                 yield pl.DataFrame(height=batch.num_rows)
                 continue
 
-            frame = cast("pl.DataFrame", pl.from_arrow(batch))
+            frame = pl.from_arrow(batch)
+            assert isinstance(frame, pl.DataFrame)
             if projection is not None and frame.columns != list(projection):
                 # Lance appends generated columns after the requested ones; the
                 # engine expects exactly the projection, in order.

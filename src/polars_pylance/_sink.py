@@ -16,7 +16,7 @@ slower than the producer. ``collect_batches`` is marked unstable by Polars.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import lance
 import polars as pl
@@ -24,6 +24,8 @@ import pyarrow as pa
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from lance.fragment import FragmentMetadata
 
 WriteMode = Literal["create", "append", "overwrite", "merge"]
 # Mirrors polars' own engine literal, so the value passes through to
@@ -240,13 +242,18 @@ def write_lance_fragments(
     schema = arrow_schema or shards[0].collect_schema().to_arrow()
     fragment_mode = fragment_write_mode(mode)
 
-    def write_shard(shard: pl.LazyFrame) -> list[Any]:
+    def write_shard(shard: pl.LazyFrame) -> list[FragmentMetadata]:
         reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
-        return cast(
-            "list[Any]",
-            lance.fragment.write_fragments(
-                reader, uri, schema=schema, mode=fragment_mode, **lance_write_kwargs
-            ),
+        # `return_transaction=False` is the default; naming it picks the
+        # overload that returns fragments rather than a transaction, which
+        # `**lance_write_kwargs` would otherwise leave unresolved.
+        return lance.fragment.write_fragments(
+            reader,
+            uri,
+            schema=schema,
+            mode=fragment_mode,
+            return_transaction=False,
+            **lance_write_kwargs,
         )
 
     with ThreadPoolExecutor(max_workers=max_workers or len(shards)) as pool:
