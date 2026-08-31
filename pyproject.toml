@@ -51,12 +51,6 @@ Issues = "https://github.com/jonasdedden/polars-pylance/issues"
 Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
 Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md"
 
-# Uncomment once polars-cloud allows this package's polars floor. It pins
-# `polars==1.43.2` today, which makes `uv lock` fail outright rather than just
-# the extra.
-# [project.optional-dependencies]
-# cloud = ["polars-cloud>=0.10"]
-
 [dependency-groups]
 # cloudpickle is what polars uses to serialize a callback sink into a cloud
 # plan. It normally arrives with polars-cloud; listed here so the remote-write
