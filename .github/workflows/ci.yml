@@ -20,11 +20,14 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: ${{ github.job }}
-      # `--output-format=github` turns findings into inline annotations on the PR.
+      # `uv run` rather than `uvx`, so this is the ruff in `uv.lock`: with
+      # every rule selected, an unpinned ruff would fail the day it ships a
+      # new one. `--only-group lint` keeps the job to just ruff.
+      # `--output-format=github` turns findings into inline annotations.
       - name: lint
-        run: uvx ruff check --output-format=github .
+        run: uv run --only-group lint ruff check --output-format=github .
       - name: format
-        run: uvx ruff format --check .
+        run: uv run --only-group lint ruff format --check .
 
   mypy:
     name: mypy --strict

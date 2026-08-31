@@ -62,14 +62,22 @@ test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
 # stub package, and without it every pyarrow symbol degrades to `Any`.
 typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
+# Locked rather than run through `uvx`: every rule ruff has is selected, so a
+# release that adds one would otherwise fail CI on an unrelated branch. Pinned
+# here, an upgrade arrives as a version bump to review.
+lint = ["ruff>=0.16.5"]
 # Only for `bench/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
 # `dev` is installed by default by `uv run` and `uv sync`, so a bare
-# `uv run pytest` or `uv run mypy` needs no flags. mypy and basedpyright both
-# check `tests/`, which imports pytest, so the two groups are not separable in
-# practice -- hence one `dev` that pulls in both.
-dev = [{ include-group = "test" }, { include-group = "typing" }]
+# `uv run pytest`, `uv run mypy` or `uv run ruff` needs no flags. mypy and
+# basedpyright both check `tests/`, which imports pytest, so those two groups
+# are not separable in practice -- hence one `dev` that pulls them all in.
+dev = [
+    { include-group = "test" },
+    { include-group = "typing" },
+    { include-group = "lint" },
+]
 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
@@ -119,19 +127,14 @@ filterwarnings = [
 src = ["src", "tests", "bench"]
 
 [tool.ruff.lint]
-select = [
-    "A", "ANN", "ARG", "ASYNC", "B", "BLE", "C4", "D", "DTZ", "E", "EM",
-    "ERA", "EXE", "F", "FA", "FBT", "FURB", "G", "I", "ICN", "INP", "INT",
-    "ISC", "LOG", "N", "NPY", "PERF", "PGH", "PIE", "PL", "PT", "PTH", "PYI",
-    "Q", "RET", "RSE", "RUF", "S", "SIM", "SLF", "SLOT", "T20", "TC", "TD",
-    "TID", "TRY", "UP", "W",
-]
-# Selected by name rather than `ALL` because CI runs an unpinned `uvx ruff`,
-# where `ALL` would turn every ruff release into a broken build. Left out:
-# `COM` (ruff documents COM812 as conflicting with its own formatter), `CPY`
-# (no per-file copyright header), and `DOC` (needs `preview`, which has the
-# same unpinned-CI problem).
+select = ["ALL"]
 ignore = [
+    # ruff warns that this one conflicts with its own formatter. Satisfying it
+    # adds trailing commas that the magic trailing comma then expands: 358
+    # lines the formatter immediately wants back.
+    "COM812",
+    # The licence is declared once, in project metadata, not per file.
+    "CPY001",
     # Each of these pairs is mutually exclusive; these are the halves ruff
     # would otherwise pick anyway, named so it stops warning about the clash.
     "D203",
@@ -186,7 +189,7 @@ ignore = [
 "src/polars_pylance/_scan.py" = ["A002"]
 # The lowering is one dispatch chain per IR position, so it is all returns and
 # branches, and `len(args) != 2` is clearer than a named constant.
-"src/polars_pylance/_predicate.py" = ["PLR0911", "PLR0912", "PLR2004"]
+"src/polars_pylance/_predicate.py" = ["C901", "PLR0911", "PLR0912", "PLR2004"]
 
 [tool.mypy]
 strict = true
