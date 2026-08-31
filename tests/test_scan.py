@@ -148,6 +148,58 @@ def test_dataset_object_pins_version(tmp_path: Path, expected: pl.DataFrame) -> 
     assert latest == 2 * expected.height
 
 
+def test_version_argument_pins_the_scan(tmp_path: Path, expected: pl.DataFrame) -> None:
+    """`version=` reads that version, where a bare URI follows the latest."""
+    uri = str(tmp_path / "byversion.lance")
+    first = lance.write_dataset(expected.to_arrow(), uri).version
+    lance.write_dataset(expected.to_arrow(), uri, mode="append")
+
+    pinned = scan_lance(uri, version=first).select(pl.len())
+    latest = scan_lance(uri).select(pl.len())
+    assert pinned.collect(engine="streaming").item() == expected.height
+    assert latest.collect(engine="streaming").item() == 2 * expected.height
+
+
+def test_tag_pins_the_scan(tmp_path: Path, expected: pl.DataFrame) -> None:
+    """A tag is a version too, so `version=` takes one."""
+    uri = str(tmp_path / "bytag.lance")
+    dataset = lance.write_dataset(expected.to_arrow(), uri)
+    dataset.tags.create("v1", dataset.version)
+    lance.write_dataset(expected.to_arrow(), uri, mode="append")
+
+    tagged = scan_lance(uri, version="v1").select(pl.len())
+    assert tagged.collect(engine="streaming").item() == expected.height
+
+
+def test_repeated_collection_is_stable(lance_uri: str) -> None:
+    """One LazyFrame, collected twice, gives the same answer both times.
+
+    The scan is registered as a pure source, so Polars may reuse it freely;
+    that is only sound if collecting again really does reproduce the result.
+    """
+    lf = scan_lance(lance_uri).filter(pl.col("cat") == "b").select("id", "val").head(50)
+    assert_frame_equal(lf.collect(engine="streaming"), lf.collect(engine="streaming"))
+
+
+def test_pinned_scan_is_stable_across_a_write(
+    tmp_path: Path, expected: pl.DataFrame
+) -> None:
+    """A pinned LazyFrame collected either side of an append does not move.
+
+    Pinning the version is what makes a collection repeatable rather than
+    merely re-runnable: the dataset underneath is free to grow in between.
+    """
+    uri = str(tmp_path / "stable.lance")
+    version = lance.write_dataset(expected.to_arrow(), uri).version
+    lf = scan_lance(uri, version=version).select(pl.len())
+
+    before = lf.collect(engine="streaming").item()
+    lance.write_dataset(expected.to_arrow(), uri, mode="append")
+    after = lf.collect(engine="streaming").item()
+
+    assert before == after == expected.height
+
+
 def test_join_and_group_by(lance_uri: str, expected: pl.DataFrame) -> None:
     weights = pl.LazyFrame({"cat": ["a", "b"], "w": [1.0, 2.0]})
     got = (
