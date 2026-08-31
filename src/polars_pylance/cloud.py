@@ -91,6 +91,7 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     >>> ctx = pc.ComputeContext(
     ...     cpus=8, memory=32, requirements=requirements_txt().encode()
     ... )  # doctest: +SKIP
+
     """
     lines = [
         f"polars=={pl.__version__}",
@@ -108,7 +109,7 @@ def convert_parquet_to_lance(
     mode: WriteMode = "create",
     chunk_size: int = 25_000,
     storage_options: dict[str, str] | None = None,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset:
     """Stream Parquet output from a remote query into a Lance dataset.
 
@@ -120,6 +121,7 @@ def convert_parquet_to_lance(
     --------
     >>> query.remote(ctx).distributed().sink_parquet(staging)  # doctest: +SKIP
     >>> convert_parquet_to_lance(staging, "s3://bucket/out.lance")  # doctest: +SKIP
+
     """
     from ._sink import sink_lance
 
@@ -131,5 +133,6 @@ def convert_parquet_to_lance(
         chunk_size=chunk_size,
         **lance_write_kwargs,
     )
-    assert isinstance(dataset, lance.LanceDataset)
+    # `sink_lance` returns a LazyFrame only when `lazy=True`.
+    assert isinstance(dataset, lance.LanceDataset)  # noqa: S101
     return dataset

@@ -120,28 +120,73 @@ src = ["src", "tests", "bench"]
 
 [tool.ruff.lint]
 select = [
-    "E", "W", "F", "I", "UP", "B", "SIM", "RUF",
-    "ASYNC", "C4", "EM", "ERA", "EXE", "FA", "FURB", "G", "ICN",
-    "INT", "ISC", "LOG", "NPY", "PERF", "PGH", "PIE", "PT", "PTH", "PYI",
-    "Q", "RET", "RSE", "SLF", "SLOT", "T20", "TC", "TD", "TID", "TRY", "N",
+    "A", "ANN", "ARG", "ASYNC", "B", "BLE", "C4", "D", "DTZ", "E", "EM",
+    "ERA", "EXE", "F", "FA", "FBT", "FURB", "G", "I", "ICN", "INP", "INT",
+    "ISC", "LOG", "N", "NPY", "PERF", "PGH", "PIE", "PL", "PT", "PTH", "PYI",
+    "Q", "RET", "RSE", "RUF", "S", "SIM", "SLF", "SLOT", "T20", "TC", "TD",
+    "TID", "TRY", "UP", "W",
 ]
 # Selected by name rather than `ALL` because CI runs an unpinned `uvx ruff`,
-# where `ALL` would turn every ruff release into a broken build. Deliberately
-# left out: `S` and `PLR2004` (the tests are built out of `assert` and literal
-# comparisons), `D` (D401 would force imperative docstrings on a codebase that
-# consistently uses noun phrases), `COM` (fights the formatter), `ANN401` (the
-# `**kwargs: Any` that forward to Lance are deliberate), `DTZ` (naive datetimes
-# are the test data), `FBT`, `A002` (`filter` is the argument name Lance uses),
-# `BLE` (the blind `except` in the predicate lowering is the design), and
-# `PLC0415` (the deferred imports are deliberate).
+# where `ALL` would turn every ruff release into a broken build. Left out:
+# `COM` (ruff documents COM812 as conflicting with its own formatter), `CPY`
+# (no per-file copyright header), and `DOC` (needs `preview`, which has the
+# same unpinned-CI problem).
 ignore = [
+    # Each of these pairs is mutually exclusive; these are the halves ruff
+    # would otherwise pick anyway, named so it stops warning about the clash.
+    "D203",
+    "D213",
+    # Docstring summaries here are noun phrases -- "The path a filesystem
+    # expects", not "Return the path" -- consistently, on purpose.
+    "D401",
     # `_Decline` and `_FilterRejected` are control-flow signals, and read
     # better without the suffix N818 wants.
     "N818",
+    # Imports are deferred in a few places to keep import cost off the module
+    # path; each one says why where it sits.
+    "PLC0415",
+    # `scan_lance`, `sink_lance` and friends take many keyword options because
+    # Lance does. Splitting them up would be worse.
+    "PLR0913",
+    "PLR0917",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"bench/*" = ["T201"]
+# The tests are built out of `assert`, literal comparisons and fixtures that
+# are requested for their side effects; and pytest collects them by name, so
+# the docstring rules for public callables do not apply.
+"tests/*" = [
+    "A002",
+    "ARG005",
+    "D100",
+    "D103",
+    "DTZ001",
+    "FBT003",
+    "PLR2004",
+    "PLW0177",
+    "S101",
+    "S301",
+    "S311",
+]
+# Benchmark scripts: they print, they shell out, and they are run by path
+# rather than imported.
+"bench/*" = [
+    "ANN401",
+    "BLE001",
+    "D103",
+    "INP001",
+    "PLR2004",
+    "PLW0603",
+    "S110",
+    "S603",
+    "T201",
+]
+# `filter` is the argument name Lance's own `scanner()` uses; renaming it here
+# would make the passthrough read worse.
+"src/polars_pylance/_scan.py" = ["A002"]
+# The lowering is one dispatch chain per IR position, so it is all returns and
+# branches, and `len(args) != 2` is clearer than a named constant.
+"src/polars_pylance/_predicate.py" = ["PLR0911", "PLR0912", "PLR2004"]
 
 [tool.mypy]
 strict = true

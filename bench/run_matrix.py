@@ -1,5 +1,7 @@
-"""Drive the case matrix on the instance. One process per measurement, each in
-its own cgroup scope so an over-budget run is killed cleanly instead of swapping.
+"""Drive the case matrix on the instance.
+
+One process per measurement, each in its own cgroup scope so an over-budget run
+is killed cleanly instead of swapping.
 
 Three passes, answering different questions:
 
@@ -87,6 +89,7 @@ def run(
             capture_output=True,
             text=True,
             timeout=7200,
+            check=False,
         )
         for line in p.stdout.splitlines():
             if line.startswith("{"):

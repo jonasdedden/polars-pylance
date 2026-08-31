@@ -426,7 +426,7 @@ def ratio_figure(rows_of_data: list[dict[str, Any]]) -> go.Figure:
     )
     for col, key in ((1, "seconds"), (2, "peak_gib")):
         all_ratios: list[float] = []
-        for case in CASES:
+        for case, label in CASES.items():
             pairs = []
             for n in sorted({r["rows"] for r in rows_of_data if r["case"] == case}):
                 d = {
@@ -447,10 +447,10 @@ def ratio_figure(rows_of_data: list[dict[str, Any]]) -> go.Figure:
                     x=[p[0] for p in pairs],
                     y=[p[1] for p in pairs],
                     mode="lines+markers",
-                    name=CASES[case],
+                    name=label,
                     legendgroup=case,
                     showlegend=(col == 1),
-                    hovertemplate=f"<b>{CASES[case]}</b><br>%{{x:.1f}} GiB<br>"
+                    hovertemplate=f"<b>{label}</b><br>%{{x:.1f}} GiB<br>"
                     f"ratio %{{y:.2f}}x<extra></extra>",
                 ),
                 row=1,

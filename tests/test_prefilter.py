@@ -121,7 +121,7 @@ def prefiltered_ids(split_uri: tuple[str, list[float]]) -> list[int]:
 def test_prefilter_ranks_only_the_rows_it_admits(
     split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
 ) -> None:
-    """k rows come back, all of them matching, ranked among themselves."""
+    """Exactly k rows come back, all matching, ranked among themselves."""
     uri, query = split_uri
     out = (
         _search(uri, query, prefilter="cat = 'far'")

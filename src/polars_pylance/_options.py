@@ -41,6 +41,7 @@ class LanceScanOptions:
     late_materialization
         Defer loading of large columns until after filtering. Either a bool for
         all columns or a list of column names.
+
     """
 
     batch_size: int | None = 25_000
@@ -52,7 +53,7 @@ class LanceScanOptions:
     late_materialization: bool | list[str] | None = None
 
     @classmethod
-    def throughput(cls, **overrides: Any) -> LanceScanOptions:
+    def throughput(cls, **overrides: Any) -> LanceScanOptions:  # noqa: ANN401
         """Restore Lance's own aggressive read-ahead, for when RAM is plentiful.
 
         Roughly 1.6x the peak memory of the defaults on a large-payload scan, in
@@ -67,7 +68,7 @@ class LanceScanOptions:
             **overrides,
         )
 
-    def replace(self, **overrides: Any) -> LanceScanOptions:
+    def replace(self, **overrides: Any) -> LanceScanOptions:  # noqa: ANN401
         """Return a copy with `overrides` applied."""
         current = {f.name: getattr(self, f.name) for f in fields(self)}
         unknown = set(overrides) - set(current)

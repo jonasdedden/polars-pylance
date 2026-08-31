@@ -136,6 +136,7 @@ class LanceFilter:
         True when the filter keeps exactly the rows the predicate keeps. False
         when part of the predicate was dropped, leaving a superset; the caller
         must then keep evaluating the predicate.
+
     """
 
     sql: str
@@ -167,7 +168,7 @@ def to_lance_filter(
     max_in_list: int = MAX_IN_LIST,
     schema: pl.Schema | None = None,
 ) -> LanceFilter | None:
-    """Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
+    r"""Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
 
     Parameters
     ----------
@@ -185,15 +186,16 @@ def to_lance_filter(
     >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
     LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
     >>> to_lance_filter(
-    ...     pl.col("cat").str.extract(r"(\\d+)").is_null() & (pl.col("id") > 3)
+    ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3)
     ... )
     LanceFilter(sql='(`id` > 3)', exact=False)
     >>> to_lance_filter(pl.col("id").hash() > 3) is None
     True
+
     """
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
-    except Exception:
+    except Exception:  # noqa: BLE001 - any failure here means "not lowerable"
         # A predicate that will not serialize (a Python UDF) was never lowerable.
         return None
 
@@ -339,7 +341,7 @@ class _Lowering:
                 f"NOT isnan({{0}}) AND {{0}} != {_POS_INF} AND {{0}} != {_NEG_INF}",
             )
         if name in (("Boolean", "AllHorizontal"), ("Boolean", "AnyHorizontal")):
-            return self._horizontal(name[1] == "AllHorizontal", args)
+            return self._horizontal(args, all_=name[1] == "AllHorizontal")
         if name == ("Boolean", "IsIn"):
             return self._is_in(_options(payload), args)
         if name == ("Boolean", "IsBetween"):
@@ -357,7 +359,9 @@ class _Lowering:
             return None, False
         return f"({template.format(value.sql)})", True
 
-    def _horizontal(self, all_: bool, args: Sequence[Json]) -> tuple[str | None, bool]:
+    def _horizontal(
+        self, args: Sequence[Json], *, all_: bool
+    ) -> tuple[str | None, bool]:
         parts: list[str] = []
         exact = True
         for arg in args:

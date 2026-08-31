@@ -120,7 +120,9 @@ class LanceScanSpec:
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
         arrow = self.arrow_schema(dataset)
         empty = pl.from_arrow(arrow.empty_table())
-        assert isinstance(empty, pl.DataFrame)
+        # `from_arrow` is annotated `DataFrame | Series`; a table is always the
+        # former. S101: narrowing, not validation.
+        assert isinstance(empty, pl.DataFrame)  # noqa: S101
         return empty.schema
 
     # -- batch production --------------------------------------------------
@@ -157,7 +159,7 @@ class LanceScanSpec:
                 if remaining <= 0:
                     break
                 if batch.num_rows > remaining:
-                    batch = batch.slice(0, remaining)
+                    batch = batch.slice(0, remaining)  # noqa: PLW2901
                 remaining -= batch.num_rows
 
             if batch.num_columns == 0:
@@ -168,7 +170,7 @@ class LanceScanSpec:
                 continue
 
             frame = pl.from_arrow(batch)
-            assert isinstance(frame, pl.DataFrame)
+            assert isinstance(frame, pl.DataFrame)  # noqa: S101
             if projection is not None and frame.columns != list(projection):
                 # Lance appends generated columns after the requested ones; the
                 # engine expects exactly the projection, in order.
@@ -452,6 +454,7 @@ def scan_lance(
     >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
     ...     engine="streaming"
     ... )  # doctest: +SKIP
+
     """
     if isinstance(source, lance.LanceDataset):
         uri = source.uri
@@ -480,7 +483,7 @@ def scan_lance_fragments(
     source: str | Path | lance.LanceDataset,
     *,
     n_shards: int | None = None,
-    **kwargs: Any,
+    **kwargs: Any,  # noqa: ANN401 - forwarded to `scan_lance` as given
 ) -> list[pl.LazyFrame]:
     """Return one LazyFrame per fragment (or per shard) of a Lance dataset.
 
@@ -493,6 +496,7 @@ def scan_lance_fragments(
     --------
     >>> shards = scan_lance_fragments("data.lance", n_shards=4)  # doctest: +SKIP
     >>> pl.concat(shards).collect(engine="streaming")  # doctest: +SKIP
+
     """
     dataset = (
         source

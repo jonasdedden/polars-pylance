@@ -135,8 +135,10 @@ def test_write_fragments_append(tmp_path: Path, lance_uri: str) -> None:
 
 
 def test_write_fragments_overwrite_existing(tmp_path: Path, lance_uri: str) -> None:
-    """write_fragments(mode='create') refuses an existing dataset outright, so
-    replacing one has to write its fragments in 'overwrite' mode."""
+    """Replacing a dataset writes its fragments in 'overwrite' mode.
+
+    `write_fragments(mode='create')` refuses an existing dataset outright.
+    """
     out = str(tmp_path / "frag_overwrite.lance")
     shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
     write_lance_fragments(shards, out)

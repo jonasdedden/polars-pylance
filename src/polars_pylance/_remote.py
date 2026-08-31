@@ -164,7 +164,7 @@ def _content_key(df: pl.DataFrame) -> str:
     # buffers() is [validity, values]; the validity buffer is None here because
     # hash_rows never produces nulls, but the values buffer is always present.
     values_buffer = hashes.buffers()[1]
-    assert values_buffer is not None
+    assert values_buffer is not None  # noqa: S101 - narrowing, see above
     values = memoryview(values_buffer)
     digest.update(values[hashes.offset * 8 : (hashes.offset + len(hashes)) * 8])
     return digest.hexdigest()
@@ -301,6 +301,7 @@ class StagedLanceSink:
         ValueError
             If nothing was staged. An empty commit would replace the dataset
             with nothing, which is never what a failed remote query meant.
+
         """
         fragments = self.staged_fragments()
         if not fragments:
@@ -339,7 +340,7 @@ def stage_lance_sink(
     staging_filesystem: pafs.FileSystem | None = None,
     staging_storage_options: dict[str, str] | None = None,
     fragment_key: Callable[[pl.DataFrame], str] | None = None,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> StagedLanceSink:
     """Build a worker-side Lance writer for ``sink_batches``.
 
@@ -392,6 +393,7 @@ def stage_lance_sink(
     ... )  # doctest: +SKIP
     >>> query.await_result()  # doctest: +SKIP
     >>> staged.commit()  # doctest: +SKIP
+
     """
     uri = target.uri if isinstance(target, lance.LanceDataset) else str(target)
     arrow_schema = _as_arrow_schema(schema)
@@ -452,8 +454,8 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
     raise TypeError(msg)
 
 
-def sink_lance_remote(
-    remote: Any,
+def sink_lance_remote(  # noqa: D417 - the staging parameters are documented once, on `stage_lance_sink`
+    remote: Any,  # noqa: ANN401 - a polars-cloud object; that package is untyped
     target: str | Path | lance.LanceDataset,
     *,
     schema: pa.Schema | pl.Schema | None = None,
@@ -466,9 +468,12 @@ def sink_lance_remote(
     staging_storage_options: dict[str, str] | None = None,
     fragment_key: Callable[[pl.DataFrame], str] | None = None,
     cleanup: bool = True,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset:
     """Run a Polars Cloud query and write its output to Lance from the workers.
+
+    The staging parameters are documented on :func:`stage_lance_sink`, which
+    receives them unchanged.
 
     Submits `remote` with a worker-side fragment writer, waits for it, and
     commits every staged fragment as one dataset version.
@@ -513,6 +518,7 @@ def sink_lance_remote(
     >>> sink_lance_remote(
     ...     lf.remote(ctx).distributed(), "s3://bucket/out.lance", mode="overwrite"
     ... )  # doctest: +SKIP
+
     """
     if schema is None:
         lf = getattr(remote, "lf", None)

@@ -67,7 +67,7 @@ def sink_lance(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     engine: EngineType = "streaming",
     lazy: bool = False,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset | pl.LazyFrame:
     """Stream a LazyFrame into a Lance dataset.
 
@@ -109,6 +109,7 @@ def sink_lance(
     --------
     >>> query = lf.filter(pl.col("ok"))  # doctest: +SKIP
     >>> sink_lance(query, "out.lance", mode="overwrite")  # doctest: +SKIP
+
     """
     uri = _target_uri(target)
 
@@ -199,7 +200,7 @@ def write_lance_fragments(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     engine: EngineType = "streaming",
     arrow_schema: pa.Schema | None = None,
-    **lance_write_kwargs: Any,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset:
     """Write several LazyFrames as Lance fragments in parallel, then commit once.
 
@@ -219,6 +220,11 @@ def write_lance_fragments(
         ``"append"`` adds them to an existing dataset.
     max_workers
         Threads used to write shards. Defaults to one per shard.
+    chunk_size
+        Rows buffered per batch handed to Lance.
+    engine
+        Polars engine. Leave at ``"streaming"``; ``"in-memory"`` defeats the
+        purpose by materialising each shard first.
     arrow_schema
         Schema to write. Inferred from the first shard when omitted.
     **lance_write_kwargs
@@ -230,6 +236,7 @@ def write_lance_fragments(
     >>> write_lance_fragments(
     ...     [s.filter(pl.col("ok")) for s in shards], "out.lance"
     ... )  # doctest: +SKIP
+
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -314,7 +321,7 @@ def commit_lance_fragments(
 
 
 def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
-    """Advisory: is there already a dataset here?
+    """Advisory: whether there is already a dataset here.
 
     Lance reports "not found" and "could not reach the store" as the same
     ValueError, so an unreachable store reads as absent. That only ever costs a
