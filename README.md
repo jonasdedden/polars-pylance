@@ -165,7 +165,7 @@ uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 ## Polars Cloud
 
 > **Not installable today.** polars-cloud 0.10 pins `polars==1.43.2`, below this
-> package's `polars>=1.44.0` floor, so there is no `cloud` extra and the two
+> package's `polars>=1.44.1` floor, so there is no `cloud` extra and the two
 > cannot be resolved together. Everything in this section is written and kept
 > working against the 0.10 API; it becomes usable when polars-cloud ships a
 > release tracking 1.44.

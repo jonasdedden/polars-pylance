@@ -53,9 +53,7 @@ def _reader_from_lazyframe(
     Polars resolves for the plan.
     """
     batches = lf.collect_batches(chunk_size=chunk_size, engine=engine)
-    # polars annotates this as `Iterator[DataFrame]`, but the object it returns
-    # also implements `__arrow_c_stream__` -- which is the entire point here.
-    return pa.RecordBatchReader.from_stream(batches)  # type: ignore[arg-type]
+    return pa.RecordBatchReader.from_stream(batches)
 
 
 def sink_lance(

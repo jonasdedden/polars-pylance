@@ -34,10 +34,12 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    # 1.44.0 is the floor because it is the first release without the
-    # unevaluable `dynamic_pred` node pushed to IO plugins (broken
-    # 1.39.0-1.43.2), which is the hook `scan_lance` is built on.
-    "polars>=1.44.0",
+    # 1.44.0 was the first release without the unevaluable `dynamic_pred`
+    # node pushed to IO plugins (broken 1.39.0-1.43.2), which is the hook
+    # `scan_lance` is built on -- but it was yanked for a when/then/otherwise
+    # regression, and 1.44.1 is also the first release to annotate
+    # `collect_batches` as what it returns, which `sink_lance` relies on.
+    "polars>=1.44.1",
     "pylance>=9",
     "pyarrow",
 ]
@@ -49,8 +51,9 @@ Issues = "https://github.com/jonasdedden/polars-pylance/issues"
 Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
 Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md"
 
-# Uncomment once polars-cloud allows polars 1.44.0. It pins `polars==1.43.2`
-# today, which makes `uv lock` fail outright rather than just the extra.
+# Uncomment once polars-cloud allows this package's polars floor. It pins
+# `polars==1.43.2` today, which makes `uv lock` fail outright rather than just
+# the extra.
 # [project.optional-dependencies]
 # cloud = ["polars-cloud>=0.10"]
 

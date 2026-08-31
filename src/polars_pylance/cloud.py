@@ -2,7 +2,7 @@
 
 .. warning::
     **Not installable today.** polars-cloud pins polars with ``==`` -- 0.10.0
-    pins ``polars==1.43.2`` -- which is below this package's ``polars>=1.44.0``
+    pins ``polars==1.43.2`` -- which is below this package's ``polars>=1.44.1``
     floor, so there is no ``cloud`` extra and the two cannot be resolved
     together. Everything here is written and kept working against the 0.10 API;
     it becomes usable as soon as polars-cloud ships a release tracking 1.44.
@@ -37,14 +37,15 @@ Writing
 
 The polars pin
     polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9, and
-    this package now requires ``polars>=1.44.0``. Those are mutually exclusive,
+    this package now requires ``polars>=1.44.1``. Those are mutually exclusive,
     which is why the ``cloud`` extra was dropped rather than left declared: an
     extra pinning below the floor makes even ``uv lock`` unresolvable, not just
     ``pip install polars-pylance[cloud]``.
 
-    1.44.0 is the floor because 1.43.2 is the last release in which a
+    The floor is there because 1.43.2 is the last release in which a
     ``sort().head()`` pushes an unevaluable ``dynamic_pred`` node into an IO
-    plugin's predicate, which is exactly what ``scan_lance`` is. Installing
+    plugin's predicate, which is exactly what ``scan_lance`` is. 1.44.0 fixed
+    that but was yanked, so 1.44.1 is the first usable release. Installing
     polars-cloud alongside polars-pylance downgrades polars into that range and
     reintroduces it, so it is not a supported workaround. Wait for the
     polars-cloud release that tracks 1.44.
