@@ -54,7 +54,7 @@ Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON
 # tests still run without it.
 test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
-# stub package, and without it every pyarrow symbol degrades to `Any`.
+# stub package. `testing` included because `tests/`'s type checking depends on it.
 typing = ["mypy>=1.11", "basedpyright>=1.20", "pyarrow-stubs>=20"]
 # Pinned here because "ALL" rules.
 lint = ["ruff>=0.16.5"]

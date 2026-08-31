@@ -456,8 +456,13 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
     raise TypeError(msg)
 
 
+# `remote` is a `polars_cloud.LazyFrameRemote` or `ExecuteRemote`, both of which
+# polars-cloud annotates -- it ships `py.typed`. It is `Any` here only because
+# polars-cloud cannot be installed alongside this package (it pins
+# `polars==1.43.2`, below the floor), so the name cannot be imported even under
+# `TYPE_CHECKING` without failing the type checkers on every run.
 def sink_lance_remote(  # noqa: D417 - the staging parameters are documented once, on `stage_lance_sink`
-    remote: Any,  # noqa: ANN401 - a polars-cloud object; that package is untyped
+    remote: Any,  # noqa: ANN401 - see the note above about polars-cloud
     target: str | Path | lance.LanceDataset,
     *,
     schema: pa.Schema | pl.Schema | None = None,
@@ -483,8 +488,9 @@ def sink_lance_remote(  # noqa: D417 - the staging parameters are documented onc
     Parameters
     ----------
     remote
-        A ``polars_cloud.LazyFrameRemote``, i.e. the result of
-        ``lf.remote(ctx)`` and any of ``.distributed()`` / ``.single_node()``.
+        A ``polars_cloud.LazyFrameRemote`` -- the result of ``lf.remote(ctx)``
+        -- or the ``ExecuteRemote`` that ``.distributed()`` /
+        ``.single_node()`` return.
     target
         Destination URI, path, or an existing :class:`lance.LanceDataset`.
     schema
@@ -530,10 +536,10 @@ def sink_lance_remote(  # noqa: D417 - the staging parameters are documented onc
                 "output schema; pass `schema=`"
             )
             raise TypeError(msg)
-        # `remote` is untyped, so `lf` is `Any` and whatever it returns here
-        # is unchecked. `_as_arrow_schema` would reject a non-schema further in;
-        # this says so where the value enters, and narrows away the `None` the
-        # parameter still declares.
+        # `lf` came through `Any`, so what it returns here is unchecked.
+        # `_as_arrow_schema` would reject a non-schema further in; this says so
+        # where the value enters, and narrows away the `None` the parameter
+        # still declares.
         collected = lf.collect_schema()
         if not isinstance(collected, pl.Schema):
             msg = (
