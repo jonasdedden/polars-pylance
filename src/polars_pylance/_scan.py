@@ -60,6 +60,9 @@ class LanceScanSpec:
     options: LanceScanOptions = field(default_factory=LanceScanOptions)
     nearest: dict[str, Any] | None = None
     full_text_query: str | dict[str, Any] | None = None
+    # Already lowered to Lance SQL by `scan_lance`, so the spec stays a plain
+    # picklable record and an unsupported prefilter fails at the call site.
+    prefilter: str | None = None
     with_row_id: bool = False
     with_row_address: bool = False
     fragment_ids: list[int] | None = None
@@ -79,6 +82,7 @@ class LanceScanSpec:
         columns: list[str] | None = None,
         filter: str | None = None,
         limit: int | None = None,
+        prefilter: bool = False,
     ) -> lance.LanceScanner:
         kwargs: dict[str, Any] = {
             **self.options.to_scan_kwargs(),
@@ -86,6 +90,10 @@ class LanceScanSpec:
             "filter": filter,
             "limit": limit,
         }
+        if prefilter:
+            # Lance has one filter slot; this says it restricts the rows the
+            # search runs over instead of filtering the search's result.
+            kwargs["prefilter"] = True
         if self.nearest is not None:
             kwargs["nearest"] = self.nearest
         if self.full_text_query is not None:
@@ -121,6 +129,7 @@ class LanceScanSpec:
         projection: Sequence[str] | None = None,
         filter: str | None = None,
         limit: int | None = None,
+        prefilter: bool = False,
     ) -> Iterator[pl.DataFrame]:
         """Stream `projection` out of Lance as Polars frames.
 
@@ -128,10 +137,17 @@ class LanceScanSpec:
         dropping the generator early stops the scan.
         """
         columns = None if projection is None else self._physical_columns(projection)
-        scanner = self.scanner(dataset, columns=columns, filter=filter, limit=limit)
+        scanner = self.scanner(
+            dataset, columns=columns, filter=filter, limit=limit, prefilter=prefilter
+        )
 
         remaining = limit
-        for batch in self._batches(scanner, filtered=filter is not None):
+        # A pushed-down predicate may be dropped and the scan retried without
+        # it, because Polars can finish it. A prefilter has no such second
+        # chance: dropping it would silently widen what the search ranked.
+        for batch in self._batches(
+            scanner, fallback=filter is not None and not prefilter
+        ):
             if batch.num_rows == 0:
                 continue
             if remaining is not None:
@@ -157,18 +173,20 @@ class LanceScanSpec:
 
     @staticmethod
     def _batches(
-        scanner: lance.LanceScanner, *, filtered: bool
+        scanner: lance.LanceScanner, *, fallback: bool
     ) -> Iterator[pa.RecordBatch]:
         """`scanner.to_batches()`, reporting a rejected filter as such.
 
         Lance validates a filter while planning, on the first pull, so telling
-        that failure from any other lets the caller retry without it.
+        that failure from any other lets the caller retry without it. Only when
+        `fallback` says a retry would still give the same rows; otherwise the
+        error is Lance's own and is left to reach the caller.
         """
         iterator = iter(scanner.to_batches())
         try:
             first = next(iterator, None)
         except Exception as exc:
-            if not filtered:
+            if not fallback:
                 raise
             raise _FilterRejected(str(exc)) from exc
         if first is None:
@@ -225,22 +243,35 @@ def _frames(
             spec, options=spec.options.replace(batch_size=batch_size)
         )
 
-    lowered = (
-        to_lance_filter(predicate, schema=spec.polars_schema(dataset))
-        if predicate is not None and spec.predicate_pushdown
-        else None
-    )
-    # An exact lowering keeps the same rows, so Lance can be left to it. A
-    # relaxed one keeps more, and nothing downstream will filter again.
-    residual = None if lowered is not None and lowered.exact else predicate
-    sql = lowered.sql if lowered is not None else None
+    sql: str | None
+    if spec.prefilter is not None:
+        # Lance's one filter slot is spoken for. The prefilter decides which
+        # rows the search ranks; the query's own `.filter()` therefore stays in
+        # Polars, where it is a postfilter over that ranking. `predicate_pushdown`
+        # governs the automatic lowering, not this explicit argument.
+        sql, residual, prefilter = spec.prefilter, predicate, True
+    else:
+        lowered = (
+            to_lance_filter(predicate, schema=spec.polars_schema(dataset))
+            if predicate is not None and spec.predicate_pushdown
+            else None
+        )
+        # An exact lowering keeps the same rows, so Lance can be left to it. A
+        # relaxed one keeps more, and nothing downstream will filter again.
+        residual = None if lowered is not None and lowered.exact else predicate
+        sql = lowered.sql if lowered is not None else None
+        prefilter = False
 
-    batches = _apply(spec, dataset, with_columns, sql, residual, n_rows)
+    batches = _apply(
+        spec, dataset, with_columns, sql, residual, n_rows, prefilter=prefilter
+    )
     try:
         first = next(batches)
     except StopIteration:
         return
     except _FilterRejected as exc:
+        # Only reachable for a lowered predicate: `iter_frames` lets a rejected
+        # prefilter raise Lance's own error instead.
         warnings.warn(
             f"polars-pylance: Lance rejected the pushed-down filter ({exc}); "
             "scanning without it",
@@ -260,12 +291,19 @@ def _apply(
     sql: str | None,
     residual: pl.Expr | None,
     n_rows: int | None,
+    *,
+    prefilter: bool = False,
 ) -> Iterator[pl.DataFrame]:
     """Stream the scan, evaluating `residual` on each batch if there is one."""
     if residual is None:
-        # Lance is doing the whole filter, so the row limit can go down with it.
+        # Nothing is left to filter afterwards, so the row limit can go down
+        # too: it truncates the ranked result rather than narrowing the search.
         yield from spec.iter_frames(
-            dataset, projection=projection, filter=sql, limit=n_rows
+            dataset,
+            projection=projection,
+            filter=sql,
+            limit=n_rows,
+            prefilter=prefilter,
         )
         return
 
@@ -273,7 +311,9 @@ def _apply(
     # past a filter that has not run yet.
     columns = _with_predicate_columns(projection, residual)
     remaining = n_rows
-    for frame in spec.iter_frames(dataset, projection=columns, filter=sql):
+    for frame in spec.iter_frames(
+        dataset, projection=columns, filter=sql, prefilter=prefilter
+    ):
         out = frame.filter(residual)
         if projection is not None and out.columns != projection:
             out = out.select(projection)
@@ -306,6 +346,37 @@ def _with_predicate_columns(
 # ---------------------------------------------------------------------------
 
 
+def _prefilter_sql(prefilter: str | pl.Expr) -> str:
+    """Lower an explicit prefilter, refusing whatever Lance cannot decide alone.
+
+    A pushed-down predicate is allowed to be relaxed, because Polars still
+    evaluates it afterwards. A prefilter chooses which rows the search ranks at
+    all, and nothing downstream can repair that choice -- so a partial lowering
+    is an error here rather than a silent demotion to a postfilter.
+    """
+    if isinstance(prefilter, str):
+        return prefilter
+    lowered = to_lance_filter(prefilter)
+    if lowered is None:
+        msg = (
+            f"prefilter does not translate to a Lance filter: {prefilter}. "
+            "It is not applied as a postfilter, because filtering the ranked "
+            "result is a different question; rewrite it, or pass the Lance SQL "
+            "as a string."
+        )
+        raise ValueError(msg)
+    if not lowered.exact:
+        msg = (
+            f"prefilter only partly translates to a Lance filter: {prefilter} "
+            f"lowers to {lowered.sql!r}, which keeps a superset of its rows. A "
+            "prefilter decides what the search ranks, so pushing the wider one "
+            "would silently change the result; pass the Lance SQL as a string "
+            "to say exactly what should be pushed."
+        )
+        raise ValueError(msg)
+    return lowered.sql
+
+
 def scan_lance(
     source: str | Path | lance.LanceDataset,
     *,
@@ -314,6 +385,7 @@ def scan_lance(
     options: LanceScanOptions | None = None,
     nearest: dict[str, Any] | None = None,
     full_text_query: str | dict[str, Any] | None = None,
+    prefilter: str | pl.Expr | None = None,
     with_row_id: bool = False,
     with_row_address: bool = False,
     fragments: Sequence[int] | None = None,
@@ -352,6 +424,15 @@ def scan_lance(
         column. Not expressible as a Polars predicate, hence a scan argument.
     full_text_query
         Lance full-text search query. Adds a ``_score`` column.
+    prefilter
+        Restrict which rows ``nearest`` or ``full_text_query`` may return before
+        the search runs, as Lance SQL or a Polars expression. This is not the
+        same question as ``.filter()`` on the result, which ranks first and
+        filters after and so may return fewer than ``k`` rows; with a prefilter
+        the search picks its ``k`` from the surviving rows only. A Polars
+        expression that does not translate exactly is an error rather than a
+        postfilter, since nothing downstream can repair a candidate set the
+        search has already used.
     with_row_id, with_row_address
         Include Lance's ``_rowid`` / ``_rowaddr`` columns.
     fragments
@@ -381,6 +462,7 @@ def scan_lance(
         options=options if options is not None else LanceScanOptions(),
         nearest=nearest,
         full_text_query=full_text_query,
+        prefilter=None if prefilter is None else _prefilter_sql(prefilter),
         with_row_id=with_row_id,
         with_row_address=with_row_address,
         fragment_ids=list(fragments) if fragments is not None else None,

@@ -70,6 +70,26 @@ A predicate that only partly translates is pushed as far as it goes and finished
 in Polars (`exact=False` says so), so the answer never depends on how much of it
 Lance understood. `predicate_pushdown=False` turns the whole thing off.
 
+### Vector search
+
+`nearest=` searches a vector column, returning a LazyFrame ordered by
+`_distance`. `prefilter=` restricts what that search may return:
+
+```python
+lf = pll.scan_lance(
+    "docs.lance",
+    nearest={"column": "embedding", "q": embedding, "k": 10, "metric": "cosine"},
+    prefilter="category = 'docs'",  # or a Polars expression
+)
+```
+
+`prefilter=` runs before the search, so it returns `k` rows chosen from the ones
+it admits. A downstream `.filter()` runs after, over rows already ranked, and so
+may return fewer than `k`; it is never promoted to a prefilter. A prefilter that
+does not translate exactly raises rather than quietly becoming a postfilter,
+since nothing downstream can repair a candidate set the search has already used.
+`docs/VECTOR_SEARCH.md` has the details.
+
 ### Sharded reads
 
 `scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when

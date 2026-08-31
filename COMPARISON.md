@@ -63,6 +63,7 @@ inherits every Lance feature `pylance` exposes.
 | `storage_options` (S3/Azure/GCS) | yes | yes |
 | Version / tag pinning, time travel | no | yes |
 | Vector search (`nearest`) | no | yes |
+| Search prefilter, distinct from postfilter | no | yes (`prefilter=`) |
 | Full-text search | no | yes |
 | `_rowid` / `_rowaddr` | no | yes |
 | Per-fragment scans, sharding | no | yes (`scan_lance_fragments`) |
