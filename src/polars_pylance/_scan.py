@@ -20,18 +20,19 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import lance
 import polars as pl
-import pyarrow as pa
 
 from ._options import LanceScanOptions
 from ._predicate import VIRTUAL_COLUMNS, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+    from pathlib import Path
+
+    import pyarrow as pa
 
 # `VIRTUAL_COLUMNS` is imported rather than defined here because the predicate
 # lowering has to refuse the same columns.

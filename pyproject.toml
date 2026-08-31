@@ -105,17 +105,40 @@ markers = [
     "cloud: exercises the Polars Cloud write path",
 ]
 filterwarnings = [
+    # The suite raises no warning today, so a new one is a finding.
+    "error",
     # scan_lance and sink_lance are built on polars APIs marked unstable; that is
     # a documented property of this package, not something to be warned about.
+    # Only fires under `warn_unstable`, off by default, so this is a safety net
+    # for anyone who turns it on rather than something the suite hits.
     "ignore::polars.exceptions.UnstableWarning",
 ]
 
 [tool.ruff]
-line-length = 88
+# `line-length` is ruff's own default of 88.
 src = ["src", "tests", "bench"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = [
+    "E", "W", "F", "I", "UP", "B", "SIM", "RUF",
+    "ASYNC", "C4", "EM", "ERA", "EXE", "FA", "FURB", "G", "ICN",
+    "INT", "ISC", "LOG", "NPY", "PERF", "PGH", "PIE", "PT", "PTH", "PYI",
+    "Q", "RET", "RSE", "SLF", "SLOT", "T20", "TC", "TD", "TID", "TRY", "N",
+]
+# Selected by name rather than `ALL` because CI runs an unpinned `uvx ruff`,
+# where `ALL` would turn every ruff release into a broken build. Deliberately
+# left out: `S` and `PLR2004` (the tests are built out of `assert` and literal
+# comparisons), `D` (D401 would force imperative docstrings on a codebase that
+# consistently uses noun phrases), `COM` (fights the formatter), `ANN401` (the
+# `**kwargs: Any` that forward to Lance are deliberate), `DTZ` (naive datetimes
+# are the test data), `FBT`, `A002` (`filter` is the argument name Lance uses),
+# `BLE` (the blind `except` in the predicate lowering is the design), and
+# `PLC0415` (the deferred imports are deliberate).
+ignore = [
+    # `_Decline` and `_FilterRejected` are control-flow signals, and read
+    # better without the suffix N818 wants.
+    "N818",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "bench/*" = ["T201"]
@@ -127,7 +150,21 @@ files = ["src", "tests"]
 [tool.basedpyright]
 include = ["src", "tests"]
 
-# "standard" rather than basedpyright's stricter default: the `reportAny` and
-# `reportUnknown*` families fire on every value that passes through pyarrow,
-# which has no stubs, so they report the dependency rather than this code.
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
+
+# Strict, minus the families that report a dependency's typing rather than this
+# code. `lance` and `polars` annotate their own returns loosely, so the
+# `reportUnknown*` family fires on every value that crosses either boundary.
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+# `dtype in (pl.Float32, pl.Float64)` compares a `DataType` against the class
+# objects, which polars' own `__eq__` supports and its annotations do not.
+reportUnnecessaryContains = false
+# The tests reach into `_scan` and `_Lowering` on purpose, and `_remote`
+# shares `_dataset_exists` with `_sink`.
+reportPrivateUsage = false
+# Both remaining sites are the deliberate runtime check behind a signature an
+# untyped caller can still get wrong.
+reportUnnecessaryIsInstance = false

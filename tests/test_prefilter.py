@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import pickle
 import warnings
+from typing import TYPE_CHECKING
 
 import lance
 import numpy as np
@@ -23,8 +24,10 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
-from conftest import ScannerCall
 from polars_pylance import LanceScanSpec, scan_lance
+
+if TYPE_CHECKING:
+    from conftest import ScannerCall
 
 DIM = 32
 ROWS = 2_000

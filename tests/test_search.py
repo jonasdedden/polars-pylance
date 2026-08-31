@@ -7,7 +7,7 @@ because they are properties of the scan rather than expressions over the result.
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import lance
 import numpy as np
@@ -15,8 +15,12 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
-from conftest import ScannerCall
 from polars_pylance import scan_lance
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from conftest import ScannerCall
 
 DIM = 16
 ROWS = 512

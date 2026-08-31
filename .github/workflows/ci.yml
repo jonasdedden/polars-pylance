@@ -36,8 +36,9 @@ jobs:
           enable-cache: true
           cache-suffix: ${{ github.job }}
       # Strictness and the file list live in `[tool.mypy]`, so this matches what
-      # `mypy` does locally. Covers src, tests and bench. The `dev` group is
-      # installed by default, which is where mypy and the stubs come from.
+      # `mypy` does locally. Covers src and tests; `bench/` is checked by ruff
+      # only. The `dev` group is installed by default, which is where mypy and
+      # the stubs come from.
       - run: uv run mypy
 
   basedpyright:

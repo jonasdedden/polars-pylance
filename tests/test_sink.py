@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import lance
 import polars as pl
@@ -15,6 +15,9 @@ from polars_pylance import (
     sink_lance,
     write_lance_fragments,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _transformed(uri: str) -> pl.LazyFrame:
@@ -39,7 +42,7 @@ def test_create_round_trip(tmp_path: Path, lance_uri: str) -> None:
 def test_create_refuses_existing(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "twice.lance")
     sink_lance(_transformed(lance_uri), out)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="already exists"):
         sink_lance(_transformed(lance_uri), out, mode="create")
 
 

@@ -7,7 +7,7 @@ the other direction a filter pushed so far that rows go missing.
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import lance
 import polars as pl
@@ -17,6 +17,9 @@ from polars.testing import assert_frame_equal
 from conftest import ScannerCall, spy_on_scanner
 from polars_pylance import scan_lance
 from polars_pylance._predicate import LanceFilter
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _scan_calls(calls: list[ScannerCall]) -> list[ScannerCall]:
@@ -108,7 +111,8 @@ def test_the_engine_batch_size_hint_is_used_when_no_option_asks_otherwise(
     options = LanceScanOptions(batch_size=None)
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
     sizes = {c.batch_size for c in _scan_calls(scanner_calls)}
-    assert sizes and None not in sizes
+    assert sizes
+    assert None not in sizes
 
 
 # ---------------------------------------------------------------------------

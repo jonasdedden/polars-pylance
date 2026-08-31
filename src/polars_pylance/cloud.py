@@ -52,7 +52,6 @@ The polars pin
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import lance
@@ -65,6 +64,8 @@ from ._remote import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ._sink import WriteMode
 
 __all__ = [

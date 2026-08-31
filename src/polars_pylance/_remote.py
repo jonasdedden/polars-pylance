@@ -194,7 +194,7 @@ class _FragmentWriter:
 
     def __call__(self, df: pl.DataFrame) -> None:
         if df.height == 0:
-            return None
+            return
 
         schema = self.schema()
         table = df.to_arrow()
@@ -227,7 +227,7 @@ class _FragmentWriter:
         fs.create_dir(prefix, recursive=True)
         with fs.open_output_stream(posixpath.join(prefix, f"{key}.json")) as sink:
             sink.write(payload)
-        return None
+        return
 
 
 # ---------------------------------------------------------------------------

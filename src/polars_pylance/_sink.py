@@ -15,7 +15,6 @@ slower than the producer. ``collect_batches`` is marked unstable by Polars.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import lance
@@ -24,6 +23,7 @@ import pyarrow as pa
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from pathlib import Path
 
     from lance.fragment import FragmentMetadata
 

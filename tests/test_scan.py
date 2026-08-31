@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import lance
 import polars as pl
@@ -10,6 +10,9 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from polars_pylance import LanceScanOptions, scan_lance, scan_lance_fragments
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_schema_matches_dataset(lance_uri: str) -> None:

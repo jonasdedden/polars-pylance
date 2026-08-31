@@ -30,12 +30,10 @@ INDICES = [
 
 
 def indices_gib(uri: str) -> float:
-    path = os.path.join(uri, "_indices")
-    if not os.path.isdir(path):
+    path = Path(uri) / "_indices"
+    if not path.is_dir():
         return 0.0
-    total = sum(
-        os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs
-    )
+    total = sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
     return total / 1024**3
 
 

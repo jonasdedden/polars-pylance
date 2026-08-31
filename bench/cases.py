@@ -198,7 +198,8 @@ elif CASE == "l_fragments":  # polars-pylance only: sharded per-fragment scan
     extra["shards"] = len(parts)
 
 else:
-    raise SystemExit(f"unknown case {CASE}")
+    msg = f"unknown case {CASE}"
+    raise SystemExit(msg)
 
 elapsed = time.perf_counter() - t0
 shutil.rmtree(OUT, ignore_errors=True)

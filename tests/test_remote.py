@@ -80,7 +80,7 @@ def test_nothing_is_published_before_commit(tmp_path: Path, lance_uri: str) -> N
     staged = stage_lance_sink(out, lf)
     _run(staged, lf)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="was not found"):
         lance.dataset(out)
     assert staged.staged_fragments()
 

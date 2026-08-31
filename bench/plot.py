@@ -71,8 +71,7 @@ def _log_ticks(
     decade = math.floor(math.log10(lo))
     vals: list[float] = []
     while decade <= math.ceil(math.log10(hi)):
-        for mant in (1, 2, 5):
-            vals.append(mant * 10.0**decade)
+        vals.extend(mant * 10.0**decade for mant in (1, 2, 5))
         decade += 1
     vals = [v for v in vals if lo / 2.5 <= v <= hi * 2.5]
 
@@ -124,7 +123,7 @@ def grid(rows_of_data: list[dict[str, Any]], phase: str) -> go.Figure:
         vertical_spacing=0.10,
     )
 
-    METRICS = (
+    metrics = (
         ("seconds", "runtime (s)", "solid", "circle", False),
         ("peak_gib", "peak RSS (GiB)", "dot", "diamond", True),
     )
@@ -149,7 +148,7 @@ def grid(rows_of_data: list[dict[str, Any]], phase: str) -> go.Figure:
                 key=lambda r: r["rows"],
             )
             ok = [pt for pt in pts if pt["status"] == "ok"]
-            for key, label, dash, symbol, secondary in METRICS:
+            for key, label, dash, symbol, secondary in metrics:
                 if not ok:
                     continue
                 fig.add_trace(
@@ -517,9 +516,9 @@ def main() -> None:
     seen = {str(r["phase"]) for r in data if r.get("phase")}
     phases = [p for p in PHASES if p in seen] + sorted(seen - set(PHASES))
 
-    pages: list[tuple[str, go.Figure]] = []
-    for phase in phases:
-        pages.append((f"{phase}.html", grid(data, phase)))
+    pages: list[tuple[str, go.Figure]] = [
+        (f"{phase}.html", grid(data, phase)) for phase in phases
+    ]
     pages.append(("ratios.html", ratio_figure(data)))
 
     for name, fig in pages:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import random
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import lance
 import polars as pl
@@ -23,6 +23,9 @@ from polars_pylance._predicate import (
     _Lowering,
     to_lance_filter,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # shape: one construct at a time
@@ -54,8 +57,10 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "is_finite",
         pl.col("odd").is_finite(),
-        "(NOT isnan(`odd`) AND `odd` != CAST('inf' AS double) "
-        "AND `odd` != CAST('-inf' AS double))",
+        (
+            "(NOT isnan(`odd`) AND `odd` != CAST('inf' AS double) "
+            "AND `odd` != CAST('-inf' AS double))"
+        ),
     ),
     ("is_in", pl.col("id").is_in([1, 2]), "(`id` IN (1, 2))"),
     ("is_in empty", pl.col("id").is_in([]), "FALSE"),
@@ -505,7 +510,7 @@ def test_a_malformed_node_declines_in_value_position(node: Json) -> None:
         _Lowering(max_in_list=16).value(node)
 
 
-def test_lowering_is_pure_of_dataset_knowledge(rich_uri: str) -> None:
+def test_lowering_is_pure_of_dataset_knowledge() -> None:
     """The lowering never touches the dataset; it works from the expression alone."""
     assert to_lance_filter(pl.col("nonexistent") > 1) is not None
 
