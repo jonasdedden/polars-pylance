@@ -53,6 +53,11 @@ class LanceScanSpec:
     Holding a URI rather than an open :class:`lance.LanceDataset` is what lets a
     scan be serialized into a query plan and executed elsewhere, which is the
     prerequisite for Polars Cloud.
+
+    The fields are the arguments of :func:`~polars_pylance.scan_lance`, which
+    documents them, with two differences: ``prefilter`` has already been lowered
+    to a Lance SQL string, and ``fragment_ids`` is the resolved list that
+    ``fragments`` selected.
     """
 
     uri: str
@@ -489,6 +494,21 @@ def scan_lance_fragments(
     set of files. Use this to fan a scan out over threads, processes or workers,
     then recombine with :func:`polars.concat`. Also the manual parallelisation
     route if a distributed planner refuses a Python scan node.
+
+    Parameters
+    ----------
+    source
+        Dataset URI, path, or an open :class:`lance.LanceDataset`, as
+        :func:`~polars_pylance.scan_lance` takes it.
+    n_shards
+        Group the fragments into this many LazyFrames instead of returning one
+        each. Fragments are dealt round-robin, so shards stay even when the
+        last fragment is a short one. Asking for more shards than there are
+        fragments yields one fragment per shard, not empty shards.
+    **kwargs
+        Forwarded to :func:`~polars_pylance.scan_lance` for every shard, so
+        ``version``, ``options``, ``prefilter`` and the rest apply to all of
+        them alike.
 
     Examples
     --------

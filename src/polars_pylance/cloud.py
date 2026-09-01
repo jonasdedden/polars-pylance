@@ -86,6 +86,17 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     because a :func:`sink_lance_remote` callback is pickled by reference: the
     worker imports it rather than receiving its code.
 
+    Parameters
+    ----------
+    extra
+        Further requirement lines to append, for whatever else the query needs
+        on the worker.
+
+    Returns
+    -------
+    str
+        The file contents, newline-terminated.
+
     Examples
     --------
     >>> import polars_cloud as pc  # doctest: +SKIP
@@ -117,6 +128,30 @@ def convert_parquet_to_lance(
     The documented way to land Polars Cloud results in Lance: the remote query
     sinks Parquet to object storage, then this converts it without materialising
     the data.
+
+    Parameters
+    ----------
+    parquet_source
+        The staged Parquet: a path, a URI, a glob, or a list of them.
+    target
+        Destination Lance URI or path.
+    mode
+        ``"create"`` (fail if it exists), ``"append"``, ``"overwrite"`` (new
+        version), or ``"merge"`` for an upsert, whose join key goes through
+        ``lance_write_kwargs`` as ``on``.
+    chunk_size
+        Rows buffered per batch handed to Lance.
+    storage_options
+        Object-store credentials and settings for reading the Parquet. The
+        Lance write takes its own; pass those in ``lance_write_kwargs``.
+    **lance_write_kwargs
+        Passed through to :func:`~polars_pylance.sink_lance`, e.g.
+        ``max_rows_per_file``.
+
+    Returns
+    -------
+    lance.LanceDataset
+        The written dataset.
 
     Examples
     --------

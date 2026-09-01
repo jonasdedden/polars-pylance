@@ -508,8 +508,6 @@ def sink_lance_remote(  # noqa: D417 - the staging parameters are documented onc
         always left in place, so a re-run can be diagnosed or the fragments
         committed by hand.
 
-    Other parameters are as :func:`stage_lance_sink`.
-
     Returns
     -------
     lance.LanceDataset

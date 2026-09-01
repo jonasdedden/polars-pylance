@@ -298,6 +298,29 @@ def commit_lance_fragments(
     This is the single commit that makes them a version -- whether they were
     written by threads (:func:`write_lance_fragments`) or by Polars Cloud
     workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
+
+    Parameters
+    ----------
+    uri
+        Destination dataset URI or path.
+    fragments
+        The ``lance.fragment.FragmentMetadata`` records returned by whatever
+        wrote the data files.
+    schema
+        Schema to install on the new version. Used by ``"create"`` and
+        ``"overwrite"``; ``"append"`` keeps the existing dataset's schema and
+        field ids instead.
+    mode
+        ``"create"`` (fail if the dataset exists), ``"overwrite"`` (replace its
+        contents with these fragments), or ``"append"`` (add them to it).
+    storage_options
+        Object-store credentials and settings, passed to Lance.
+
+    Returns
+    -------
+    lance.LanceDataset
+        The dataset at the version this commit created.
+
     """
     operation: lance.LanceOperation.BaseOperation
     if mode == "append":

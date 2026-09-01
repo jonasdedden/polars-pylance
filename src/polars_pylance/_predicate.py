@@ -183,6 +183,8 @@ def to_lance_filter(
 
     Examples
     --------
+    >>> import polars as pl
+    >>> from polars_pylance import to_lance_filter
     >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
     LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
     >>> to_lance_filter(
