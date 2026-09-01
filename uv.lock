@@ -1292,11 +1292,11 @@ dev = [
     { name = "ruff" },
 ]
 docs = [
-    { name = "mkdocs" },
     { name = "mkdocs-gen-files" },
     { name = "mkdocs-literate-nav" },
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
+    { name = "properdocs" },
 ]
 lint = [
     { name = "ruff" },
@@ -1341,11 +1341,11 @@ dev = [
     { name = "ruff", specifier = ">=0.16.5" },
 ]
 docs = [
-    { name = "mkdocs", specifier = ">=1.6" },
-    { name = "mkdocs-gen-files", specifier = ">=0.5" },
+    { name = "mkdocs-gen-files", specifier = ">=0.6" },
     { name = "mkdocs-literate-nav", specifier = ">=0.6" },
     { name = "mkdocs-material", specifier = ">=9" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.26" },
+    { name = "properdocs", specifier = ">=1.6.7" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.16.5" }]
 test = [

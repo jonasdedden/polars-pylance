@@ -52,7 +52,7 @@ jobs:
       - run: uv run --no-default-groups --group typing basedpyright
 
   docs:
-    name: mkdocs --strict
+    name: properdocs --strict
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,11 +63,7 @@ jobs:
       # `--strict` turns an unresolved cross-reference into a failure, which is
       # what keeps the docstring markup from rotting. griffe reads `src` without
       # importing it, so this needs no runtime dependency beyond the docs group.
-      - run: uv run --no-default-groups --group docs mkdocs build --strict
-        # Suppresses mkdocs-material's upstream banner about MkDocs 2.0, which
-        # is advocacy rather than anything wrong with this build.
-        env:
-          DISABLE_MKDOCS_2_WARNING: "true"
+      - run: uv run --no-default-groups --group docs properdocs build --strict
 
   pytest:
     name: pytest (${{ matrix.python-version }})
