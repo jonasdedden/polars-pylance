@@ -3,23 +3,54 @@
 `scan_lance(nearest={...})` searches a vector column. The result carries a
 `_distance` column and is ordered by it.
 
+The examples below use two-dimensional vectors so the distances can be checked
+by eye. Real embeddings have hundreds of dimensions; nothing else differs.
+
 ```python
-search = {"column": "embedding", "q": query, "k": 3}
-pll.scan_lance("docs.lance", nearest=search).select("id", "cat", "_distance").collect()
+pll.scan_lance("tiny.lance").collect()
 ```
 
 ```
-shape: (3, 3)
-┌─────┬──────┬───────────┐
-│ id  ┆ cat  ┆ _distance │
-│ --- ┆ ---  ┆ ---       │
-│ i64 ┆ str  ┆ f32       │
-╞═════╪══════╪═══════════╡
-│ 0   ┆ blog ┆ 0.0       │
-│ 461 ┆ blog ┆ 0.165233  │
-│ 314 ┆ faq  ┆ 0.263081  │
-└─────┴──────┴───────────┘
+shape: (7, 3)
+┌─────┬──────┬───────────────┐
+│ id  ┆ cat  ┆ embedding     │
+│ --- ┆ ---  ┆ ---           │
+│ i64 ┆ str  ┆ array[f32, 2] │
+╞═════╪══════╪═══════════════╡
+│ 0   ┆ blog ┆ [0.1, 0.0]    │
+│ 1   ┆ blog ┆ [0.0, 0.2]    │
+│ 2   ┆ blog ┆ [0.3, 0.0]    │
+│ 3   ┆ faq  ┆ [0.5, 0.5]    │
+│ 4   ┆ docs ┆ [1.0, 0.0]    │
+│ 5   ┆ docs ┆ [0.0, 1.5]    │
+│ 6   ┆ docs ┆ [2.0, 0.0]    │
+└─────┴──────┴───────────────┘
 ```
+
+Searching for the three nearest to the origin returns the three points closest
+to it, which happen to be the `blog` rows:
+
+```python
+search = {"column": "embedding", "q": [0.0, 0.0], "k": 3}
+pll.scan_lance("tiny.lance", nearest=search).collect()
+```
+
+```
+shape: (3, 4)
+┌─────┬──────┬───────────────┬───────────┐
+│ id  ┆ cat  ┆ embedding     ┆ _distance │
+│ --- ┆ ---  ┆ ---           ┆ ---       │
+│ i64 ┆ str  ┆ array[f32, 2] ┆ f32       │
+╞═════╪══════╪═══════════════╪═══════════╡
+│ 0   ┆ blog ┆ [0.1, 0.0]    ┆ 0.01      │
+│ 1   ┆ blog ┆ [0.0, 0.2]    ┆ 0.04      │
+│ 2   ┆ blog ┆ [0.3, 0.0]    ┆ 0.09      │
+└─────┴──────┴───────────────┴───────────┘
+```
+
+Note `_distance` for the default `l2` metric is the **squared** euclidean
+distance: the point at `[0.3, 0.0]` is 0.3 away and scores 0.09. Ranking is
+unaffected, but a threshold has to be squared to match.
 
 The `nearest` dict is handed to Lance as-is, so every key
 `LanceDataset.scanner(nearest=...)` takes works here and new ones arrive without
@@ -38,41 +69,46 @@ They answer different questions, so they stay separate:
 | `prefilter=` | before the search | `k`, chosen from the rows it admits |
 | `.filter()` on the result | after the search | `k` or fewer, out of what was ranked |
 
-A prefilter picks the `k` nearest **among the rows it admits**:
+A prefilter searches only the `docs` rows, so it returns three of them, ranked:
 
 ```python
-pll.scan_lance(uri, nearest=search, prefilter="cat = 'docs'")
+pll.scan_lance("tiny.lance", nearest=search, prefilter="cat = 'docs'").collect()
 ```
 
 ```
-┌─────┬──────┬───────────┐
-│ id  ┆ cat  ┆ _distance │
-╞═════╪══════╪═══════════╡
-│ 261 ┆ docs ┆ 0.26594   │
-│ 329 ┆ docs ┆ 0.301591  │
-│ 346 ┆ docs ┆ 0.461135  │
-└─────┴──────┴───────────┘
+shape: (3, 4)
+┌─────┬──────┬───────────────┬───────────┐
+│ id  ┆ cat  ┆ embedding     ┆ _distance │
+│ --- ┆ ---  ┆ ---           ┆ ---       │
+│ i64 ┆ str  ┆ array[f32, 2] ┆ f32       │
+╞═════╪══════╪═══════════════╪═══════════╡
+│ 4   ┆ docs ┆ [1.0, 0.0]    ┆ 1.0       │
+│ 5   ┆ docs ┆ [0.0, 1.5]    ┆ 2.25      │
+│ 6   ┆ docs ┆ [2.0, 0.0]    ┆ 4.0       │
+└─────┴──────┴───────────────┴───────────┘
 ```
 
-A downstream `.filter()` ranks first and filters after, so it keeps whichever of
-the 3 nearest happen to be `docs`. On the same data and query as above, that is
-none of them:
+A downstream `.filter()` ranks first and filters after. The three nearest to the
+origin are all `blog`, so filtering them for `docs` leaves nothing:
 
 ```python
-pll.scan_lance(uri, nearest=search).filter(pl.col("cat") == "docs")
+pll.scan_lance("tiny.lance", nearest=search).filter(pl.col("cat") == "docs").collect()
 ```
 
 ```
-shape: (0, 3)
-┌─────┬─────┬───────────┐
-│ id  ┆ cat ┆ _distance │
-╞═════╪═════╪═══════════╡
-└─────┴─────┴───────────┘
+shape: (0, 4)
+┌─────┬─────┬───────────────┬───────────┐
+│ id  ┆ cat ┆ embedding     ┆ _distance │
+│ --- ┆ --- ┆ ---           ┆ ---       │
+│ i64 ┆ str ┆ array[f32, 2] ┆ f32       │
+╞═════╪═════╪═══════════════╪═══════════╡
+└─────┴─────┴───────────────┴───────────┘
 ```
 
-The empty result is the distinction, not a bug. A downstream `.filter()` is
-still pushed into Lance where it translates, but only into the postfilter
-position; it is never promoted to a prefilter.
+The empty result is the distinction, not a bug: the `docs` rows exist and the
+prefilter found them, but none of them are among the three nearest overall. A
+downstream `.filter()` is still pushed into Lance where it translates, but only
+into the postfilter position; it is never promoted to a prefilter.
 
 Lance has one filter slot (`scanner(filter=..., prefilter=bool)`), so the two
 cannot both be pushed. A prefilter takes the slot, and the query's own filter is
