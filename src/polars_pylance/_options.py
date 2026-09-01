@@ -1,9 +1,9 @@
 """Scan tuning knobs.
 
 Lance's own read-ahead defaults, not Polars, dominate the memory footprint of a
-streaming scan: ``io_buffer_size`` alone defaults to 2 GiB. Measured on a 527 MB
+streaming scan: `io_buffer_size` alone defaults to 2 GiB. Measured on a 527 MB
 single-column scan, the defaults below cut peak RSS from 697 MB to 426 MB at no
-measurable cost in wall time, so they are what :func:`polars_pylance.scan_lance`
+measurable cost in wall time, so they are what [`scan_lance`][polars_pylance.scan_lance]
 uses unless asked otherwise.
 """
 
@@ -20,28 +20,19 @@ class LanceScanOptions:
     """Per-scan Lance reader tuning. Immutable and picklable.
 
     Every field maps to the identically named argument of
-    :meth:`lance.LanceDataset.scanner`. ``None`` means "leave it to Lance".
+    `lance.LanceDataset.scanner`. `None` means "leave it to Lance".
 
-    Parameters
-    ----------
-    batch_size
-        Rows per record batch handed to Polars.
-    batch_readahead
-        Batches decoded ahead of the consumer, per fragment.
-    fragment_readahead
-        Fragments read concurrently.
-    io_buffer_size
-        Size of the Lance IO buffer, in bytes. This is the single biggest lever
-        on peak memory; Lance's own default is 2 GiB.
-    scan_in_order
-        Yield fragments in order. Out-of-order scanning is faster but lets more
-        data accumulate in flight.
-    use_scalar_index
-        Whether pushed-down predicates may use scalar indices.
-    late_materialization
-        Defer loading of large columns until after filtering. Either a bool for
-        all columns or a list of column names.
-
+    Args:
+        batch_size: Rows per record batch handed to Polars.
+        batch_readahead: Batches decoded ahead of the consumer, per fragment.
+        fragment_readahead: Fragments read concurrently.
+        io_buffer_size: Size of the Lance IO buffer, in bytes. This is the single
+            biggest lever on peak memory; Lance's own default is 2 GiB.
+        scan_in_order: Yield fragments in order. Out-of-order scanning is faster but
+            lets more data accumulate in flight.
+        use_scalar_index: Whether pushed-down predicates may use scalar indices.
+        late_materialization: Defer loading of large columns until after filtering.
+            Either a bool for all columns or a list of column names.
     """
 
     batch_size: int | None = 25_000
@@ -78,7 +69,7 @@ class LanceScanOptions:
         return type(self)(**{**current, **overrides})
 
     def to_scan_kwargs(self) -> dict[str, Any]:
-        """Render as ``scanner()`` keyword arguments, omitting unset fields."""
+        """Render as `scanner()` keyword arguments, omitting unset fields."""
         return {
             f.name: value
             for f in fields(self)

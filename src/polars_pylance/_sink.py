@@ -1,16 +1,16 @@
 """Streaming Lance writer for Polars LazyFrames.
 
 Lance is not a native Polars sink, so the data has to cross the Python boundary.
-:meth:`polars.LazyFrame.collect_batches` streams the query out batch by batch and
-exposes those batches as an Arrow C stream, which PyArrow adopts as a
-``RecordBatchReader`` and Lance's writer consumes natively. The streaming engine
-on one side and the writer on the other then pull through at their own pace, and
-neither holds the whole result.
+[`polars.LazyFrame.collect_batches`][polars.LazyFrame.collect_batches] streams the query
+out batch by batch and exposes those batches as an Arrow C stream, which PyArrow adopts
+as a `RecordBatchReader` and Lance's writer consumes natively. The streaming engine on
+one side and the writer on the other then pull through at their own pace, and neither
+holds the whole result.
 
 Measured cost of the boundary on a 527 MB source: a fixed ~340 MB of extra
-resident memory versus an engine-internal sink such as ``sink_parquet``. It does
+resident memory versus an engine-internal sink such as `sink_parquet`. It does
 *not* grow with the size of the input, and does not grow when the writer is
-slower than the producer. ``collect_batches`` is marked unstable by Polars.
+slower than the producer. `collect_batches` is marked unstable by Polars.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _reader_from_lazyframe(
 ) -> pa.RecordBatchReader:
     """Adopt a LazyFrame's streaming output as an Arrow record-batch reader.
 
-    ``collect_batches`` returns an object exposing ``__arrow_c_stream__``, so
+    `collect_batches` returns an object exposing `__arrow_c_stream__`, so
     PyArrow can adopt the query's output directly: no copy, no Python generator
     between the engine and Lance's writer, and the reader's schema is the one
     Polars resolves for the plan.
@@ -72,42 +72,28 @@ def sink_lance(
     The query is executed in batches and handed to Lance as it goes; the result
     is never materialised in full.
 
-    Parameters
-    ----------
-    lf
-        The query to write.
-    target
-        Destination URI, path, or an existing :class:`lance.LanceDataset`.
-    mode
-        ``"create"`` (fail if it exists), ``"append"``, ``"overwrite"`` (new
-        version), or ``"merge"`` for an upsert, which requires `on`.
-    on
-        Join key(s) for ``mode="merge"``.
-    chunk_size
-        Rows buffered per batch handed to Lance.
-    engine
-        Polars engine. Leave at ``"streaming"``; ``"in-memory"`` defeats the
-        purpose by materialising the result first.
-    lazy
-        Return a LazyFrame that performs the write when collected, instead of
-        writing immediately, so the Lance write can sit inside a larger deferred
-        plan. Collecting it yields a one-row summary of what was written.
-    **lance_write_kwargs
-        Passed through to :func:`lance.write_dataset`, e.g. ``max_rows_per_file``,
-        ``storage_options``, ``data_storage_version``.
+    Args:
+        lf: The query to write.
+        target: Destination URI, path, or an existing `lance.LanceDataset`.
+        mode: `"create"` (fail if it exists), `"append"`, `"overwrite"` (new version),
+            or `"merge"` for an upsert, which requires `on`.
+        on: Join key(s) for `mode="merge"`.
+        chunk_size: Rows buffered per batch handed to Lance.
+        engine: Polars engine. Leave at `"streaming"`; `"in-memory"` defeats the purpose
+            by materialising the result first.
+        lazy: Return a LazyFrame that performs the write when collected, instead of
+            writing immediately, so the Lance write can sit inside a larger deferred
+            plan. Collecting it yields a one-row summary of what was written.
+        **lance_write_kwargs: Passed through to `lance.write_dataset`, e.g.
+            `max_rows_per_file`, `storage_options`, `data_storage_version`.
 
-    Returns
-    -------
-    lance.LanceDataset
-        The written dataset, unless `lazy` is set.
-    polars.LazyFrame
-        When `lazy` is set.
+    Returns:
+        The written `lance.LanceDataset`, or, when `lazy` is set, the
+        `polars.LazyFrame` that performs the write when it is collected.
 
-    Examples
-    --------
-    >>> query = lf.filter(pl.col("ok"))  # doctest: +SKIP
-    >>> sink_lance(query, "out.lance", mode="overwrite")  # doctest: +SKIP
-
+    Examples:
+        >>> query = lf.filter(pl.col("ok"))  # doctest: +SKIP
+        >>> sink_lance(query, "out.lance", mode="overwrite")  # doctest: +SKIP
     """
     uri = _target_uri(target)
 
@@ -167,7 +153,7 @@ def _lazy_sink(
 ) -> pl.LazyFrame:
     """Defer the write until the returned LazyFrame is collected.
 
-    Polars gives ``sink_batches`` callbacks no end-of-stream signal, so a
+    Polars gives `sink_batches` callbacks no end-of-stream signal, so a
     queue-and-writer-thread arrangement cannot tell when to close the Lance
     writer. Deferring the whole streaming write instead composes cleanly and
     keeps the same bounded-memory behaviour: collecting the result yields a
@@ -202,39 +188,28 @@ def write_lance_fragments(
 ) -> lance.LanceDataset:
     """Write several LazyFrames as Lance fragments in parallel, then commit once.
 
-    This is the distributed write shape: every shard streams into its own
-    fragment files independently, and a single commit at the end makes them one
-    dataset version. Pair with :func:`~polars_pylance.scan_lance_fragments` to get
-    the shards.
+    This is the distributed write shape: every shard streams into its own fragment files
+    independently, and a single commit at the end makes them one dataset version. Pair
+    with [`scan_lance_fragments`][polars_pylance.scan_lance_fragments] to get the
+    shards.
 
-    Parameters
-    ----------
-    lazyframes
-        One query per shard. All must produce the same schema.
-    target
-        Destination URI or path.
-    mode
-        ``"create"``/``"overwrite"`` replace the dataset contents with the shards;
-        ``"append"`` adds them to an existing dataset.
-    max_workers
-        Threads used to write shards. Defaults to one per shard.
-    chunk_size
-        Rows buffered per batch handed to Lance.
-    engine
-        Polars engine. Leave at ``"streaming"``; ``"in-memory"`` defeats the
-        purpose by materialising each shard first.
-    arrow_schema
-        Schema to write. Inferred from the first shard when omitted.
-    **lance_write_kwargs
-        Passed to :func:`lance.fragment.write_fragments`.
+    Args:
+        lazyframes: One query per shard. All must produce the same schema.
+        target: Destination URI or path.
+        mode: `"create"`/`"overwrite"` replace the dataset contents with the shards;
+            `"append"` adds them to an existing dataset.
+        max_workers: Threads used to write shards. Defaults to one per shard.
+        chunk_size: Rows buffered per batch handed to Lance.
+        engine: Polars engine. Leave at `"streaming"`; `"in-memory"` defeats the purpose
+            by materialising each shard first.
+        arrow_schema: Schema to write. Inferred from the first shard when omitted.
+        **lance_write_kwargs: Passed to `lance.fragment.write_fragments`.
 
-    Examples
-    --------
-    >>> shards = scan_lance_fragments("in.lance")  # doctest: +SKIP
-    >>> write_lance_fragments(
-    ...     [s.filter(pl.col("ok")) for s in shards], "out.lance"
-    ... )  # doctest: +SKIP
-
+    Examples:
+        >>> shards = scan_lance_fragments("in.lance")  # doctest: +SKIP
+        >>> write_lance_fragments(
+        ...     [s.filter(pl.col("ok")) for s in shards], "out.lance"
+        ... )  # doctest: +SKIP
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -272,11 +247,11 @@ def write_lance_fragments(
 
 
 def fragment_write_mode(mode: Literal["create", "overwrite", "append"]) -> str:
-    """The ``write_fragments`` mode that matches a dataset write mode.
+    """The `write_fragments` mode that matches a dataset write mode.
 
-    ``"append"`` reuses the existing dataset's field ids, which is what adding
+    `"append"` reuses the existing dataset's field ids, which is what adding
     to it needs. Everything else installs a fresh schema, and that is spelled
-    ``"overwrite"`` rather than ``"create"``: ``write_fragments(mode="create")``
+    `"overwrite"` rather than `"create"`: `write_fragments(mode="create")`
     refuses outright if the dataset already exists, before we ever reach the
     commit that would have decided what to do about it.
     """
@@ -293,34 +268,25 @@ def commit_lance_fragments(
 ) -> lance.LanceDataset:
     """Publish already-written fragments as one dataset version.
 
-    The second half of a distributed write: the fragments' data files are on
-    storage but no manifest references them, so nothing has been published yet.
-    This is the single commit that makes them a version, whether they were
-    written by threads (:func:`write_lance_fragments`) or by Polars Cloud
-    workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
+    The second half of a distributed write: the fragments' data files are on storage but
+    no manifest references them, so nothing has been published yet. This is the single
+    commit that makes them a version, whether they were written by threads
+    ([`write_lance_fragments`][polars_pylance.write_lance_fragments]) or by Polars Cloud
+    workers ([`sink_lance_remote`][polars_pylance.cloud.sink_lance_remote]).
 
-    Parameters
-    ----------
-    uri
-        Destination dataset URI or path.
-    fragments
-        The ``lance.fragment.FragmentMetadata`` records returned by whatever
-        wrote the data files.
-    schema
-        Schema to install on the new version. Used by ``"create"`` and
-        ``"overwrite"``; ``"append"`` keeps the existing dataset's schema and
-        field ids instead.
-    mode
-        ``"create"`` (fail if the dataset exists), ``"overwrite"`` (replace its
-        contents with these fragments), or ``"append"`` (add them to it).
-    storage_options
-        Object-store credentials and settings, passed to Lance.
+    Args:
+        uri: Destination dataset URI or path.
+        fragments: The `lance.fragment.FragmentMetadata` records returned by whatever
+            wrote the data files.
+        schema: Schema to install on the new version. Used by `"create"` and
+            `"overwrite"`; `"append"` keeps the existing dataset's schema and field ids
+            instead.
+        mode: `"create"` (fail if the dataset exists), `"overwrite"` (replace its
+            contents with these fragments), or `"append"` (add them to it).
+        storage_options: Object-store credentials and settings, passed to Lance.
 
-    Returns
-    -------
-    lance.LanceDataset
-        The dataset at the version this commit created.
-
+    Returns:
+        lance.LanceDataset: The dataset at the version this commit created.
     """
     operation: lance.LanceOperation.BaseOperation
     if mode == "append":
@@ -347,7 +313,7 @@ def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
     Lance reports "not found" and "could not reach the store" as the same
     ValueError, so an unreachable store reads as absent. That only ever costs a
     clearer error message (the commit that follows fails on its own), and
-    ``Overwrite`` adds a version rather than destroying the old one.
+    `Overwrite` adds a version rather than destroying the old one.
     """
     try:
         lance.dataset(uri, storage_options=storage_options)

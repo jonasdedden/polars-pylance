@@ -1,12 +1,13 @@
 """Lazy, streaming Lance reader for Polars.
 
-The scan is a Polars IO plugin. :func:`polars.io.plugins.register_io_source`
-hands the source the projection, the row limit, a batch-size hint, and the whole
-predicate as a :class:`polars.Expr`; :mod:`polars_pylance._predicate` translates
-that into a Lance SQL filter, which is the widest filter language Lance accepts.
+The scan is a Polars IO plugin.
+[`register_io_source`][polars.io.plugins.register_io_source] hands the source the
+projection, the row limit, a batch-size hint, and the whole predicate as a
+`polars.Expr`; `polars_pylance._predicate` translates that into a Lance SQL filter,
+which is the widest filter language Lance accepts.
 
 That is why this is a plugin rather than the private
-``PyLazyFrame.new_from_dataset_object`` hook behind ``scan_delta``. The hook
+`PyLazyFrame.new_from_dataset_object` hook behind `scan_delta`. The hook
 offers a predicate Polars has already lowered for PyArrow, and drops everything
 that language cannot say, which is most of it.
 
@@ -50,14 +51,14 @@ class _FilterRejected(RuntimeError):
 class LanceScanSpec:
     """Everything needed to reproduce a scan, and nothing that cannot be pickled.
 
-    Holding a URI rather than an open :class:`lance.LanceDataset` is what lets a
+    Holding a URI rather than an open `lance.LanceDataset` is what lets a
     scan be serialized into a query plan and executed elsewhere, which is the
     prerequisite for Polars Cloud.
 
-    The fields are the arguments of :func:`~polars_pylance.scan_lance`, which
-    documents them, with two differences: ``prefilter`` has already been lowered
-    to a Lance SQL string, and ``fragment_ids`` is the resolved list that
-    ``fragments`` selected.
+    The fields are the arguments of [`scan_lance`][polars_pylance.scan_lance], which
+    documents them, with two differences: `prefilter` has already been lowered
+    to a Lance SQL string, and `fragment_ids` is the resolved list that
+    `fragments` selected.
     """
 
     uri: str
@@ -400,64 +401,54 @@ def scan_lance(
     fragments: Sequence[int] | None = None,
     predicate_pushdown: bool = True,
 ) -> pl.LazyFrame:
-    """Lazily read a Lance dataset as a Polars :class:`~polars.LazyFrame`.
+    """Lazily read a Lance dataset as a Polars `LazyFrame`.
 
     Nothing is read when this returns. Column projections, filters and row
     limits are pushed into Lance; batches are pulled only as the query consumes
-    them, so ``.head()`` stops the scan early. Use ``engine="streaming"`` when
+    them, so `.head()` stops the scan early. Use `engine="streaming"` when
     collecting: the in-memory engine materialises the whole result and gives up
     the memory advantage.
 
-    The filter becomes a Lance SQL filter, so ``is_in``, string functions,
-    arithmetic, temporal parts and list or struct access reach the scanner, none
-    of which a PyArrow expression can carry. A predicate that only partly
-    translates is pushed as far as it goes and finished in Polars.
-    :func:`~polars_pylance.to_lance_filter` shows what a given one lowers to.
+    The filter becomes a Lance SQL filter, so `is_in`, string functions, arithmetic,
+    temporal parts and list or struct access reach the scanner, none of which a PyArrow
+    expression can carry. A predicate that only partly translates is pushed as far as it
+    goes and finished in Polars. [`to_lance_filter`][polars_pylance.to_lance_filter]
+    shows what a given one lowers to.
 
-    Parameters
-    ----------
-    source
-        Dataset URI, path, or an open :class:`lance.LanceDataset`. Passing a
-        dataset object pins the scan to that dataset's version; passing a URI
-        reads whatever version is current when the query runs.
-    version
-        Read a specific version (or tag) instead of the latest.
-    storage_options
-        Object-store credentials and settings, passed to Lance.
-    options
-        Reader tuning; see :class:`~polars_pylance.LanceScanOptions`. The defaults
-        favour bounded memory over raw IO parallelism.
-    nearest
-        Lance vector-search specification, e.g.
-        ``{"column": "vector", "q": query, "k": 10}``. Adds a ``_distance``
-        column. Not expressible as a Polars predicate, hence a scan argument.
-    full_text_query
-        Lance full-text search query. Adds a ``_score`` column.
-    prefilter
-        Restrict which rows ``nearest`` or ``full_text_query`` may return before
-        the search runs, as Lance SQL or a Polars expression. This is not the
-        same question as ``.filter()`` on the result, which ranks first and
-        filters after and so may return fewer than ``k`` rows; with a prefilter
-        the search picks its ``k`` from the surviving rows only. A Polars
-        expression that does not translate exactly is an error rather than a
-        postfilter, since nothing downstream can repair a candidate set the
-        search has already used.
-    with_row_id, with_row_address
-        Include Lance's ``_rowid`` / ``_rowaddr`` columns.
-    fragments
-        Restrict the scan to these fragment ids. See
-        :func:`~polars_pylance.scan_lance_fragments` for the sharded form.
-    predicate_pushdown
-        Set to False to keep filtering entirely in Polars. Worth trying if you
-        depend on Polars' null comparison semantics, which differ from SQL's.
+    Args:
+        source: Dataset URI, path, or an open `lance.LanceDataset`. Passing a dataset
+            object pins the scan to that dataset's version; passing a URI reads whatever
+            version is current when the query runs.
+        version: Read a specific version (or tag) instead of the latest.
+        storage_options: Object-store credentials and settings, passed to Lance.
+        options: Reader tuning; see
+            [`LanceScanOptions`][polars_pylance.LanceScanOptions]. The defaults favour
+            bounded memory over raw IO parallelism.
+        nearest: Lance vector-search specification, e.g. `{"column": "vector", "q":
+            query, "k": 10}`. Adds a `_distance` column. Not expressible as a Polars
+            predicate, hence a scan argument.
+        full_text_query: Lance full-text search query. Adds a `_score` column.
+        prefilter: Restrict which rows `nearest` or `full_text_query` may return before
+            the search runs, as Lance SQL or a Polars expression. This is not the same
+            question as `.filter()` on the result, which ranks first and filters after
+            and so may return fewer than `k` rows; with a prefilter the search picks its
+            `k` from the surviving rows only. A Polars expression that does not
+            translate exactly is an error rather than a postfilter, since nothing
+            downstream can repair a candidate set the search has already used.
+        with_row_id: Include Lance's `_rowid` / `_rowaddr` columns.
+        with_row_address: Include Lance's `_rowid` / `_rowaddr` columns.
+        fragments: Restrict the scan to these fragment ids. See
+            [`scan_lance_fragments`][polars_pylance.scan_lance_fragments] for the
+            sharded form.
+        predicate_pushdown: Set to False to keep filtering entirely in Polars. Worth
+            trying if you depend on Polars' null comparison semantics, which differ from
+            SQL's.
 
-    Examples
-    --------
-    >>> lf = scan_lance("s3://bucket/data.lance")  # doctest: +SKIP
-    >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
-    ...     engine="streaming"
-    ... )  # doctest: +SKIP
-
+    Examples:
+        >>> lf = scan_lance("s3://bucket/data.lance")  # doctest: +SKIP
+        >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
+        ...     engine="streaming"
+        ... )  # doctest: +SKIP
     """
     if isinstance(source, lance.LanceDataset):
         uri = source.uri
@@ -490,31 +481,25 @@ def scan_lance_fragments(
 ) -> list[pl.LazyFrame]:
     """Return one LazyFrame per fragment (or per shard) of a Lance dataset.
 
-    Lance fragments are the natural unit of parallelism: each is a self-contained
-    set of files. Use this to fan a scan out over threads, processes or workers,
-    then recombine with :func:`polars.concat`. Also the manual parallelisation
-    route if a distributed planner refuses a Python scan node.
+    Lance fragments are the natural unit of parallelism: each is a self-contained set of
+    files. Use this to fan a scan out over threads, processes or workers, then recombine
+    with [`polars.concat`][polars.concat]. Also the manual parallelisation route if a
+    distributed planner refuses a Python scan node.
 
-    Parameters
-    ----------
-    source
-        Dataset URI, path, or an open :class:`lance.LanceDataset`, as
-        :func:`~polars_pylance.scan_lance` takes it.
-    n_shards
-        Group the fragments into this many LazyFrames instead of returning one
-        each. Fragments are dealt round-robin, so shards stay even when the
-        last fragment is a short one. Asking for more shards than there are
-        fragments yields one fragment per shard, not empty shards.
-    **kwargs
-        Forwarded to :func:`~polars_pylance.scan_lance` for every shard, so
-        ``version``, ``options``, ``prefilter`` and the rest apply to all of
-        them alike.
+    Args:
+        source: Dataset URI, path, or an open `lance.LanceDataset`, as
+            [`scan_lance`][polars_pylance.scan_lance] takes it.
+        n_shards: Group the fragments into this many LazyFrames instead of returning one
+            each. Fragments are dealt round-robin, so shards stay even when the last
+            fragment is a short one. Asking for more shards than there are fragments
+            yields one fragment per shard, not empty shards.
+        **kwargs: Forwarded to [`scan_lance`][polars_pylance.scan_lance] for every
+            shard, so `version`, `options`, `prefilter` and the rest apply to all of
+            them alike.
 
-    Examples
-    --------
-    >>> shards = scan_lance_fragments("data.lance", n_shards=4)  # doctest: +SKIP
-    >>> pl.concat(shards).collect(engine="streaming")  # doctest: +SKIP
-
+    Examples:
+        >>> shards = scan_lance_fragments("data.lance", n_shards=4)  # doctest: +SKIP
+        >>> pl.concat(shards).collect(engine="streaming")  # doctest: +SKIP
     """
     dataset = (
         source

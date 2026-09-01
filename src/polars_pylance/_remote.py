@@ -1,9 +1,9 @@
-"""Distributed Lance writes on Polars Cloud, built on ``sink_batches``.
+"""Distributed Lance writes on Polars Cloud, built on `sink_batches`.
 
-polars-cloud 0.10 added ``lf.remote(ctx).sink_batches(fn)``: the query runs on
+polars-cloud 0.10 added `lf.remote(ctx).sink_batches(fn)`: the query runs on
 the cluster and a Python callable is invoked with each result batch. That
 callable is **cloudpickled into the serialized query plan** (verifiable with
-``polars._utils.cloud.prepare_cloud_plan``), so it runs on the workers, not on
+`polars._utils.cloud.prepare_cloud_plan`), so it runs on the workers, not on
 the client. Lance therefore no longer has to be a sink format Polars Cloud knows
 about: the workers write the data files themselves, in parallel, and this is a
 genuinely distributed write rather than a streaming client-side one.
@@ -13,20 +13,20 @@ anything back: its return value is a stop signal, and mutations to captured
 state die with the worker process. Lance's write/commit split is what makes the
 arrangement work anyway:
 
-1. Each worker writes **data files only** with ``lance.fragment.write_fragments``
+1. Each worker writes **data files only** with `lance.fragment.write_fragments`
    and commits nothing, so no worker can publish a partial dataset.
 2. It then writes the resulting fragment metadata as JSON to a staging prefix
    next to the dataset, the side channel that replaces the return value.
 3. When the query finishes, the client lists that prefix and makes every staged
    fragment one dataset version with a single commit.
 
-Idempotency is a design constraint here: polars-cloud
-documents that the callback "might be called multiple times from different
-workers", and appending a fragment is not idempotent. Each staging object is
-named after a deterministic key derived from the batch contents, so a re-run of
-the same batch overwrites its own metadata rather than adding a second copy.
-Re-runs do leave their earlier data files behind unreferenced; see
-:meth:`StagedLanceSink.commit` for how to reclaim them.
+Idempotency is a design constraint here: polars-cloud documents that the callback "might
+be called multiple times from different workers", and appending a fragment is not
+idempotent. Each staging object is named after a deterministic key derived from the
+batch contents, so a re-run of the same batch overwrites its own metadata rather than
+adding a second copy. Re-runs do leave their earlier data files behind unreferenced; see
+[`StagedLanceSink.commit`][polars_pylance.cloud.StagedLanceSink.commit] for how to
+reclaim them.
 """
 
 from __future__ import annotations
@@ -104,7 +104,7 @@ def _fs_path(uri: str) -> str:
 
 
 def _s3_filesystem(storage_options: dict[str, str]) -> pafs.S3FileSystem | None:
-    """Translate Lance S3 `storage_options` into an ``S3FileSystem``.
+    """Translate Lance S3 `storage_options` into an `S3FileSystem`.
 
     Returns None when nothing in `storage_options` is recognised, so the caller
     can fall back to PyArrow's own resolution rather than build a filesystem
@@ -150,10 +150,11 @@ def _content_key(df: pl.DataFrame) -> str:
     schema. Deterministic for a given polars version, which is exactly the
     scope that matters: polars-cloud pins client and workers to one version.
 
-    The tradeoff is that two *distinct* batches with byte-identical contents
-    collapse onto one key, and only one of them would be committed. That needs
-    the query to emit the same rows, in the same order, in two whole chunks.
-    Pass ``fragment_key=`` to :func:`stage_lance_sink` if your data can do that.
+    The tradeoff is that two *distinct* batches with byte-identical contents collapse
+    onto one key, and only one of them would be committed. That needs the query to emit
+    the same rows, in the same order, in two whole chunks. Pass `fragment_key=` to
+    [`stage_lance_sink`][polars_pylance.cloud.stage_lance_sink] if your data can do
+    that.
     """
     digest = hashlib.blake2b(digest_size=16)
     digest.update(repr(df.schema).encode())
@@ -172,11 +173,11 @@ def _content_key(df: pl.DataFrame) -> str:
 
 @dataclass
 class _FragmentWriter:
-    """The ``sink_batches`` callback. Writes data files, commits nothing.
+    """The `sink_batches` callback. Writes data files, commits nothing.
 
-    Everything it holds is plain data, so it survives being cloudpickled into
-    the query plan. The Arrow schema travels as IPC bytes rather than as a
-    pickled :class:`pyarrow.Schema`, which keeps it readable by any pyarrow the
+    Everything it holds is plain data, so it survives being cloudpickled into the query
+    plan. The Arrow schema travels as IPC bytes rather than as a pickled
+    [`pyarrow.Schema`][pyarrow.Schema], which keeps it readable by any pyarrow the
     workers happen to have.
     """
 
@@ -239,8 +240,9 @@ class _FragmentWriter:
 class StagedLanceSink:
     """A remote Lance write in progress: a callback to ship, and a commit to run.
 
-    Returned by :func:`stage_lance_sink`. Hand :attr:`callback` to
-    ``sink_batches``, wait for the query, then call :meth:`commit`.
+    Returned by [`stage_lance_sink`][polars_pylance.cloud.stage_lance_sink]. Hand
+    `callback` to `sink_batches`, wait for the query, then call
+    [`commit`][polars_pylance.cloud.StagedLanceSink.commit].
     """
 
     uri: str
@@ -288,20 +290,15 @@ class StagedLanceSink:
     def commit(self, *, cleanup: bool = True) -> lance.LanceDataset:
         """Make every staged fragment one dataset version, in a single commit.
 
-        Parameters
-        ----------
-        cleanup
-            Remove the staging prefix once the commit lands. The *data* files a
-            retried batch orphaned are not touched: they live inside the
-            dataset and are unreferenced by any manifest, so reclaim them with
-            ``dataset.cleanup_old_versions(..., delete_unverified=True)``.
+        Args:
+            cleanup: Remove the staging prefix once the commit lands. The *data* files a
+                retried batch orphaned are not touched: they live inside the dataset and
+                are unreferenced by any manifest, so reclaim them with
+                `dataset.cleanup_old_versions(..., delete_unverified=True)`.
 
-        Raises
-        ------
-        ValueError
-            If nothing was staged. An empty commit would replace the dataset
-            with nothing, which is never what a failed remote query meant.
-
+        Raises:
+            ValueError: If nothing was staged. An empty commit would replace the dataset
+                with nothing, which is never what a failed remote query meant.
         """
         fragments = self.staged_fragments()
         if not fragments:
@@ -342,58 +339,47 @@ def stage_lance_sink(
     fragment_key: Callable[[pl.DataFrame], str] | None = None,
     **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> StagedLanceSink:
-    """Build a worker-side Lance writer for ``sink_batches``.
+    """Build a worker-side Lance writer for `sink_batches`.
 
-    Use this when you want to drive the remote query yourself: to pick a
-    planner, set ``maintain_order``, or inspect the query handle.
-    :func:`sink_lance_remote` is the same thing with the query submitted and
-    awaited for you.
+    Use this when you want to drive the remote query yourself: to pick a planner, set
+    `maintain_order`, or inspect the query handle.
+    [`sink_lance_remote`][polars_pylance.cloud.sink_lance_remote] is the same thing with
+    the query submitted and awaited for you.
 
-    Parameters
-    ----------
-    target
-        Destination URI, path, or an existing :class:`lance.LanceDataset`.
-    schema
-        The query's output schema. A LazyFrame is accepted and resolved with
-        ``collect_schema()``, which needs the *client* to be able to reach the
-        sources, as it already must be to build a ``scan_lance`` plan.
-    mode
-        ``"create"`` (fail if the dataset exists), ``"overwrite"`` (replace its
-        contents with a new version), or ``"append"``.
-    storage_options
-        Passed to Lance for the data files, and (for ``s3://`` targets)
-        translated into a PyArrow filesystem for the staging prefix.
-    staging_uri
-        Where fragment metadata is staged. Defaults to the dataset URI plus
-        ``.pll-staging``, with a per-run subdirectory so concurrent writes to
-        one dataset do not read each other's fragments.
-    staging_filesystem
-        An explicit :class:`pyarrow.fs.FileSystem` for the staging prefix, for
-        stores whose credentials do not translate. Client-side only: the
-        callback resolves the staging filesystem itself on the worker, from
-        `staging_storage_options` or the worker's ambient credentials.
-    staging_storage_options
-        Staging credentials, when they differ from `storage_options`.
-    fragment_key
-        ``(batch) -> str``, replacing the default content digest. Must be
-        deterministic: two invocations for the same batch must agree, and two
-        distinct batches must not. Worth supplying when the query carries a
-        natural key, such as a partition column.
-    **lance_write_kwargs
-        Passed to :func:`lance.fragment.write_fragments`, e.g.
-        ``max_rows_per_file``, ``data_storage_version``.
+    Args:
+        target: Destination URI, path, or an existing `lance.LanceDataset`.
+        schema: The query's output schema. A LazyFrame is accepted and resolved with
+            `collect_schema()`, which needs the *client* to be able to reach the
+            sources, as it already must be to build a `scan_lance` plan.
+        mode: `"create"` (fail if the dataset exists), `"overwrite"` (replace its
+            contents with a new version), or `"append"`.
+        storage_options: Passed to Lance for the data files, and (for `s3://` targets)
+            translated into a PyArrow filesystem for the staging prefix.
+        staging_uri: Where fragment metadata is staged. Defaults to the dataset URI plus
+            `.pll-staging`, with a per-run subdirectory so concurrent writes to one
+            dataset do not read each other's fragments.
+        staging_filesystem: An explicit [`pyarrow.fs.FileSystem`][pyarrow.fs.FileSystem]
+            for the staging prefix, for stores whose credentials do not translate.
+            Client-side only: the callback resolves the staging filesystem itself on the
+            worker, from `staging_storage_options` or the worker's ambient credentials.
+        staging_storage_options: Staging credentials, when they differ from
+            `storage_options`.
+        fragment_key: `(batch) -> str`, replacing the default content digest. Must be
+            deterministic: two invocations for the same batch must agree, and two
+            distinct batches must not. Worth supplying when the query carries a natural
+            key, such as a partition column.
+        **lance_write_kwargs: Passed to `lance.fragment.write_fragments`, e.g.
+            `max_rows_per_file`, `data_storage_version`.
 
-    Examples
-    --------
-    >>> staged = stage_lance_sink(
-    ...     "s3://bucket/out.lance", lf, mode="overwrite"
-    ... )  # doctest: +SKIP
-    >>> query = (
-    ...     lf.remote(ctx).distributed().sink_batches(staged.callback)
-    ... )  # doctest: +SKIP
-    >>> query.await_result()  # doctest: +SKIP
-    >>> staged.commit()  # doctest: +SKIP
-
+    Examples:
+        >>> staged = stage_lance_sink(
+        ...     "s3://bucket/out.lance", lf, mode="overwrite"
+        ... )  # doctest: +SKIP
+        >>> query = (
+        ...     lf.remote(ctx).distributed().sink_batches(staged.callback)
+        ... )  # doctest: +SKIP
+        >>> query.await_result()  # doctest: +SKIP
+        >>> staged.commit()  # doctest: +SKIP
     """
     uri = target.uri if isinstance(target, lance.LanceDataset) else str(target)
     arrow_schema = _as_arrow_schema(schema)
@@ -479,52 +465,41 @@ def sink_lance_remote(  # noqa: D417 - the staging parameters are documented onc
 ) -> lance.LanceDataset:
     """Run a Polars Cloud query and write its output to Lance from the workers.
 
-    The staging parameters are documented on :func:`stage_lance_sink`, which
-    receives them unchanged.
+    The staging parameters are documented on
+    [`stage_lance_sink`][polars_pylance.cloud.stage_lance_sink], which receives them
+    unchanged.
 
     Submits `remote` with a worker-side fragment writer, waits for it, and
     commits every staged fragment as one dataset version.
 
-    Parameters
-    ----------
-    remote
-        A ``polars_cloud.LazyFrameRemote`` (the result of ``lf.remote(ctx)``)
-        or the ``ExecuteRemote`` that ``.distributed()`` / ``.single_node()``
-        return.
-    target
-        Destination URI, path, or an existing :class:`lance.LanceDataset`.
-    schema
-        The query's output schema. Resolved from the LazyFrame behind `remote`
-        when omitted, which requires the client to be able to reach the sources.
-    chunk_size
-        Rows buffered before the callback runs; the remote counterpart of
-        ``max_rows_per_file``. Left to Polars Cloud when omitted.
-    maintain_order
-        Call the writer serially rather than in parallel across workers. Costs
-        the parallelism that makes this a distributed write; the fragment order
-        at commit is deterministic either way.
-    cleanup
-        Remove the staging prefix after a successful commit. On failure it is
-        always left in place, so a re-run can be diagnosed or the fragments
-        committed by hand.
+    Args:
+        remote: A `polars_cloud.LazyFrameRemote` (the result of `lf.remote(ctx)`) or the
+            `ExecuteRemote` that `.distributed()` / `.single_node()` return.
+        target: Destination URI, path, or an existing `lance.LanceDataset`.
+        schema: The query's output schema. Resolved from the LazyFrame behind `remote`
+            when omitted, which requires the client to be able to reach the sources.
+        chunk_size: Rows buffered before the callback runs; the remote counterpart of
+            `max_rows_per_file`. Left to Polars Cloud when omitted.
+        maintain_order: Call the writer serially rather than in parallel across workers.
+            Costs the parallelism that makes this a distributed write; the fragment
+            order at commit is deterministic either way.
+        cleanup: Remove the staging prefix after a successful commit. On failure it is
+            always left in place, so a re-run can be diagnosed or the fragments
+            committed by hand.
 
-    Returns
-    -------
-    lance.LanceDataset
-        The committed dataset.
+    Returns:
+        lance.LanceDataset: The committed dataset.
 
-    Examples
-    --------
-    >>> ctx = pc.ComputeContext(
-    ...     cpus=8, memory=32, requirements=requirements_txt().encode()
-    ... )  # doctest: +SKIP
-    >>> lf = scan_lance("s3://bucket/in.lance").filter(
-    ...     pl.col("score") > 0.9
-    ... )  # doctest: +SKIP
-    >>> sink_lance_remote(
-    ...     lf.remote(ctx).distributed(), "s3://bucket/out.lance", mode="overwrite"
-    ... )  # doctest: +SKIP
-
+    Examples:
+        >>> ctx = pc.ComputeContext(
+        ...     cpus=8, memory=32, requirements=requirements_txt().encode()
+        ... )  # doctest: +SKIP
+        >>> lf = scan_lance("s3://bucket/in.lance").filter(
+        ...     pl.col("score") > 0.9
+        ... )  # doctest: +SKIP
+        >>> sink_lance_remote(
+        ...     lf.remote(ctx).distributed(), "s3://bucket/out.lance", mode="overwrite"
+        ... )  # doctest: +SKIP
     """
     if schema is None:
         lf = getattr(remote, "lf", None)
