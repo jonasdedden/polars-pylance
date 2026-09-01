@@ -1,6 +1,6 @@
 """Lazy, streaming Lance <-> Polars integration.
 
-Reading gives a real :class:`~polars.LazyFrame`: the optimizer pushes column
+Reading gives a real `LazyFrame`: the optimizer pushes column
 projections, filters and row limits into Lance, and batches are pulled only as
 the streaming engine consumes them. Writing streams a query into Lance batch by
 batch, so neither direction holds the dataset (or a whole fragment) in RAM.

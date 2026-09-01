@@ -122,13 +122,6 @@ ignore = [
     "COM812",
     # The licence is declared once, in project metadata, not per file.
     "CPY001",
-    # Each of these pairs is mutually exclusive; these are the halves ruff
-    # would otherwise pick anyway, named so it stops warning about the clash.
-    "D203",
-    "D213",
-    # Docstring summaries here are noun phrases such as "The path a filesystem
-    # expects", not "Return the path"; consistently, on purpose.
-    "D401",
     # `_Decline` and `_FilterRejected` are control-flow signals, and read
     # better without the suffix N818 wants.
     "N818",
@@ -143,6 +136,12 @@ ignore = [
     # is what the tests are built out of.
     "S101",
 ]
+
+# The docstrings are Google-style, which is what `mkdocstrings` parses. Setting
+# the convention also switches off the rules belonging to the other two, which
+# is where the D203/D213/D401 ignores went.
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # The tests are built out of `assert`, literal comparisons and fixtures that

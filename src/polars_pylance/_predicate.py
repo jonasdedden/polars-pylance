@@ -1,18 +1,17 @@
 """Lower Polars predicates into Lance SQL filter strings.
 
-An IO plugin is handed the whole predicate as a :class:`polars.Expr`. Polars'
-own lowering, behind ``scan_pyarrow_dataset`` and ``scan_delta``, produces a
+An IO plugin is handed the whole predicate as a `polars.Expr`. Polars'
+own lowering, behind `scan_pyarrow_dataset` and `scan_delta`, produces a
 PyArrow expression instead and drops what will not fit, which is most of the
 language. This module walks the serialized expression tree and emits the Lance
 equivalent.
 
-A lowering may be a superset: an untranslatable conjunct of an ``AND`` is
-dropped, so ``a > 5 & b.str.contains("x")`` still pushes ``a > 5``. That is only
-sound in positive position, so a dropped conjunct under ``NOT`` or a dropped
-branch of an ``OR`` declines instead. :attr:`LanceFilter.exact` says which of
-the two the caller holds; a relaxed filter narrows the read and
-:mod:`polars_pylance._scan` still evaluates the predicate, while an exact one
-decides the answer on its own.
+A lowering may be a superset: an untranslatable conjunct of an `AND` is dropped, so `a >
+5 & b.str.contains("x")` still pushes `a > 5`. That is only sound in positive position,
+so a dropped conjunct under `NOT` or a dropped branch of an `OR` declines instead.
+[`LanceFilter.exact`][polars_pylance.LanceFilter.exact] says which of the two the caller
+holds; a relaxed filter narrows the read and `polars_pylance._scan` still evaluates the
+predicate, while an exact one decides the answer on its own.
 
 Constructs whose SQL meaning differs decline rather than guess; each decline is
 pinned by a test.
@@ -128,15 +127,11 @@ class _Decline(Exception):
 class LanceFilter:
     """A Lance SQL filter lowered from a Polars predicate.
 
-    Attributes
-    ----------
-    sql
-        The filter string, ready for ``LanceDataset.scanner(filter=...)``.
-    exact
-        True when the filter keeps exactly the rows the predicate keeps. False
-        when part of the predicate was dropped, leaving a superset; the caller
-        must then keep evaluating the predicate.
-
+    Attributes:
+        sql: The filter string, ready for `LanceDataset.scanner(filter=...)`.
+        exact: True when the filter keeps exactly the rows the predicate keeps. False
+            when part of the predicate was dropped, leaving a superset; the caller must
+            then keep evaluating the predicate.
     """
 
     sql: str
@@ -170,30 +165,24 @@ def to_lance_filter(
 ) -> LanceFilter | None:
     r"""Lower `predicate` to a Lance SQL filter, or None if nothing can be pushed.
 
-    Parameters
-    ----------
-    predicate
-        Any boolean Polars expression, however deeply nested.
-    max_in_list
-        Largest ``is_in`` membership list to spell out as SQL ``IN``.
-    schema
-        The scanned schema, when the caller has it. Used to drop a promotion the
-        schema shows is a no-op, since a ``CAST`` around an indexed column costs
-        its scalar index, and to tell a string ``+`` from an arithmetic one.
+    Args:
+        predicate: Any boolean Polars expression, however deeply nested.
+        max_in_list: Largest `is_in` membership list to spell out as SQL `IN`.
+        schema: The scanned schema, when the caller has it. Used to drop a promotion the
+            schema shows is a no-op, since a `CAST` around an indexed column costs its
+            scalar index, and to tell a string `+` from an arithmetic one.
 
-    Examples
-    --------
-    >>> import polars as pl
-    >>> from polars_pylance import to_lance_filter
-    >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
-    LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
-    >>> to_lance_filter(
-    ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3)
-    ... )
-    LanceFilter(sql='(`id` > 3)', exact=False)
-    >>> to_lance_filter(pl.col("id").hash() > 3) is None
-    True
-
+    Examples:
+        >>> import polars as pl
+        >>> from polars_pylance import to_lance_filter
+        >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
+        LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
+        >>> to_lance_filter(
+        ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3)
+        ... )
+        LanceFilter(sql='(`id` > 3)', exact=False)
+        >>> to_lance_filter(pl.col("id").hash() > 3) is None
+        True
     """
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
@@ -227,9 +216,9 @@ class _Lowering:
     # -- boolean position --------------------------------------------------
 
     def predicate(self, node: Json) -> tuple[str | None, bool]:
-        """Lower a boolean node to ``(sql, exact)``.
+        """Lower a boolean node to `(sql, exact)`.
 
-        ``sql is None`` means no constraint. Declines are swallowed here so that
+        `sql is None` means no constraint. Declines are swallowed here so that
         one unlowerable branch costs only that branch.
         """
         try:
