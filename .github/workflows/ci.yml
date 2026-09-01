@@ -51,6 +51,24 @@ jobs:
       # `basedpyright` does locally.
       - run: uv run --no-default-groups --group typing basedpyright
 
+  docs:
+    name: mkdocs --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-suffix: ${{ github.job }}
+      # `--strict` turns an unresolved cross-reference into a failure, which is
+      # what keeps the docstring markup from rotting. griffe reads `src` without
+      # importing it, so this needs no runtime dependency beyond the docs group.
+      - run: uv run --no-default-groups --group docs mkdocs build --strict
+        # Suppresses mkdocs-material's upstream banner about MkDocs 2.0, which
+        # is advocacy rather than anything wrong with this build.
+        env:
+          DISABLE_MKDOCS_2_WARNING: "true"
+
   pytest:
     name: pytest (${{ matrix.python-version }})
     runs-on: ubuntu-latest
