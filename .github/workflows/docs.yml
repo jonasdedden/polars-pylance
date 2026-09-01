@@ -1,0 +1,56 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+# Nothing gets a token it does not need; the job opts back in below.
+permissions: {}
+
+# `gh-pages` is a single branch that every deploy commits to, so a release
+# landing while a `main` push is mid-deploy would race. Queue instead of
+# cancelling: a skipped deploy would leave that version stale.
+concurrency:
+  group: docs-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: mike deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # mike commits the built site to `gh-pages`
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # mike needs the `gh-pages` history to add a version to it, and
+          # uv-dynamic-versioning needs the tags.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-suffix: ${{ github.job }}
+
+      # mike writes a commit, so it needs an author.
+      - name: git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # `dev` follows main, so the unreleased docs are always readable without
+      # touching what `stable` points at.
+      - name: deploy dev
+        if: github.event_name == 'push'
+        run: uv run --no-default-groups --group docs mike deploy --push --update-aliases dev
+
+      # The tag is `vX.Y.Z`; the docs version is `X.Y.Z`. `--update-aliases`
+      # moves `stable` off the previous release, and `set-default` keeps the
+      # site root redirecting to it.
+      - name: deploy release
+        if: github.event_name == 'release'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          uv run --no-default-groups --group docs mike deploy --push --update-aliases "$version" stable
+          uv run --no-default-groups --group docs mike set-default --push stable

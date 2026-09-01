@@ -66,14 +66,22 @@ lint = ["ruff>=0.16.5"]
 # Only for `bench/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
-# `mkdocs build --strict` renders the site. `gen-files` and `literate-nav` are
-# what `scripts/gen_ref_pages.py` uses to emit one API page per public module.
+# `properdocs build --strict` renders the site. ProperDocs is the maintained
+# continuation of MkDocs 1.x, by its last active maintainer: `mkdocs` itself has
+# had no release since 1.6.1 in August 2024, and the "MkDocs 2.0" that is
+# proposed to follow it drops the plugin system this site is built on. It is a
+# drop-in replacement, so `mkdocs.yml` and every plugin below are unchanged.
+# `mkdocs` still arrives transitively, because material, mkdocstrings and mike
+# have not moved their own pins yet.
+# `gen-files` and `literate-nav` are what `scripts/gen_ref_pages.py` uses to
+# emit one API page per public module; `mike` publishes the versioned copies.
 docs = [
-    "mkdocs>=1.6",
+    "properdocs>=1.6.7",
     "mkdocs-material>=9",
     "mkdocstrings[python]>=0.26",
-    "mkdocs-gen-files>=0.5",
+    "mkdocs-gen-files>=0.6",
     "mkdocs-literate-nav>=0.6",
+    "mike>=2.2",
 ]
 dev = [
     { include-group = "test" },

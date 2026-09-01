@@ -1,7 +1,14 @@
 site_name: polars-pylance
 site_description: Lazy, streaming Lance <-> Polars integration
 repo_url: https://github.com/jonasdedden/polars-pylance
+site_url: https://jonasdedden.github.io/polars-pylance/
 docs_dir: docs
+
+# `mike` writes `versions.json` next to the built versions; the theme reads it
+# at runtime to populate the selector in the header.
+extra:
+  version:
+    provider: mike
 
 theme:
   name: material
