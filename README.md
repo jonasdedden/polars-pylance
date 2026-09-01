@@ -1,6 +1,6 @@
 # polars-pylance
 
-Lazy, streaming [Lance](https://lance.org) ↔ [Polars](https://pola.rs) integration.
+Lazy, streaming [Lance](https://lance.org) <-> [Polars](https://pola.rs) integration.
 
 `scan_lance()` returns a real `LazyFrame`: the Polars optimizer pushes column
 projections, filters and row limits down into Lance, and batches are pulled only
@@ -119,7 +119,7 @@ with once the workers are done.
 ## Memory behaviour
 
 Peak RSS for `polars-pylance` across the size ladder in
-[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 49.2 GiB, a **49×**
+[`bench/`](https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md), on datasets from 1 GiB to 49.2 GiB, a **49x**
 increase in data:
 
 **Reads**
@@ -141,7 +141,7 @@ rows that will not survive is the difference between 0.32 and 1.24 GiB.
 
 | | 1 GiB source | 49.2 GiB source |
 | --- | --- | --- |
-| `sink_lance` (scan → transform → write) | 0.99 GiB | 1.60 GiB |
+| `sink_lance` (scan -> transform -> write) | 0.99 GiB | 1.60 GiB |
 | `write_lance_fragments` (parallel, 16 shards) | 0.90 GiB | 7.40 GiB |
 
 `sink_lance` grows slowly rather than with the result, which is what lets it
@@ -171,7 +171,7 @@ uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 
 Reads are designed to ship: a scan serializes to a few kB and carries a URI,
 never an open dataset handle. Workers need `pylance` and `polars-pylance`
-installed, via `ComputeContext(requirements=...)` --
+installed, via `ComputeContext(requirements=...)`.
 `polars_pylance.cloud.requirements_txt()` renders the pinned lines, since Polars
 Cloud rejects a context whose polars version differs from the client's.
 

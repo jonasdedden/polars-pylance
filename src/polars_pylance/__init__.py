@@ -3,7 +3,7 @@
 Reading gives a real :class:`~polars.LazyFrame`: the optimizer pushes column
 projections, filters and row limits into Lance, and batches are pulled only as
 the streaming engine consumes them. Writing streams a query into Lance batch by
-batch, so neither direction holds the dataset -- or a whole fragment -- in RAM.
+batch, so neither direction holds the dataset (or a whole fragment) in RAM.
 
 >>> import polars as pl
 >>> import polars_pylance as pll

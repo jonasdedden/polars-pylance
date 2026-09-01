@@ -295,9 +295,32 @@ def commit_lance_fragments(
 
     The second half of a distributed write: the fragments' data files are on
     storage but no manifest references them, so nothing has been published yet.
-    This is the single commit that makes them a version -- whether they were
+    This is the single commit that makes them a version, whether they were
     written by threads (:func:`write_lance_fragments`) or by Polars Cloud
     workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
+
+    Parameters
+    ----------
+    uri
+        Destination dataset URI or path.
+    fragments
+        The ``lance.fragment.FragmentMetadata`` records returned by whatever
+        wrote the data files.
+    schema
+        Schema to install on the new version. Used by ``"create"`` and
+        ``"overwrite"``; ``"append"`` keeps the existing dataset's schema and
+        field ids instead.
+    mode
+        ``"create"`` (fail if the dataset exists), ``"overwrite"`` (replace its
+        contents with these fragments), or ``"append"`` (add them to it).
+    storage_options
+        Object-store credentials and settings, passed to Lance.
+
+    Returns
+    -------
+    lance.LanceDataset
+        The dataset at the version this commit created.
+
     """
     operation: lance.LanceOperation.BaseOperation
     if mode == "append":
@@ -323,7 +346,7 @@ def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
 
     Lance reports "not found" and "could not reach the store" as the same
     ValueError, so an unreachable store reads as absent. That only ever costs a
-    clearer error message -- the commit that follows fails on its own -- and
+    clearer error message (the commit that follows fails on its own), and
     ``Overwrite`` adds a version rather than destroying the old one.
     """
     try:

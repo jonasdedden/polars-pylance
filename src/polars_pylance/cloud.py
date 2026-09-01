@@ -1,8 +1,8 @@
 """Helpers for running Lance scans and writes on Polars Cloud.
 
 .. warning::
-    **Not installable today.** polars-cloud pins polars with ``==`` -- 0.10.0
-    pins ``polars==1.43.2`` -- which is below this package's ``polars>=1.44.1``
+    **Not installable today.** polars-cloud pins polars with ``==`` (0.10.0
+    pins ``polars==1.43.2``), which is below this package's ``polars>=1.44.1``
     floor, so there is no ``cloud`` extra and the two cannot be resolved
     together. Everything here is written and kept working against the 0.10 API;
     it becomes usable as soon as polars-cloud ships a release tracking 1.44.
@@ -25,7 +25,7 @@ Writing
     Possible remotely since 0.10, via :func:`sink_lance_remote`. Polars Cloud's
     native sink destinations are still Parquet, CSV, IPC and Iceberg, but
     ``sink_batches`` hands each result batch to a Python callable that is
-    cloudpickled into the query plan and therefore runs *on the workers* -- so
+    cloudpickled into the query plan and therefore runs *on the workers*, so
     the workers write Lance data files directly, and a single client-side commit
     publishes them. :mod:`polars_pylance._remote` documents the arrangement.
 
@@ -39,7 +39,7 @@ The polars pin
     polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9, and
     this package now requires ``polars>=1.44.1``. Those are mutually exclusive,
     which is why the ``cloud`` extra was dropped rather than left declared: an
-    extra pinning below the floor makes even ``uv lock`` unresolvable, not just
+    extra pinning below the floor breaks ``uv lock`` as well as
     ``pip install polars-pylance[cloud]``.
 
     The floor is there because 1.43.2 is the last release in which a
@@ -86,6 +86,17 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     because a :func:`sink_lance_remote` callback is pickled by reference: the
     worker imports it rather than receiving its code.
 
+    Parameters
+    ----------
+    extra
+        Further requirement lines to append, for whatever else the query needs
+        on the worker.
+
+    Returns
+    -------
+    str
+        The file contents, newline-terminated.
+
     Examples
     --------
     >>> import polars_cloud as pc  # doctest: +SKIP
@@ -117,6 +128,30 @@ def convert_parquet_to_lance(
     The documented way to land Polars Cloud results in Lance: the remote query
     sinks Parquet to object storage, then this converts it without materialising
     the data.
+
+    Parameters
+    ----------
+    parquet_source
+        The staged Parquet: a path, a URI, a glob, or a list of them.
+    target
+        Destination Lance URI or path.
+    mode
+        ``"create"`` (fail if it exists), ``"append"``, ``"overwrite"`` (new
+        version), or ``"merge"`` for an upsert, whose join key goes through
+        ``lance_write_kwargs`` as ``on``.
+    chunk_size
+        Rows buffered per batch handed to Lance.
+    storage_options
+        Object-store credentials and settings for reading the Parquet. The
+        Lance write takes its own; pass those in ``lance_write_kwargs``.
+    **lance_write_kwargs
+        Passed through to :func:`~polars_pylance.sink_lance`, e.g.
+        ``max_rows_per_file``.
+
+    Returns
+    -------
+    lance.LanceDataset
+        The written dataset.
 
     Examples
     --------
