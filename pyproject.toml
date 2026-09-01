@@ -107,7 +107,11 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# `src` is here for the doctests, not for tests: `--doctest-modules` collects
+# the `Examples:` blocks so a broken one fails the suite. They used to be dead
+# text, and three of them did not run at all.
+testpaths = ["tests", "src"]
+addopts = ["--doctest-modules"]
 markers = [
     # Deselected in CI (`-m "not cloud"`) while polars-cloud is uninstallable.
     "cloud: exercises the Polars Cloud write path",
