@@ -959,18 +959,13 @@
 projections, filters and row limits into Lance, and batches are pulled only as
 the streaming engine consumes them. Writing streams a query into Lance batch by
 batch, so neither direction holds the dataset (or a whole fragment) in RAM.</p>
-<blockquote>
-<blockquote>
-<blockquote>
-<p>import polars as pl
-import polars_pylance as pll
-lf = pll.scan_lance("data.lance")  # doctest: +SKIP
-pll.sink_lance(
-...     lf.filter(pl.col("score") &gt; 0.9), "filtered.lance"
-... )  # doctest: +SKIP</p>
-</blockquote>
-</blockquote>
-</blockquote>
+<div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">polars_pylance</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pll</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">lf</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">),</span> <span class="s2">&quot;filtered.lance&quot;</span>
+<span class="gp">... </span><span class="p">)</span>  <span class="c1"># doctest: +SKIP</span>
+</code></pre></div>
 
 
 
