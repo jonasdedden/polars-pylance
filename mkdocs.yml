@@ -55,4 +55,6 @@ nav:
   - Comparison with polars-lance: COMPARISON.md
   - Predicate pushdown: PUSHDOWN.md
   - Vector search: VECTOR_SEARCH.md
+  - Polars Cloud: POLARS_CLOUD.md
+  - Benchmarks: BENCHMARKS.md
   - API reference: reference/
