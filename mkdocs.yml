@@ -52,6 +52,7 @@ plugins:
 
 nav:
   - Home: index.md
+  - Comparison: COMPARISON.md
   - Predicate pushdown: PUSHDOWN.md
   - Vector search: VECTOR_SEARCH.md
   - API reference: reference/
