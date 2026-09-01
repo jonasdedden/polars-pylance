@@ -27,7 +27,7 @@
     
     
       
-        <title>Comparison - polars-pylance</title>
+        <title>Comparison with polars-lance - polars-pylance</title>
       
     
     
@@ -110,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Comparison
+              Comparison with polars-lance
             
           </span>
         </div>
@@ -273,7 +273,7 @@
   <span class="md-ellipsis">
     
   
-    Comparison
+    Comparison with polars-lance
   
 
     
@@ -291,7 +291,7 @@
   <span class="md-ellipsis">
     
   
-    Comparison
+    Comparison with polars-lance
   
 
     
@@ -396,6 +396,101 @@
       
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#write-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Write benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-fixed-budget-of-8gib-ram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A fixed budget of 8GiB RAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Read benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#predicate-pushdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predicate pushdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scalar-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scalar indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -735,6 +830,101 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#benchmark-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark results
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark results">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#write-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Write benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-fixed-budget-of-8gib-ram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A fixed budget of 8GiB RAM
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#read-benchmarks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Read benchmarks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Read benchmarks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#predicate-pushdown" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Predicate pushdown
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-scan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full scan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scalar-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scalar indices
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -996,8 +1186,8 @@ reported upstream rather than dissected here:</p>
   can decode into a <em>different</em> operation instead of failing, and then the query
   is silently wrong.</li>
 </ul>
-<h1 id="benchmark-results">Benchmark results<a class="headerlink" href="#benchmark-results" title="Permanent link">&para;</a></h1>
-<h2 id="write-benchmarks">Write benchmarks<a class="headerlink" href="#write-benchmarks" title="Permanent link">&para;</a></h2>
+<h2 id="benchmark-results">Benchmark results<a class="headerlink" href="#benchmark-results" title="Permanent link">&para;</a></h2>
+<h3 id="write-benchmarks">Write benchmarks<a class="headerlink" href="#write-benchmarks" title="Permanent link">&para;</a></h3>
 <p><img alt="write: polars-lance peak tracks the result, ours stays flat" src="../assets/comparison/write-scaling.svg" /></p>
 <table>
 <thead>
@@ -1040,7 +1230,7 @@ reported upstream rather than dissected here:</p>
 <code>sink_lance</code> streams, so <code>polars-pylance</code> is flat at 1.0-1.7 GiB across a 49x
 range of input, and also 2.8-3.1x faster, because materialising costs time
 nobody spends when streaming.</p>
-<h3 id="a-fixed-budget-of-8gib-ram">A fixed budget of 8GiB RAM<a class="headerlink" href="#a-fixed-budget-of-8gib-ram" title="Permanent link">&para;</a></h3>
+<h4 id="a-fixed-budget-of-8gib-ram">A fixed budget of 8GiB RAM<a class="headerlink" href="#a-fixed-budget-of-8gib-ram" title="Permanent link">&para;</a></h4>
 <p>The previous <strong>scaling</strong> pass uses a generous cap so nothing is constrained,
 and shows how peak RSS and runtime grow with the data.
 The <strong>fixed-budget</strong> pass pins memory at 8 GiB with swap
@@ -1082,8 +1272,8 @@ a job exists at all:</p>
 49.2 GiB, the largest tier measured, at 1.79 GiB peak, and the ladder stopped before 
 the streaming writer did. Reads are fine on both under the same budget, so this is
 specific to the write path.</p>
-<h2 id="read-benchmarks">Read benchmarks<a class="headerlink" href="#read-benchmarks" title="Permanent link">&para;</a></h2>
-<h3 id="predicate-pushdown">Predicate pushdown<a class="headerlink" href="#predicate-pushdown" title="Permanent link">&para;</a></h3>
+<h3 id="read-benchmarks">Read benchmarks<a class="headerlink" href="#read-benchmarks" title="Permanent link">&para;</a></h3>
+<h4 id="predicate-pushdown">Predicate pushdown<a class="headerlink" href="#predicate-pushdown" title="Permanent link">&para;</a></h4>
 <p>Four predicates, each in front of the payload column, at 49.2 GiB:</p>
 <table>
 <thead>
@@ -1136,7 +1326,7 @@ gets 11 to Lance and this one gets 52. <code>docs/PUSHDOWN.md</code> has the tab
 three deliberate exceptions.</p>
 <p>A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.</p>
-<h3 id="full-scan">Full scan<a class="headerlink" href="#full-scan" title="Permanent link">&para;</a></h3>
+<h4 id="full-scan">Full scan<a class="headerlink" href="#full-scan" title="Permanent link">&para;</a></h4>
 <p><img alt="full scan: runtime and peak memory vs dataset size" src="../assets/comparison/full-scan-scaling.svg" /></p>
 <table>
 <thead>
@@ -1168,7 +1358,7 @@ in Polars, so the answer never depends on how much of it Lance understood.</p>
 per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
 so neither peak grows with the data, but <code>polars-pylance</code> holds 0.46 -&gt; 0.58 GiB
 while the source grows 49x, against <code>polars-lance</code>'s 1.14 -&gt; 1.36 GiB.</p>
-<h3 id="scalar-indices">Scalar indices<a class="headerlink" href="#scalar-indices" title="Permanent link">&para;</a></h3>
+<h4 id="scalar-indices">Scalar indices<a class="headerlink" href="#scalar-indices" title="Permanent link">&para;</a></h4>
 <p>An index cannot help a filter that never reaches the scanner, so building one
 changes nothing on the <code>polars-lance</code> side. The same queries, after BTREE
 indices on <code>id</code> and <code>val</code>, BITMAP on <code>cat</code> and NGRAM on <code>text</code>:</p>
