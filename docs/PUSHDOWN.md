@@ -1,42 +1,105 @@
 # Predicate pushdown
 
-`scan_lance` is an IO plugin, so Polars hands it the whole filter as a
-`polars.Expr`. `polars_pylance._predicate` walks that expression and emits the
-equivalent Lance SQL filter string, which is what
-`LanceDataset.scanner(filter=...)` takes.
+When you write `scan_lance(...).filter(...)`, the filter does not have to travel
+back to Polars as rows. `polars-pylance` translates it into **Lance SQL**, the
+filter language `LanceDataset.scanner(filter=...)` accepts, and hands it to
+Lance. Lance then skips pages, consults scalar indices, and never decodes the
+columns belonging to rows that cannot survive.
 
-## Coverage
+That is predicate pushdown, and it is on by default:
 
-55 predicate shapes run through a real scan, recording whether Lance's scanner
-was handed a filter at all:
+```python
+lf = pll.scan_lance("data.lance").filter(pl.col("val") > 0.999)
+```
 
-| | shapes reaching Lance |
-| --- | --- |
-| Polars' PyArrow lowering (`scan_pyarrow_dataset`, `scan_delta`) | **11 / 55** |
-| this translation | **52 / 55** |
+You can see what any predicate becomes:
 
-PyArrow can express comparisons, `AND`/`OR`/`NOT`, null checks, `is_between`,
-`all_horizontal` and datetime literals. It drops the rest silently.
+```python
+>>> pll.to_lance_filter(pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]))
+LanceFilter(sql="(starts_with(`cat`, 'b') AND (`id` IN (1, 2)))", exact=True)
+```
 
-Reaching Lance only here: `is_in` (any length), `xor`, `eq_missing`, every
-string function below, all arithmetic, `abs`, `**`, `min_horizontal` /
-`max_horizontal`, `fill_null`, `is_nan` / `is_not_nan` / `is_infinite` /
-`is_finite`, `cast`, `dt.year` / `month` / `hour` / `weekday` / `date` /
-`truncate`, `list.contains` / `len` / `get`, `struct.field`, `concat_str`.
+## What it is worth
 
-## Relaxation
+Two million rows with a 256-byte payload column, filtering and then projecting
+`id` and `payload`, each measurement in its own process. The comparison is the
+same query with `predicate_pushdown=True` and `predicate_pushdown=False`, so
+the only thing that changes is where the filter runs.
 
-A lowering may be a superset. An untranslatable conjunct of an `AND` is
-dropped, so `a > 5 & a.str.slice(0, 2) == "xy"` still pushes `a > 5`. That is
-only sound in positive position, so a dropped branch of an `OR` or anything
-under a `NOT` declines instead. Every lowering carries an `exact` flag; when it
-is false, `scan_lance` re-applies the original predicate to each batch.
+![predicate pushdown against no pushdown, no indices](assets/bench/pushdown-none.svg)
 
-## Deliberate declines
+Without pushdown Polars receives every row and filters them itself, so the
+payload column is decoded 2 million times and discarded. With pushdown Lance
+never reads it for rows the filter rejects. Runtime drops by **3-7x** and peak
+memory settles around 320 MiB instead of 840 MiB, because the thing that made
+the query expensive was reading a wide column, not evaluating the predicate.
 
-Each of these has a Lance spelling that means something slightly different.
+Memory is the more durable win. It is roughly flat regardless of how much data
+the filter rejects, which is what lets a scan of a dataset far larger than RAM
+finish at all.
 
-| construct | why |
+## What indices add
+
+A pushed-down filter is a precondition for a scalar index doing anything: an
+index can only help a predicate Lance is allowed to see. With BTREE indices on
+`id` and `val`, BITMAP on `cat` and NGRAM on `text`:
+
+![predicate pushdown against no pushdown, with scalar indices](assets/bench/pushdown-indexed.svg)
+
+The substring search is the one to look at. Without an index it costs 0.07s,
+because Lance still has to examine every `text` value; with the NGRAM index it
+costs 0.02s, roughly **15x** faster than not pushing down at all. The index is
+doing the work the filter made reachable.
+
+Note the pushdown-off bars barely move between the two charts. Indices do not
+help a filter Lance never receives.
+
+## When it does not pay
+
+The `cat == 'c3'` case gets *slower* with an index, from 0.06s to 0.15s. The
+predicate keeps 12.5% of the table, and a BITMAP lookup that returns a quarter
+of a million row ids is more work than simply scanning the column. Indices earn
+their place on selective predicates; on broad ones they are overhead.
+
+Pushdown itself has a similar edge. If your projection is narrow, there is no
+wide column to avoid reading, and Lance evaluating the predicate row by row can
+be slower than Polars evaluating it on an already-decoded column. A
+`select(pl.len())` over a filter is the shape where this shows up.
+
+Both are data-dependent, and both have a switch:
+
+```python
+pll.scan_lance(uri, predicate_pushdown=False)  # translate nothing
+pll.scan_lance(uri, options=pll.LanceScanOptions(use_scalar_index=False))
+```
+
+## Partial translation
+
+Not every Polars expression has a Lance SQL equivalent. When part of a
+predicate does not translate, the translatable part is still pushed and the
+original is re-applied to each batch in Polars:
+
+```python
+>>> pll.to_lance_filter(pl.col("text").str.slice(0, 2) == "xy") is None
+True
+>>> pll.to_lance_filter((pl.col("id") > 5) & (pl.col("text").str.slice(0, 2) == "xy"))
+LanceFilter(sql='(`id` > 5)', exact=False)
+```
+
+`exact=False` says the filter is a superset: Lance returns more rows than the
+predicate keeps, and Polars finishes the job. The answer never depends on how
+much of the expression Lance understood, only the speed does.
+
+Dropping a conjunct is only sound in positive position. A dropped branch of an
+`OR`, or anything under a `NOT`, would produce *fewer* rows than the predicate
+keeps, so those decline entirely rather than lower loosely.
+
+## What declines, and why
+
+Some constructs have a Lance spelling that means something subtly different.
+Rather than return wrong rows quickly, these decline and run in Polars:
+
+| construct | why it declines |
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
 | `sqrt`, `ln`, `log10`, `cbrt` | outside their domain Polars gives NaN, Lance NULL |
@@ -56,54 +119,24 @@ Each of these has a Lance spelling that means something slightly different.
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
 
-`is_nan` is a special case: it has to be `isnan(x)`, not `x != x`. Lance
-compares by SQL's total ordering, under which NaN equals itself, so the second
-spelling drops every NaN row.
+Everything else translates, including `is_in` of any length, `xor`,
+`eq_missing`, arithmetic, `abs`, `**`, `min_horizontal` / `max_horizontal`,
+`fill_null`, the `is_nan` family, `cast`, the `dt` parts, `list.contains` /
+`len` / `get`, `struct.field` and `concat_str`.
 
-## What it buys
+## Prefilters are stricter
 
-4M rows, a 256-byte payload column, 1.1 GiB on disk, `polars` 1.44.0 and
-`pylance` 9.0.0, best of five, one process per measurement, against the
-dataset-provider scan this replaces.
+A prefilter for a vector search cannot lower loosely, because there is no
+second pass that could repair the candidate set the search already used. It
+raises instead of silently becoming a postfilter; see
+[vector search](VECTOR_SEARCH.md).
 
-A selective filter in front of a wide column, `filter(...).select("id",
-"payload")`. Wall time and peak RSS:
+## Reproducing the numbers
 
-| predicate | provider | SQL filter | |
-| --- | --- | --- | --- |
-| `id.is_in(100 values)` | 0.556 s / 1951 MiB | 0.045 s / 328 MiB | **12.3x** |
-| `id.is_in(200 values)` | 0.496 s / 2274 MiB | 0.045 s / 324 MiB | **11.0x** |
-| `val * 2 > 1.9995` | 0.384 s / 578 MiB | 0.031 s / 327 MiB | **12.3x** |
-| `(id > 3.99M) xor (val > 0.999)` | 0.400 s / 563 MiB | 0.032 s / 333 MiB | **12.4x** |
-| `text.str.contains(...)`, 1 in 4k | 0.556 s / 2361 MiB | 0.091 s / 360 MiB | **6.1x** |
-| `ts.dt.hour() < 1` | 0.441 s / 1163 MiB | 0.095 s / 436 MiB | **4.7x** |
-| `val > 0.999` (both push it) | 0.028 s | 0.027 s | par |
+```sh
+uv run --group bench bench/pushdown.py --out bench/plots/static
+```
 
-With scalar indices on the filtered columns (BTREE, NGRAM on `text`):
-`is_in(100)` **16.6x**, `text.str.contains` **19.4x**, `val * 2 > 1.9995`
-**14.2x**. An index cannot help a predicate that never reaches Lance, so the
-gap widens rather than closes.
-
-## What it costs
-
-With a narrow projection there is no wide column to skip, and Lance evaluating
-the predicate row by row is slower than Polars evaluating it on the decoded
-column:
-
-| predicate, `select(pl.len())` | provider | SQL filter | |
-| --- | --- | --- | --- |
-| `text.str.contains(...) & id > 3.99M` | 0.016 s | 0.048 s | 3.0x slower |
-| `ts.dt.hour() < 1` | 0.032 s | 0.088 s | 2.8x slower |
-| `id.is_in(200 values)` | 0.032 s | 0.069 s | 2.1x slower |
-| `cat.str.starts_with("bet")`, indexed | 0.125 s | 0.341 s | 2.7x slower |
-| full scan, no filter | 0.011 s | 0.016 s | +5 ms |
-
-The last row is fixed cost: the plugin resolves its schema through a second
-dataset open. It does not grow with the data.
-
-The rest is Lance's SQL evaluation being the expensive part when nothing is
-saved by it, plus, on the indexed run, a BTREE lookup for a predicate that
-keeps a quarter of the table producing a row-id list bigger than the scan it
-replaces. Both are data-dependent.
-`LanceScanOptions(use_scalar_index=False)` turns off the second, and
-`scan_lance(..., predicate_pushdown=False)` turns off the translation.
+It builds its own dataset and needs no particular machine: it compares two
+paths through the same library over the same data, so the ratio holds even
+where the absolute numbers do not.

@@ -43,10 +43,6 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/jonasdedden/polars-pylance"
-# `Documentation` is one of the well-known labels, so PyPI renders it with an
-# icon in the sidebar rather than as a plain link. The site root rather than a
-# version: it redirects to whatever `mike set-default` points at, so the link
-# keeps working as `stable` moves.
 Documentation = "https://jonasdedden.github.io/polars-pylance/"
 Repository = "https://github.com/jonasdedden/polars-pylance"
 Issues = "https://github.com/jonasdedden/polars-pylance/issues"

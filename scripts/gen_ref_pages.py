@@ -1,8 +1,12 @@
 """Generate the docs pages that are not written by hand.
 
-`index.md` is the README, so the landing page cannot drift from it, and there is
-one API page per public module, so a new module appears in the nav without this
-file or `mkdocs.yml` being touched.
+Three Markdown files live outside `docs/` because they are read outside the
+site too: `README.md` on the repository front page and on PyPI, `COMPARISON.md`
+and `bench/README.md` in the repository. They are copied in here, with the
+links that only make sense in one of those places rewritten for the other.
+
+There is also one API page per public module, so a new module appears in the
+nav without this file or `mkdocs.yml` being touched.
 """
 
 import re
@@ -12,32 +16,64 @@ import mkdocs_gen_files
 
 ROOT = Path(__file__).parent.parent
 SRC = ROOT / "src"
-
 GITHUB = "https://github.com/jonasdedden/polars-pylance/blob/main"
 
-# The README keeps absolute GitHub links, because it is also rendered on the
-# repository front page and on PyPI, where a relative one would 404. Inside the
-# site, the comparison is a page of its own, so that one link is pointed at it.
-readme = (ROOT / "README.md").read_text()
-readme = readme.replace(f"{GITHUB}/COMPARISON.md", "COMPARISON.md")
-with mkdocs_gen_files.open("index.md", "w") as f:
-    f.write(readme)
+# A link into the published site, with whatever version segment it carries.
+# Inside the site the same link has to be relative, or a page served under
+# `stable/` would send the reader to `dev/`.
+SITE_PAGE = re.compile(r"https://jonasdedden\.github\.io/polars-pylance/[^/]+/(\w+)/")
 
-# The comparison's plots live under `bench/`, which is not part of `docs_dir`,
-# so they are copied in beside the page and the paths rewritten. Which files to
+
+def publish(text: str, dest: str, rewrites: dict[str, str] | None = None) -> None:
+    """Write `text` into the docs tree, applying literal `rewrites` first."""
+    for old, new in (rewrites or {}).items():
+        text = text.replace(old, new)
+    with mkdocs_gen_files.open(dest, "w") as f:
+        f.write(text)
+
+
+def copy_assets(names: list[str], source: Path, dest: str) -> None:
+    """Copy plots into the site, since they live outside `docs_dir`."""
+    for name in names:
+        with mkdocs_gen_files.open(f"{dest}/{name}", "w") as f:
+            f.write((source / name).read_text())
+
+
+# The README keeps absolute links to the published site, because it is rendered
+# on GitHub and on PyPI where a relative one would 404. Inside the site those
+# same links become relative, so they stay within the version being read.
+publish(SITE_PAGE.sub(r"\1.md", (ROOT / "README.md").read_text()), "index.md")
+
+# The comparison's plots are under `bench/`, outside `docs_dir`. Which ones to
 # copy is read back out of the page, so a new plot needs no change here.
 comparison = (ROOT / "COMPARISON.md").read_text()
-plots = set(re.findall(r"bench/plots/static/([\w-]+\.svg)", comparison))
-comparison = comparison.replace("bench/plots/static/", "assets/comparison/")
-# `bench/README.md` is not a page here either.
-comparison = comparison.replace("](bench/README.md)", f"]({GITHUB}/bench/README.md)")
-with mkdocs_gen_files.open("COMPARISON.md", "w") as f:
-    f.write(comparison)
+publish(
+    comparison,
+    "COMPARISON.md",
+    {
+        "bench/plots/static/": "assets/comparison/",
+        "](bench/README.md)": "](BENCHMARKS.md)",
+    },
+)
+copy_assets(
+    sorted(set(re.findall(r"bench/plots/static/([\w-]+\.svg)", comparison))),
+    ROOT / "bench" / "plots" / "static",
+    "assets/comparison",
+)
 
-for name in sorted(plots):
-    svg = ROOT / "bench" / "plots" / "static" / name
-    with mkdocs_gen_files.open(f"assets/comparison/{name}", "w") as f:
-        f.write(svg.read_text())
+# How the benchmarks are run, for anyone reproducing them.
+publish(
+    (ROOT / "bench" / "README.md").read_text(),
+    "BENCHMARKS.md",
+    {"](../COMPARISON.md)": "](COMPARISON.md)"},
+)
+
+# `PUSHDOWN.md` is a real file in `docs/`, but its plots are not.
+copy_assets(
+    ["pushdown-none.svg", "pushdown-indexed.svg"],
+    ROOT / "bench" / "plots" / "static",
+    "assets/bench",
+)
 
 nav = mkdocs_gen_files.Nav()
 for path in sorted(SRC.rglob("*.py")):
@@ -54,13 +90,12 @@ for path in sorted(SRC.rglob("*.py")):
     doc = Path(*parts, "index.md") if is_package else Path(*parts).with_suffix(".md")
     nav[parts] = doc.as_posix()
     module = ".".join(parts)
-    with mkdocs_gen_files.open(Path("reference", doc), "w") as f:
-        # Without an explicit title a page is named after its file, which would
-        # render a package's index page as "Index".
-        f.write(f"---\ntitle: {module}\n---\n\n::: {module}\n")
+    # Without an explicit title a page is named after its file, which would
+    # render a package's index page as "Index".
+    publish(f"---\ntitle: {module}\n---\n\n::: {module}\n", str(Path("reference", doc)))
 
+# `literate-nav` reads this to build the API nav, but it is still rendered as a
+# page. Nothing links to it; this keeps it out of the search index too.
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as f:
-    # `literate-nav` reads this to build the API nav, but it is still rendered
-    # as a page. Nothing links to it; this keeps it out of the search index too.
     f.write("---\nsearch:\n  exclude: true\n---\n\n")
     f.writelines(nav.build_literate_nav())
