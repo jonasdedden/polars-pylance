@@ -86,8 +86,8 @@ Three interactive pages in `plots/`:
   case, with **both costs on the same axes**: runtime on the left (solid, circles), peak memory on the
   right (dotted, diamonds), colour per implementation. They belong together
   because the interesting cases are the ones where the two metrics disagree:
-  the full scan is 1.2× slower *and* 2.5× lighter, and separate pages hide that.
-- `ratios.html` is polars-pylance ÷ polars-lance, where below 1.0 means
+  the full scan is 1.2x slower *and* 2.5x lighter, and separate pages hide that.
+- `ratios.html` is polars-pylance / polars-lance, where below 1.0 means
   polars-pylance wins.
 
 Every datapoint is on them, failures included: OOM kills, thread panics and

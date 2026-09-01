@@ -2,25 +2,25 @@
 
 polars-cloud 0.10 added ``lf.remote(ctx).sink_batches(fn)``: the query runs on
 the cluster and a Python callable is invoked with each result batch. That
-callable is **cloudpickled into the serialized query plan** -- verifiable with
-``polars._utils.cloud.prepare_cloud_plan`` -- so it runs on the workers, not on
+callable is **cloudpickled into the serialized query plan** (verifiable with
+``polars._utils.cloud.prepare_cloud_plan``), so it runs on the workers, not on
 the client. Lance therefore no longer has to be a sink format Polars Cloud knows
 about: the workers write the data files themselves, in parallel, and this is a
 genuinely distributed write rather than a streaming client-side one.
 
 What that costs is the return path. A callback shipped to a worker cannot hand
-anything back -- its return value is a stop signal, and mutations to captured
+anything back: its return value is a stop signal, and mutations to captured
 state die with the worker process. Lance's write/commit split is what makes the
 arrangement work anyway:
 
 1. Each worker writes **data files only** with ``lance.fragment.write_fragments``
    and commits nothing, so no worker can publish a partial dataset.
 2. It then writes the resulting fragment metadata as JSON to a staging prefix
-   next to the dataset -- the side channel that replaces the return value.
+   next to the dataset, the side channel that replaces the return value.
 3. When the query finishes, the client lists that prefix and makes every staged
    fragment one dataset version with a single commit.
 
-Idempotency is the design constraint, not an afterthought: polars-cloud
+Idempotency is a design constraint here: polars-cloud
 documents that the callback "might be called multiple times from different
 workers", and appending a fragment is not idempotent. Each staging object is
 named after a deterministic key derived from the batch contents, so a re-run of
@@ -152,8 +152,8 @@ def _content_key(df: pl.DataFrame) -> str:
 
     The tradeoff is that two *distinct* batches with byte-identical contents
     collapse onto one key, and only one of them would be committed. That needs
-    the query to emit the same rows, in the same order, in two whole chunks --
-    pass ``fragment_key=`` to :func:`stage_lance_sink` if your data can do that.
+    the query to emit the same rows, in the same order, in two whole chunks.
+    Pass ``fragment_key=`` to :func:`stage_lance_sink` if your data can do that.
     """
     digest = hashlib.blake2b(digest_size=16)
     digest.update(repr(df.schema).encode())
@@ -292,7 +292,7 @@ class StagedLanceSink:
         ----------
         cleanup
             Remove the staging prefix once the commit lands. The *data* files a
-            retried batch orphaned are not touched -- they live inside the
+            retried batch orphaned are not touched: they live inside the
             dataset and are unreferenced by any manifest, so reclaim them with
             ``dataset.cleanup_old_versions(..., delete_unverified=True)``.
 
@@ -344,7 +344,7 @@ def stage_lance_sink(
 ) -> StagedLanceSink:
     """Build a worker-side Lance writer for ``sink_batches``.
 
-    Use this when you want to drive the remote query yourself -- to pick a
+    Use this when you want to drive the remote query yourself: to pick a
     planner, set ``maintain_order``, or inspect the query handle.
     :func:`sink_lance_remote` is the same thing with the query submitted and
     awaited for you.
@@ -356,12 +356,12 @@ def stage_lance_sink(
     schema
         The query's output schema. A LazyFrame is accepted and resolved with
         ``collect_schema()``, which needs the *client* to be able to reach the
-        sources -- as it already must be to build a ``scan_lance`` plan.
+        sources, as it already must be to build a ``scan_lance`` plan.
     mode
         ``"create"`` (fail if the dataset exists), ``"overwrite"`` (replace its
         contents with a new version), or ``"append"``.
     storage_options
-        Passed to Lance for the data files, and -- for ``s3://`` targets --
+        Passed to Lance for the data files, and (for ``s3://`` targets)
         translated into a PyArrow filesystem for the staging prefix.
     staging_uri
         Where fragment metadata is staged. Defaults to the dataset URI plus
@@ -457,7 +457,7 @@ def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
 
 
 # `remote` is a `polars_cloud.LazyFrameRemote` or `ExecuteRemote`, both of which
-# polars-cloud annotates -- it ships `py.typed`. It is `Any` here only because
+# polars-cloud annotates (it ships `py.typed`). It is `Any` here only because
 # polars-cloud cannot be installed alongside this package (it pins
 # `polars==1.43.2`, below the floor), so the name cannot be imported even under
 # `TYPE_CHECKING` without failing the type checkers on every run.
@@ -488,9 +488,9 @@ def sink_lance_remote(  # noqa: D417 - the staging parameters are documented onc
     Parameters
     ----------
     remote
-        A ``polars_cloud.LazyFrameRemote`` -- the result of ``lf.remote(ctx)``
-        -- or the ``ExecuteRemote`` that ``.distributed()`` /
-        ``.single_node()`` return.
+        A ``polars_cloud.LazyFrameRemote`` (the result of ``lf.remote(ctx)``)
+        or the ``ExecuteRemote`` that ``.distributed()`` / ``.single_node()``
+        return.
     target
         Destination URI, path, or an existing :class:`lance.LanceDataset`.
     schema

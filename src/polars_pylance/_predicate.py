@@ -203,7 +203,7 @@ def to_lance_filter(
         # catch is a `ComputeError` from a UDF closing over something
         # unpicklable; the family polars raises here is not documented, and a
         # wrong guess would turn a missed optimization into a failed query. A
-        # plain UDF does serialize -- it is declined by the walk, as an
+        # plain UDF does serialize: it is declined by the walk, as an
         # `AnonymousFunction` node it has no spelling for.
         return None
 

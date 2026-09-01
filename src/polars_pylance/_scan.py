@@ -360,8 +360,8 @@ def _prefilter_sql(prefilter: str | pl.Expr) -> str:
 
     A pushed-down predicate is allowed to be relaxed, because Polars still
     evaluates it afterwards. A prefilter chooses which rows the search ranks at
-    all, and nothing downstream can repair that choice -- so a partial lowering
-    is an error here rather than a silent demotion to a postfilter.
+    all, and nothing downstream can repair that choice. A partial lowering is
+    therefore an error here rather than a silent demotion to a postfilter.
     """
     if isinstance(prefilter, str):
         return prefilter

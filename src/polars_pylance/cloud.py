@@ -1,8 +1,8 @@
 """Helpers for running Lance scans and writes on Polars Cloud.
 
 .. warning::
-    **Not installable today.** polars-cloud pins polars with ``==`` -- 0.10.0
-    pins ``polars==1.43.2`` -- which is below this package's ``polars>=1.44.1``
+    **Not installable today.** polars-cloud pins polars with ``==`` (0.10.0
+    pins ``polars==1.43.2``), which is below this package's ``polars>=1.44.1``
     floor, so there is no ``cloud`` extra and the two cannot be resolved
     together. Everything here is written and kept working against the 0.10 API;
     it becomes usable as soon as polars-cloud ships a release tracking 1.44.
@@ -25,7 +25,7 @@ Writing
     Possible remotely since 0.10, via :func:`sink_lance_remote`. Polars Cloud's
     native sink destinations are still Parquet, CSV, IPC and Iceberg, but
     ``sink_batches`` hands each result batch to a Python callable that is
-    cloudpickled into the query plan and therefore runs *on the workers* -- so
+    cloudpickled into the query plan and therefore runs *on the workers*, so
     the workers write Lance data files directly, and a single client-side commit
     publishes them. :mod:`polars_pylance._remote` documents the arrangement.
 
@@ -39,7 +39,7 @@ The polars pin
     polars-cloud 0.10 requires ``polars==1.43.2``, up from 1.42.1 in 0.9, and
     this package now requires ``polars>=1.44.1``. Those are mutually exclusive,
     which is why the ``cloud`` extra was dropped rather than left declared: an
-    extra pinning below the floor makes even ``uv lock`` unresolvable, not just
+    extra pinning below the floor breaks ``uv lock`` as well as
     ``pip install polars-pylance[cloud]``.
 
     The floor is there because 1.43.2 is the last release in which a

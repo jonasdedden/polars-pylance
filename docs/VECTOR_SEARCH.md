@@ -33,13 +33,13 @@ pll.scan_lance(uri, nearest=search).filter(pl.col("cat") == "docs")
 
 A downstream `.filter()` is still pushed into Lance where it translates, but only into the postfilter position. It is never promoted to a prefilter.
 
-Lance has one filter slot -- `scanner(filter=..., prefilter=bool)` -- so the two cannot both be pushed. A prefilter takes the slot, and the query's own filter is evaluated in Polars instead. That costs some pushdown and keeps the positions honest.
+Lance has one filter slot (`scanner(filter=..., prefilter=bool)`), so the two cannot both be pushed. A prefilter takes the slot, and the query's own filter is evaluated in Polars instead. That costs some pushdown and keeps the positions honest.
 
 Without a search there is nothing to rank, and a prefilter is simply a filter the caller pushed by hand.
 
 ## Why a prefilter can fail
 
-A pushed-down predicate is allowed to lower *loosely*. An untranslatable conjunct of an `AND` is dropped, Lance reads a superset, and Polars re-applies the original per batch, so the answer does not depend on how much of it Lance understood -- `docs/PUSHDOWN.md` covers this.
+A pushed-down predicate is allowed to lower *loosely*. An untranslatable conjunct of an `AND` is dropped, Lance reads a superset, and Polars re-applies the original per batch, so the answer does not depend on how much of it Lance understood; `docs/PUSHDOWN.md` covers this.
 
 A prefilter decides which rows get ranked at all. There is no second pass that can repair a wrong candidate set: the search has already happened. So the relaxation that is safe for a postfilter is not safe here, and a prefilter that does not translate exactly raises instead:
 

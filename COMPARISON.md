@@ -21,7 +21,7 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 | --- | --- | --- |
 | Implementation | Rust extension (`pyo3`, `maturin`), links `lance` 0.38.2 | Pure Python on `pylance` |
 | Polars hook | `register_io_source` | `register_io_source` |
-| Runtime deps | `polars>=1.0.0` only -- Lance is statically linked | `polars>=1.44.1`, `pylance>=9`, `pyarrow` |
+| Runtime deps | `polars>=1.0.0` only (Lance is statically linked) | `polars>=1.44.1`, `pylance>=9`, `pyarrow` |
 | Read | lazy, streaming | lazy, streaming |
 | Write | eager `DataFrame` only | streaming from a `LazyFrame` |
 | Predicate pushdown into Lance | **no** (acknowledged `TODO`; filters in Rust polars) | yes, as a Lance SQL filter |
@@ -34,7 +34,7 @@ Raw data is committed as `bench/results-m8id4xl.jsonl`.
 `polars-lance` calls `register_io_source` with a Rust `LanceScanner` behind it, so
 per-batch work never touches the interpreter. Lance is compiled in: no `pylance`
 at runtime, verified by installing the `polars-lance` wheel with only polars present:
-both scan and write work. The cost is a 60–68 MB platform wheel per Python version
+both scan and write work. The cost is a 60-68 MB platform wheel per Python version
 (15 wheels for 0.5.0) and coupling to polars' internal Rust API.
 
 ### `polars-pylance` (this package)
@@ -68,7 +68,7 @@ inherits every Lance feature `pylance` exposes.
 | `_rowid` / `_rowaddr` | no | yes |
 | Per-fragment scans, sharding | no | yes (`scan_lance_fragments`) |
 | Reader tuning (`io_buffer_size`, readahead) | no | yes (`LanceScanOptions`) |
-| Scan-plan serialization (Polars Cloud) | untested | yes, 2–6 kB, round-trip tested |
+| Scan-plan serialization (Polars Cloud) | untested | yes, 2-6 kB, round-trip tested |
 | Distributed write to Lance (Polars Cloud) | no | yes (`cloud.sink_lance_remote`) |
 
 ## Write features
@@ -76,7 +76,7 @@ inherits every Lance feature `pylance` exposes.
 | | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
 | Input | `pl.DataFrame` (eager) | `pl.LazyFrame` (streamed) |
-| Larger-than-memory writes | no -- caller must chunk manually | yes |
+| Larger-than-memory writes | no (caller must chunk manually) | yes |
 | Modes | `error`, `append`, `overwrite` | `create`, `append`, `overwrite`, `merge` (upsert) |
 | File-layout control | `max_rows_per_file`, `max_bytes_per_file` | all `lance.write_dataset` kwargs |
 | Deferred / composable sink | no | yes (`lazy=True`) |
@@ -120,15 +120,15 @@ reported upstream rather than dissected here:
 
 | write filtered projection | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
-| 4.1 GiB | 4.4 s / 4.65 GiB | 1.4 s / 1.42 GiB | 3.1× faster, 0.31× mem |
-| 16.2 GiB | 15.4 s / 17.23 GiB | 5.5 s / 1.70 GiB | 2.8× faster, 0.10× mem |
-| 24.3 GiB | 23.7 s / 25.65 GiB | 8.3 s / 1.71 GiB | 2.9× faster, 0.07× mem |
-| 49.2 GiB | 64.3 s / 51.22 GiB | 23.1 s / **1.60 GiB** | 2.8× faster, **0.03× mem** |
+| 4.1 GiB | 4.4 s / 4.65 GiB | 1.4 s / 1.42 GiB | 3.1x faster, 0.31x mem |
+| 16.2 GiB | 15.4 s / 17.23 GiB | 5.5 s / 1.70 GiB | 2.8x faster, 0.10x mem |
+| 24.3 GiB | 23.7 s / 25.65 GiB | 8.3 s / 1.71 GiB | 2.9x faster, 0.07x mem |
+| 49.2 GiB | 64.3 s / 51.22 GiB | 23.1 s / **1.60 GiB** | 2.8x faster, **0.03x mem** |
 
 `write_lance` takes a materialised `DataFrame`, so its peak tracks the result:
 51.22 GiB to write from a 49.2 GiB source, which is most of a 64 GiB machine.
-`sink_lance` streams, so `polars-pylance` is flat at 1.0–1.7 GiB across a 49×
-range of input, and also 2.8–3.1× faster, because materialising costs time
+`sink_lance` streams, so `polars-pylance` is flat at 1.0-1.7 GiB across a 49x
+range of input, and also 2.8-3.1x faster, because materialising costs time
 nobody spends when streaming.
 
 ### A fixed budget of 8GiB RAM
@@ -161,10 +161,10 @@ Four predicates, each in front of the payload column, at 49.2 GiB:
 
 | predicate | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
-| `val * 2 > 1.999` | 27.8 s / 1.38 GiB | 0.5 s / 0.46 GiB | **52× faster, 3x lighter** |
-| `id.is_in(200 ids)` | 28.4 s / 2.83 GiB | 0.8 s / 0.24 GiB | **36× faster, 12× lighter** |
-| `ts.dt.hour() < 1` | 27.0 s / 1.45 GiB | 1.3 s / 0.83 GiB | **22× faster, 1.8x lighter** |
-| `text.str.contains("-rare")` | 28.6 s / 1.57 GiB | 1.6 s / 0.32 GiB | **18× faster, 4.9x lighter** |
+| `val * 2 > 1.999` | 27.8 s / 1.38 GiB | 0.5 s / 0.46 GiB | **52x faster, 3x lighter** |
+| `id.is_in(200 ids)` | 28.4 s / 2.83 GiB | 0.8 s / 0.24 GiB | **36x faster, 12x lighter** |
+| `ts.dt.hour() < 1` | 27.0 s / 1.45 GiB | 1.3 s / 0.83 GiB | **22x faster, 1.8x lighter** |
+| `text.str.contains("-rare")` | 28.6 s / 1.57 GiB | 1.6 s / 0.32 GiB | **18x faster, 4.9x lighter** |
 
 `polars-lance` receives the predicate and filters after reading, which is the
 acknowledged `TODO`. `polars-pylance` translates the Polars expression into a
@@ -196,10 +196,10 @@ in Polars, so the answer never depends on how much of it Lance understood.
 | 16.2 GiB | 9.1 s / 1.26 GiB | 10.3 s / 0.58 GiB |
 | 49.2 GiB | 27.1 s / 1.36 GiB | 32.9 s / 0.58 GiB |
 
-`polars-lance` is 1.1–1.2× faster on a full scan at *every* tier. That is the
+`polars-lance` is 1.1-1.2x faster on a full scan at *every* tier. That is the
 per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
-so neither peak grows with the data, but `polars-pylance` holds 0.46 → 0.58 GiB
-while the source grows 49×, against `polars-lance`'s 1.14 → 1.36 GiB.
+so neither peak grows with the data, but `polars-pylance` holds 0.46 -> 0.58 GiB
+while the source grows 49x, against `polars-lance`'s 1.14 -> 1.36 GiB.
 
 ### Scalar indices
 
@@ -217,8 +217,8 @@ indices on `id` and `val`, BITMAP on `cat` and NGRAM on `text`:
 | --- | --- |
 | ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.svg) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.svg) |
 
-`polars-lance` line climbs with the data and `polars-pylance` is flat, which is **186×** on
-membership and **106×** on substring at the top tier.
+`polars-lance` line climbs with the data and `polars-pylance` is flat, which is **186x** on
+membership and **106x** on substring at the top tier.
 
 The same two queries with and without the index, `polars-pylance` only, is where the index
 itself shows up:

@@ -295,7 +295,7 @@ def commit_lance_fragments(
 
     The second half of a distributed write: the fragments' data files are on
     storage but no manifest references them, so nothing has been published yet.
-    This is the single commit that makes them a version -- whether they were
+    This is the single commit that makes them a version, whether they were
     written by threads (:func:`write_lance_fragments`) or by Polars Cloud
     workers (:func:`~polars_pylance.cloud.sink_lance_remote`).
 
@@ -346,7 +346,7 @@ def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
 
     Lance reports "not found" and "could not reach the store" as the same
     ValueError, so an unreachable store reads as absent. That only ever costs a
-    clearer error message -- the commit that follows fails on its own -- and
+    clearer error message (the commit that follows fails on its own), and
     ``Overwrite`` adds a version rather than destroying the old one.
     """
     try:
