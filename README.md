@@ -1,5 +1,11 @@
 # polars-pylance
 
+[![PyPI](https://img.shields.io/pypi/v/polars-pylance.svg)](https://pypi.org/project/polars-pylance/)
+[![Python versions](https://img.shields.io/pypi/pyversions/polars-pylance.svg)](https://pypi.org/project/polars-pylance/)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue.svg)](https://jonasdedden.github.io/polars-pylance/)
+[![CI](https://github.com/jonasdedden/polars-pylance/actions/workflows/ci.yml/badge.svg)](https://github.com/jonasdedden/polars-pylance/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/polars-pylance.svg)](https://pypi.org/project/polars-pylance/)
+
 Lazy, streaming [Lance](https://lance.org) <-> [Polars](https://pola.rs) integration.
 
 `scan_lance()` returns a real `LazyFrame`: the Polars optimizer pushes column

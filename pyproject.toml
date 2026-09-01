@@ -51,7 +51,6 @@ Documentation = "https://jonasdedden.github.io/polars-pylance/"
 Repository = "https://github.com/jonasdedden/polars-pylance"
 Issues = "https://github.com/jonasdedden/polars-pylance/issues"
 Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
-Comparison = "https://github.com/jonasdedden/polars-pylance/blob/main/COMPARISON.md"
 
 [dependency-groups]
 # cloudpickle is what polars uses to serialize a callback sink into a cloud

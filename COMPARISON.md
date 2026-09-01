@@ -112,9 +112,9 @@ reported upstream rather than dissected here:
   can decode into a *different* operation instead of failing, and then the query
   is silently wrong.
 
-# Benchmark results
+## Benchmark results
 
-## Write benchmarks
+### Write benchmarks
 
 ![write: `polars-lance` peak tracks the result, ours stays flat](bench/plots/static/write-scaling.svg)
 
@@ -131,7 +131,7 @@ reported upstream rather than dissected here:
 range of input, and also 2.8-3.1x faster, because materialising costs time
 nobody spends when streaming.
 
-### A fixed budget of 8GiB RAM
+#### A fixed budget of 8GiB RAM
 
 The previous **scaling** pass uses a generous cap so nothing is constrained,
 and shows how peak RSS and runtime grow with the data.
@@ -153,9 +153,9 @@ In 8 GiB, `polars-lance` writes at most ~4 GiB of source. `polars-pylance` write
 the streaming writer did. Reads are fine on both under the same budget, so this is
 specific to the write path.
 
-## Read benchmarks
+### Read benchmarks
 
-### Predicate pushdown
+#### Predicate pushdown
 
 Four predicates, each in front of the payload column, at 49.2 GiB:
 
@@ -186,7 +186,7 @@ three deliberate exceptions.
 A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.
 
-### Full scan
+#### Full scan
 
 ![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.svg)
 
@@ -201,7 +201,7 @@ per-batch Python cost, and it neither grows nor shrinks with scale. Both stream,
 so neither peak grows with the data, but `polars-pylance` holds 0.46 -> 0.58 GiB
 while the source grows 49x, against `polars-lance`'s 1.14 -> 1.36 GiB.
 
-### Scalar indices
+#### Scalar indices
 
 An index cannot help a filter that never reaches the scanner, so building one
 changes nothing on the `polars-lance` side. The same queries, after BTREE
