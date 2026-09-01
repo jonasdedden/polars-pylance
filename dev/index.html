@@ -418,34 +418,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Polars Cloud">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#writing-from-a-remote-query" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Writing from a remote query
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reading_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reading
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
     </ul>
@@ -543,6 +515,60 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="POLARS_CLOUD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Polars Cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="BENCHMARKS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
       
@@ -561,10 +587,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -582,8 +608,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -618,7 +644,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -640,14 +666,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5_1" id="__nav_5_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -859,34 +885,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Polars Cloud">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#writing-from-a-remote-query" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Writing from a remote query
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#reading_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reading
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
     </ul>
@@ -963,7 +961,9 @@ itself and emits Lance SQL:</p>
 </code></pre></div>
 <p>A predicate that only partly translates is pushed as far as it goes and finished
 in Polars (<code>exact=False</code> says so), so the answer never depends on how much of it
-Lance understood. <code>predicate_pushdown=False</code> turns the whole thing off.</p>
+Lance understood. <code>predicate_pushdown=False</code> turns the whole thing off. What this
+is worth, measured with and without scalar indices, is in
+<a href="PUSHDOWN/">predicate pushdown</a>.</p>
 <h3 id="vector-search">Vector search<a class="headerlink" href="#vector-search" title="Permanent link">&para;</a></h3>
 <p><code>nearest=</code> searches a vector column, returning a LazyFrame ordered by
 <code>_distance</code>. <code>prefilter=</code> restricts what that search may return:</p>
@@ -978,11 +978,18 @@ it admits. A downstream <code>.filter()</code> runs after, over rows already ran
 may return fewer than <code>k</code>; it is never promoted to a prefilter. A prefilter that
 does not translate exactly raises rather than quietly becoming a postfilter,
 since nothing downstream can repair a candidate set the search has already used.
-<code>docs/VECTOR_SEARCH.md</code> has the details.</p>
+The <a href="VECTOR_SEARCH/">vector search guide</a> has the details.</p>
 <h3 id="sharded-reads">Sharded reads<a class="headerlink" href="#sharded-reads" title="Permanent link">&para;</a></h3>
 <p><code>scan_lance_fragments()</code> returns one <code>LazyFrame</code> per fragment (or per shard) when
 you want to fan a read out over threads, processes or workers yourself.</p>
+<div class="highlight"><pre><span></span><code><span class="n">shards</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance_fragments</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">,</span> <span class="n">n_shards</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">pl</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">shards</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+</code></pre></div>
 <h2 id="writing">Writing<a class="headerlink" href="#writing" title="Permanent link">&para;</a></h2>
+<p><code>sink_lance()</code> runs a query and hands Lance each batch as it comes, so the
+result is written incrementally and never materialised in full. It takes a
+<code>LazyFrame</code> rather than a <code>DataFrame</code> for exactly that reason: the query and the
+write run at the same time, and the peak memory is one batch, not one dataset.</p>
 <div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">,</span> <span class="n">max_rows_per_file</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">)</span>
 <span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">updates</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;merge&quot;</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>  <span class="c1"># upsert</span>
 <span class="n">plan</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">lazy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># write on collect</span>
@@ -998,7 +1005,7 @@ someone else wrote. It is what the <a href="#polars-cloud">Polars Cloud</a> path
 with once the workers are done.</p>
 <h2 id="memory-behaviour">Memory behaviour<a class="headerlink" href="#memory-behaviour" title="Permanent link">&para;</a></h2>
 <p>Peak RSS for <code>polars-pylance</code> across the size ladder in
-<a href="https://github.com/jonasdedden/polars-pylance/blob/main/bench/README.md"><code>bench/</code></a>, on datasets from 1 GiB to 49.2 GiB, a <strong>49x</strong>
+<a href="BENCHMARKS/"><code>bench/</code></a>, on datasets from 1 GiB to 49.2 GiB, a <strong>49x</strong>
 increase in data:</p>
 <p><strong>Reads</strong></p>
 <table>
@@ -1072,72 +1079,18 @@ so its peak tracks the shard count.</p>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not cloud&quot;</span><span class="w">     </span><span class="c1"># what CI runs</span>
 uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w">                      </span><span class="c1"># strict, over src, tests and bench</span>
 uv<span class="w"> </span>run<span class="w"> </span>basedpyright
-uvx<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>uvx<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
+uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w">   </span><span class="c1"># the version in uv.lock, as CI uses</span>
+uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
 <span class="c1"># benchmarking:</span>
 uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>bench<span class="w"> </span>bench/plot.py<span class="w"> </span>bench/results-m8id4xl.jsonl<span class="w"> </span>--out<span class="w"> </span>bench/plots
 </code></pre></div>
 <h2 id="polars-cloud">Polars Cloud<a class="headerlink" href="#polars-cloud" title="Permanent link">&para;</a></h2>
-<blockquote>
-<p><strong>Not installable today.</strong> polars-cloud 0.10 pins <code>polars==1.43.2</code>, below this
-package's <code>polars&gt;=1.44.1</code> floor, so there is no <code>cloud</code> extra and the two
-cannot be resolved together. Everything in this section is written and kept
-working against the 0.10 API; it becomes usable when polars-cloud ships a
-release tracking 1.44.</p>
-</blockquote>
-<p>Reads are designed to ship: a scan serializes to a few kB and carries a URI,
-never an open dataset handle. Workers need <code>pylance</code> and <code>polars-pylance</code>
-installed, via <code>ComputeContext(requirements=...)</code>.
-<code>polars_pylance.cloud.requirements_txt()</code> renders the pinned lines, since Polars
-Cloud rejects a context whose polars version differs from the client's.</p>
-<h3 id="writing-from-a-remote-query">Writing from a remote query<a class="headerlink" href="#writing-from-a-remote-query" title="Permanent link">&para;</a></h3>
-<p>polars-cloud 0.10 added <code>sink_batches()</code>, which hands each result batch to a
-Python callable. That callable is <strong>cloudpickled into the serialized query
-plan</strong>, so it runs on the workers. Lance no longer has to be a sink format;
-Polars Cloud knows about, and the write is genuinely distributed rather than
-streamed back through the client.</p>
-<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">polars_pylance.cloud</span><span class="w"> </span><span class="kn">import</span> <span class="n">requirements_txt</span><span class="p">,</span> <span class="n">sink_lance_remote</span>
-
-<span class="n">ctx</span> <span class="o">=</span> <span class="n">pc</span><span class="o">.</span><span class="n">ComputeContext</span><span class="p">(</span><span class="n">cpus</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span> <span class="n">memory</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span> <span class="n">requirements</span><span class="o">=</span><span class="n">requirements_txt</span><span class="p">()</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span>
-<span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;s3://bucket/in.lance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span>
-
-<span class="n">sink_lance_remote</span><span class="p">(</span>
-    <span class="n">lf</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span><span class="o">.</span><span class="n">distributed</span><span class="p">(),</span>
-    <span class="s2">&quot;s3://bucket/out.lance&quot;</span><span class="p">,</span>
-    <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">,</span>
-    <span class="n">chunk_size</span><span class="o">=</span><span class="mi">100_000</span><span class="p">,</span>  <span class="c1"># the remote counterpart of max_rows_per_file</span>
-<span class="p">)</span>
-</code></pre></div>
-<p>The shape is Lance's write/commit split. Each worker writes <strong>data files only</strong>
-and commits nothing, so no worker can publish a partial dataset; it then stages
-the resulting fragment metadata as JSON next to the dataset, because a callback
-shipped to a worker has no return path. When the query finishes, the client
-lists the staging prefix and makes every fragment one version with a single
-commit.</p>
-<p>polars-cloud documents that the callback "might be called multiple times from
-different workers", and appending a fragment is not idempotent. So each staging
-object is named after a deterministic digest of its batch, and a replayed batch
-overwrites its own metadata instead of adding a second copy. <code>tests/test_remote.py</code>
-delivers every batch twice and asserts the row count is unchanged. Pass
-<code>fragment_key=</code> if your query has a natural key, such as a partition column;
-the default digest would collapse two <em>distinct</em> batches that are byte-identical.
-Replays do leave their earlier data files unreferenced. Reclaim them with
-<code>dataset.cleanup_old_versions(..., delete_unverified=True)</code>.</p>
-<p>Drive the query yourself with <code>stage_lance_sink()</code> when you want to pick a
-planner or inspect the query handle:</p>
-<div class="highlight"><pre><span></span><code><span class="n">staged</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">cloud</span><span class="o">.</span><span class="n">stage_lance_sink</span><span class="p">(</span><span class="s2">&quot;s3://bucket/out.lance&quot;</span><span class="p">,</span> <span class="n">lf</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">)</span>
-<span class="n">query</span> <span class="o">=</span> <span class="n">lf</span><span class="o">.</span><span class="n">remote</span><span class="p">(</span><span class="n">ctx</span><span class="p">)</span><span class="o">.</span><span class="n">distributed</span><span class="p">(</span><span class="n">planner</span><span class="o">=</span><span class="s2">&quot;miso&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">sink_batches</span><span class="p">(</span><span class="n">staged</span><span class="o">.</span><span class="n">callback</span><span class="p">)</span>
-<span class="n">query</span><span class="o">.</span><span class="n">await_result</span><span class="p">()</span>
-<span class="n">staged</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
-</code></pre></div>
-<h3 id="reading_1">Reading<a class="headerlink" href="#reading_1" title="Permanent link">&para;</a></h3>
-<p>The scan survives <code>prepare_cloud_plan</code>, on its own and under <code>pl.concat()</code> of
-<code>scan_lance_fragments()</code> shards. Since 0.9 distributes unions of Python scans, the sharded form is the
-sanctioned way to fan a read across workers rather than a workaround, and 0.10's
-<code>pl.collect_all(lazyframes, lazy=True).remote(ctx).distributed().execute()</code>
-submits N shards as one distributed query instead of N remote ones. Note that
-<code>collect_all(lazy=True)</code> requires every LazyFrame to end in a sink.</p>
-<p>Still untested without a workspace: how the planner <em>executes</em> those nodes.
-Serializing is necessary, not sufficient.</p>
+<p>Reads serialize into a cloud query plan, and since polars-cloud 0.10 the write
+runs on the workers too: <code>sink_batches()</code> cloudpickles a Lance fragment writer
+into the plan, and a single client-side commit publishes what they wrote. It is
+not installable today, because polars-cloud pins a polars below this package's
+floor.</p>
+<p>The <a href="POLARS_CLOUD/">Polars Cloud guide</a> has the whole story.</p>
 
 
 

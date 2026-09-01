@@ -16,7 +16,7 @@
         <link rel="prev" href="../PUSHDOWN/">
       
       
-        <link rel="next" href="../reference/polars_pylance/">
+        <link rel="next" href="../POLARS_CLOUD/">
       
       
         
@@ -417,6 +417,60 @@
   
   
   
+    <li class="md-nav__item">
+      <a href="../POLARS_CLOUD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Polars Cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../BENCHMARKS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
     
     
       
@@ -435,10 +489,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
         
           
-          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -456,8 +510,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -492,7 +546,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -514,14 +568,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5_1" id="__nav_5_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_1">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -656,14 +710,53 @@
 
 
 <h1 id="vector-search">Vector search<a class="headerlink" href="#vector-search" title="Permanent link">&para;</a></h1>
-<p><code>scan_lance(nearest={...})</code> searches a vector column. The result carries a <code>_distance</code> column and is ordered by it.</p>
-<div class="highlight"><pre><span></span><code><span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span>
-    <span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span>
-    <span class="n">nearest</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;embedding&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="n">embedding</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span> <span class="s2">&quot;metric&quot;</span><span class="p">:</span> <span class="s2">&quot;cosine&quot;</span><span class="p">},</span>
-    <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;category = &#39;docs&#39;&quot;</span><span class="p">,</span>
-<span class="p">)</span>
+<p><code>scan_lance(nearest={...})</code> searches a vector column. The result carries a
+<code>_distance</code> column and is ordered by it.</p>
+<p>The examples below use two-dimensional vectors so the distances can be checked
+by eye. Real embeddings have hundreds of dimensions; nothing else differs.</p>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
 </code></pre></div>
-<p>The <code>nearest</code> dict is handed to Lance as-is, so every key <code>LanceDataset.scanner(nearest=...)</code> takes works here and new ones arrive without a release of this package. <code>metric</code> is <code>"l2"</code>, <code>"cosine"</code> or <code>"dot"</code>; omitted, Lance uses whichever the index was built with. <code>use_index=False</code> forces an exact flat search, which is the ground truth an indexed search approximates. <code>nprobes</code>, <code>refine_factor</code>, <code>ef</code>, <code>distance_range</code> and the rest pass through the same way.</p>
+<div class="highlight"><pre><span></span><code>shape: (7, 3)
+┌─────┬──────┬───────────────┐
+│ id  ┆ cat  ┆ embedding     │
+│ --- ┆ ---  ┆ ---           │
+│ i64 ┆ str  ┆ array[f32, 2] │
+╞═════╪══════╪═══════════════╡
+│ 0   ┆ blog ┆ [0.1, 0.0]    │
+│ 1   ┆ blog ┆ [0.0, 0.2]    │
+│ 2   ┆ blog ┆ [0.3, 0.0]    │
+│ 3   ┆ faq  ┆ [0.5, 0.5]    │
+│ 4   ┆ docs ┆ [1.0, 0.0]    │
+│ 5   ┆ docs ┆ [0.0, 1.5]    │
+│ 6   ┆ docs ┆ [2.0, 0.0]    │
+└─────┴──────┴───────────────┘
+</code></pre></div>
+<p>Searching for the three nearest to the origin returns the three points closest
+to it, which happen to be the <code>blog</code> rows:</p>
+<div class="highlight"><pre><span></span><code><span class="n">search</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;embedding&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">}</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>shape: (3, 4)
+┌─────┬──────┬───────────────┬───────────┐
+│ id  ┆ cat  ┆ embedding     ┆ _distance │
+│ --- ┆ ---  ┆ ---           ┆ ---       │
+│ i64 ┆ str  ┆ array[f32, 2] ┆ f32       │
+╞═════╪══════╪═══════════════╪═══════════╡
+│ 0   ┆ blog ┆ [0.1, 0.0]    ┆ 0.01      │
+│ 1   ┆ blog ┆ [0.0, 0.2]    ┆ 0.04      │
+│ 2   ┆ blog ┆ [0.3, 0.0]    ┆ 0.09      │
+└─────┴──────┴───────────────┴───────────┘
+</code></pre></div>
+<p>Note <code>_distance</code> for the default <code>l2</code> metric is the <strong>squared</strong> euclidean
+distance: the point at <code>[0.3, 0.0]</code> is 0.3 away and scores 0.09. Ranking is
+unaffected, but a threshold has to be squared to match.</p>
+<p>The <code>nearest</code> dict is handed to Lance as-is, so every key
+<code>LanceDataset.scanner(nearest=...)</code> takes works here and new ones arrive without
+a release of this package. <code>metric</code> is <code>"l2"</code>, <code>"cosine"</code> or <code>"dot"</code>; omitted,
+Lance uses whichever the index was built with. <code>use_index=False</code> forces an exact
+flat search, which is the ground truth an indexed search approximates.
+<code>nprobes</code>, <code>refine_factor</code>, <code>ef</code>, <code>distance_range</code> and the rest pass through the
+same way.</p>
 <h2 id="two-ways-to-restrict-a-search">Two ways to restrict a search<a class="headerlink" href="#two-ways-to-restrict-a-search" title="Permanent link">&para;</a></h2>
 <p>They answer different questions, so they stay separate:</p>
 <table>
@@ -687,31 +780,65 @@
 </tr>
 </tbody>
 </table>
-<div class="highlight"><pre><span></span><code><span class="n">search</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="n">q</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">}</span>
-
-<span class="c1"># k rows, all of them &#39;docs&#39;</span>
-<span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;cat = &#39;docs&#39;&quot;</span><span class="p">)</span>
-
-<span class="c1"># 10 nearest overall, then whichever of those are &#39;docs&#39; -- possibly none</span>
-<span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;docs&quot;</span><span class="p">)</span>
+<p>A prefilter searches only the <code>docs</code> rows, so it returns three of them, ranked:</p>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;cat = &#39;docs&#39;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
 </code></pre></div>
-<p>A downstream <code>.filter()</code> is still pushed into Lance where it translates, but only into the postfilter position. It is never promoted to a prefilter.</p>
-<p>Lance has one filter slot (<code>scanner(filter=..., prefilter=bool)</code>), so the two cannot both be pushed. A prefilter takes the slot, and the query's own filter is evaluated in Polars instead. That costs some pushdown and keeps the positions honest.</p>
-<p>Without a search there is nothing to rank, and a prefilter is simply a filter the caller pushed by hand.</p>
+<div class="highlight"><pre><span></span><code>shape: (3, 4)
+┌─────┬──────┬───────────────┬───────────┐
+│ id  ┆ cat  ┆ embedding     ┆ _distance │
+│ --- ┆ ---  ┆ ---           ┆ ---       │
+│ i64 ┆ str  ┆ array[f32, 2] ┆ f32       │
+╞═════╪══════╪═══════════════╪═══════════╡
+│ 4   ┆ docs ┆ [1.0, 0.0]    ┆ 1.0       │
+│ 5   ┆ docs ┆ [0.0, 1.5]    ┆ 2.25      │
+│ 6   ┆ docs ┆ [2.0, 0.0]    ┆ 4.0       │
+└─────┴──────┴───────────────┴───────────┘
+</code></pre></div>
+<p>A downstream <code>.filter()</code> ranks first and filters after. The three nearest to the
+origin are all <code>blog</code>, so filtering them for <code>docs</code> leaves nothing:</p>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;docs&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>shape: (0, 4)
+┌─────┬─────┬───────────────┬───────────┐
+│ id  ┆ cat ┆ embedding     ┆ _distance │
+│ --- ┆ --- ┆ ---           ┆ ---       │
+│ i64 ┆ str ┆ array[f32, 2] ┆ f32       │
+╞═════╪═════╪═══════════════╪═══════════╡
+└─────┴─────┴───────────────┴───────────┘
+</code></pre></div>
+<p>The empty result is the distinction, not a bug: the <code>docs</code> rows exist and the
+prefilter found them, but none of them are among the three nearest overall. A
+downstream <code>.filter()</code> is still pushed into Lance where it translates, but only
+into the postfilter position; it is never promoted to a prefilter.</p>
+<p>Lance has one filter slot (<code>scanner(filter=..., prefilter=bool)</code>), so the two
+cannot both be pushed. A prefilter takes the slot, and the query's own filter is
+evaluated in Polars instead.</p>
 <h2 id="why-a-prefilter-can-fail">Why a prefilter can fail<a class="headerlink" href="#why-a-prefilter-can-fail" title="Permanent link">&para;</a></h2>
-<p>A pushed-down predicate is allowed to lower <em>loosely</em>. An untranslatable conjunct of an <code>AND</code> is dropped, Lance reads a superset, and Polars re-applies the original per batch, so the answer does not depend on how much of it Lance understood; <code>docs/PUSHDOWN.md</code> covers this.</p>
-<p>A prefilter decides which rows get ranked at all. There is no second pass that can repair a wrong candidate set: the search has already happened. So the relaxation that is safe for a postfilter is not safe here, and a prefilter that does not translate exactly raises instead:</p>
-<div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">hash</span><span class="p">()</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
-<span class="ne">ValueError</span><span class="p">:</span> <span class="n">prefilter</span> <span class="n">does</span> <span class="ow">not</span> <span class="n">translate</span> <span class="n">to</span> <span class="n">a</span> <span class="n">Lance</span> <span class="nb">filter</span><span class="p">:</span> <span class="o">...</span>
+<p>A pushed-down predicate may lower <em>loosely</em>: an untranslatable conjunct is
+dropped, Lance reads a superset, and Polars re-applies the original per batch
+(see <a href="../PUSHDOWN/">predicate pushdown</a>).</p>
+<p>A prefilter decides which rows get ranked at all, and there is no second pass
+that can repair a wrong candidate set. So it raises rather than quietly becoming
+a postfilter:</p>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">hash</span><span class="p">()</span> <span class="o">%</span> <span class="mi">2</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
 </code></pre></div>
-<p>The refusal lands at the call site, before anything is read. Lance rejecting the filter at plan time raises for the same reason, where an ordinary pushed-down predicate would warn and re-scan without it.</p>
-<p>Pass Lance SQL as a string to say exactly what should be pushed, bypassing the translation entirely.</p>
+<div class="highlight"><pre><span></span><code>ValueError: prefilter does not translate to a Lance filter:
+[([(col(&quot;id&quot;).hash()) % (dyn int: 2)]) == (dyn int: 0)]. It is not applied as a
+postfilter, because filtering the ranked result is a different question;
+rewrite it, or pass the Lance SQL as a string.
+</code></pre></div>
+<p>The refusal lands at the call site, before anything is read. Pass Lance SQL as a
+string to say exactly what should be pushed, bypassing the translation entirely.</p>
 <h2 id="indices">Indices<a class="headerlink" href="#indices" title="Permanent link">&para;</a></h2>
-<p>A prefilter is where a scalar index earns its place: it runs before the vector search, so Lance can use <code>cat</code>'s BTREE to pick the candidate set instead of scanning it. The plan for a prefiltered search over an indexed column shows both nodes:</p>
+<p>A prefilter is where a scalar index earns its place: it runs before the vector
+search, so Lance can use <code>cat</code>'s BTREE to pick the candidate set instead of
+scanning it. The plan for a prefiltered search over an indexed column shows both
+nodes:</p>
 <div class="highlight"><pre><span></span><code><span class="n">dataset</span><span class="o">.</span><span class="n">scanner</span><span class="p">(</span><span class="n">nearest</span><span class="o">=...</span><span class="p">,</span> <span class="nb">filter</span><span class="o">=</span><span class="s2">&quot;cat = &#39;docs&#39;&quot;</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">explain_plan</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
 <span class="c1"># ANNIvfPartition ... ScalarIndexQuery ...</span>
 </code></pre></div>
-<p>Ranking order survives the scan, and <code>.head(n)</code> truncates the ranked result rather than re-running the search with a smaller <code>k</code>.</p>
+<p>Ranking order survives the scan, and <code>.head(n)</code> truncates the ranked result
+rather than re-running the search with a smaller <code>k</code>.</p>
 
 
 
