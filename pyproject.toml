@@ -66,6 +66,15 @@ lint = ["ruff>=0.16.5"]
 # Only for `bench/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
+# `mkdocs build --strict` renders the site. `gen-files` and `literate-nav` are
+# what `scripts/gen_ref_pages.py` uses to emit one API page per public module.
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9",
+    "mkdocstrings[python]>=0.26",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
+]
 dev = [
     { include-group = "test" },
     { include-group = "typing" },
@@ -98,7 +107,11 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# `src` is here for the doctests, not for tests: `--doctest-modules` collects
+# the `Examples:` blocks so a broken one fails the suite. They used to be dead
+# text, and three of them did not run at all.
+testpaths = ["tests", "src"]
+addopts = ["--doctest-modules"]
 markers = [
     # Deselected in CI (`-m "not cloud"`) while polars-cloud is uninstallable.
     "cloud: exercises the Polars Cloud write path",
@@ -159,6 +172,9 @@ convention = "google"
     "S301",
     "S311",
 ]
+# Run by `mkdocs-gen-files` by path, not imported, so it is no more a package
+# than `bench/` is.
+"scripts/*" = ["INP001"]
 # Benchmark scripts: they print, they shell out, and they are run by path
 # rather than imported.
 "bench/*" = [

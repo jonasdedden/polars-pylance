@@ -16,3 +16,5 @@ bench/results.jsonl
 bench/results.txt
 # Per-user Pulumi stack state, including the passphrase salt.
 bench/infra/Pulumi.*.yaml
+# Built by `mkdocs build`.
+site/
