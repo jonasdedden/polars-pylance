@@ -21,6 +21,10 @@ Polars Cloud knows about, and the write is genuinely distributed rather than
 streamed back through the client.
 
 ```python
+import polars as pl
+import polars_cloud as pc
+import polars_pylance as pll
+
 from polars_pylance.cloud import requirements_txt, sink_lance_remote
 
 ctx = pc.ComputeContext(cpus=8, memory=32, requirements=requirements_txt().encode())

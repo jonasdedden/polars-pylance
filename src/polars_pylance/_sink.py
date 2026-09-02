@@ -1,4 +1,4 @@
-"""Streaming Lance writer for Polars LazyFrames.
+"""Streaming Lance writer for Polars DataFrames and LazyFrames.
 
 Lance is not a native Polars sink, so the data has to cross the Python boundary.
 [`polars.LazyFrame.collect_batches`][polars.LazyFrame.collect_batches] streams the query
@@ -57,7 +57,7 @@ def _reader_from_lazyframe(
 
 
 def sink_lance(
-    lf: pl.LazyFrame,
+    lf: pl.LazyFrame | pl.DataFrame,
     target: str | Path | lance.LanceDataset,
     *,
     mode: WriteMode = "create",
@@ -67,13 +67,14 @@ def sink_lance(
     lazy: bool = False,
     **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
 ) -> lance.LanceDataset | pl.LazyFrame:
-    """Stream a LazyFrame into a Lance dataset.
+    """Write a Polars DataFrame or stream a LazyFrame into a Lance dataset.
 
-    The query is executed in batches and handed to Lance as it goes; the result
-    is never materialised in full.
+    A LazyFrame query is executed in batches and handed to Lance as it goes, so
+    its result is never materialised in full. A DataFrame is accepted for
+    convenience, but is already materialised before this function is called.
 
     Args:
-        lf: The query to write.
+        lf: The eager DataFrame or lazy query to write.
         target: Destination URI, path, or an existing `lance.LanceDataset`.
         mode: `"create"` (fail if it exists), `"append"`, `"overwrite"` (new version),
             or `"merge"` for an upsert, which requires `on`.
@@ -95,6 +96,9 @@ def sink_lance(
         >>> query = lf.filter(pl.col("ok"))  # doctest: +SKIP
         >>> sink_lance(query, "out.lance", mode="overwrite")  # doctest: +SKIP
     """
+    if isinstance(lf, pl.DataFrame):
+        lf = lf.lazy()
+
     uri = _target_uri(target)
 
     if mode == "merge":

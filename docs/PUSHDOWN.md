@@ -9,6 +9,9 @@ columns belonging to rows that cannot survive.
 That is predicate pushdown, and it is on by default:
 
 ```python
+import polars as pl
+import polars_pylance as pll
+
 lf = pll.scan_lance("data.lance").filter(pl.col("val") > 0.999)
 ```
 
