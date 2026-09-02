@@ -43,23 +43,11 @@ jobs:
       # touching what `stable` points at.
       - name: deploy dev
         if: github.event_name == 'push'
-        run: |
-          mike() { uv run --no-default-groups --group docs mike "$@"; }
-          mike deploy --push --update-aliases dev
-          # No release has shipped the docs system yet, so `stable` does not
-          # exist and the site root would 404. Point it at `dev` until the
-          # first release takes over; `mike list` stops matching then, so this
-          # turns itself off rather than dragging the root back off `stable`.
-          if ! mike list stable >/dev/null 2>&1; then
-            mike set-default --push dev
-          fi
+        run: uv run --no-default-groups --group docs mike deploy --push --update-aliases dev
 
-      # The tag is `vX.Y.Z`; the docs version is `X.Y.Z`. `--update-aliases`
-      # moves `stable` off the previous release, and `set-default` keeps the
-      # site root redirecting to it.
+      # The tag is `vX.Y.Z`; the docs version is `X.Y.Z`.
+      # `--update-aliases` moves `stable` off the previous release. The site
+      # root already redirects to that alias.
       - name: deploy release
         if: github.event_name == 'release'
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          uv run --no-default-groups --group docs mike deploy --push --update-aliases "$version" stable
-          uv run --no-default-groups --group docs mike set-default --push stable
+        run: uv run --no-default-groups --group docs mike deploy --push --update-aliases "${GITHUB_REF_NAME#v}" stable
