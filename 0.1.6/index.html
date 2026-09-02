@@ -1,0 +1,1221 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Lazy, streaming Lance <-> Polars integration">
+      
+      
+      
+        <link rel="canonical" href="https://jonasdedden.github.io/polars-pylance/0.1.6/">
+      
+      
+      
+        <link rel="next" href="COMPARISON/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>polars-pylance</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#polars-pylance" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="polars-pylance" class="md-header__button md-logo" aria-label="polars-pylance" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            polars-pylance
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Home
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jonasdedden/polars-pylance" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="polars-pylance" class="md-nav__button md-logo" aria-label="polars-pylance" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    polars-pylance
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jonasdedden/polars-pylance" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-with-polars-lance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison with polars-lance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this exists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vector-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-text-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full-text search
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharded-end-to-end-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharded end-to-end pipelines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory behaviour
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#polars-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Polars Cloud
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="COMPARISON/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison with polars-lance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="PUSHDOWN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Predicate pushdown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="VECTOR_SEARCH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="POLARS_CLOUD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Polars Cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="BENCHMARKS/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="reference/polars_pylance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    polars_pylance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    polars_pylance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="reference/polars_pylance/cloud/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The name
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-with-polars-lance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison with polars-lance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-exists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this exists
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#vector-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Vector search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-text-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full-text search
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#writing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Writing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharded-end-to-end-pipelines" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sharded end-to-end pipelines
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-behaviour" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory behaviour
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#development" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Development
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#polars-cloud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Polars Cloud
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="polars-pylance">polars-pylance<a class="headerlink" href="#polars-pylance" title="Permanent link">&para;</a></h1>
+<p><a href="https://pypi.org/project/polars-pylance/"><img alt="PyPI" src="https://img.shields.io/pypi/v/polars-pylance.svg" /></a>
+<a href="https://pypi.org/project/polars-pylance/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/polars-pylance.svg" /></a>
+<a href="https://jonasdedden.github.io/polars-pylance/"><img alt="Documentation" src="https://img.shields.io/badge/docs-github.io-blue.svg" /></a>
+<a href="https://github.com/jonasdedden/polars-pylance/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jonasdedden/polars-pylance/actions/workflows/ci.yml/badge.svg" /></a>
+<a href="https://pypi.org/project/polars-pylance/"><img alt="License" src="https://img.shields.io/pypi/l/polars-pylance.svg" /></a></p>
+<p>Lazy, streaming <a href="https://lance.org">Lance</a> &lt;-&gt; <a href="https://pola.rs">Polars</a> integration.</p>
+<p><code>scan_lance()</code> returns a real <code>LazyFrame</code>: the Polars optimizer pushes column
+projections, filters and row limits down into Lance, and batches are pulled only
+as the streaming engine consumes them. <code>sink_lance()</code> writes a query into Lance
+batch by batch. Neither direction holds the dataset or a whole fragment in memory.</p>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>polars-pylance
+</code></pre></div>
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<p>The following example creates a local Lance dataset, then lazily scans, filters
+and collects it:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">polars_pylance</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pll</span>
+
+<span class="n">source</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+        <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.72</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.98</span><span class="p">],</span>
+        <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;draft&quot;</span><span class="p">,</span> <span class="s2">&quot;guide&quot;</span><span class="p">,</span> <span class="s2">&quot;reference&quot;</span><span class="p">],</span>
+    <span class="p">}</span>
+<span class="p">)</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">)</span>
+
+<span class="n">result</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;docs.lance&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Passing a local path or an object-store URI such as
+<code>s3://bucket/embeddings.lance</code> works the same way. Supply credentials and other
+object-store settings with <code>storage_options=</code>.</p>
+<h2 id="the-name">The name<a class="headerlink" href="#the-name" title="Permanent link">&para;</a></h2>
+<p><code>polars</code> + <code>pylance</code>, composed in Python. There is no compiled extension here and
+no <code>lance</code> crate linked in: the package is pure Python over the two libraries it
+joins, which is why it installs as a single wheel, tracks new <code>pylance</code> releases
+without a rebuild, and reaches Lance features as fast as <code>pylance</code> exposes them.</p>
+<h2 id="comparison-with-polars-lance">Comparison with <code>polars-lance</code><a class="headerlink" href="#comparison-with-polars-lance" title="Permanent link">&para;</a></h2>
+<p>Note that PyPI's <code>polars-lance</code> is an unrelated package by a different author
+(extensive <a href="COMPARISON/">benchmarks and feature insights</a> for comparison).
+The two can coexist in one environment but follow different implementation designs.</p>
+<h2 id="why-this-exists">Why this exists<a class="headerlink" href="#why-this-exists" title="Permanent link">&para;</a></h2>
+<p>Polars has no native Lance reader or writer
+(<a href="https://github.com/pola-rs/polars/issues/14452">pola-rs/polars#14452</a> has been
+open since 2024). Lance datasets do implement the PyArrow dataset protocol, so
+<code>pl.scan_pyarrow_dataset</code> works, but it cannot push down row limits, cannot pin a
+dataset version, cannot reach vector or full-text search, and leaves Lance's
+read-ahead defaults untouched where <code>io_buffer_size</code> alone defaults to 2 GiB.</p>
+<h2 id="reading">Reading<a class="headerlink" href="#reading" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span>
+    <span class="s2">&quot;data.lance&quot;</span><span class="p">,</span>
+    <span class="n">version</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span>  <span class="c1"># or a tag; omit to follow the latest</span>
+    <span class="n">options</span><span class="o">=</span><span class="n">pll</span><span class="o">.</span><span class="n">LanceScanOptions</span><span class="p">(),</span>  <span class="c1"># readahead / buffer tuning</span>
+    <span class="n">nearest</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;vector&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="n">query</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">},</span>  <span class="c1"># ANN search</span>
+    <span class="n">with_row_id</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>What gets pushed into Lance: the column projection, the row limit, and the
+filter, translated into Lance's own SQL filter language so that scalar indices,
+page statistics and late materialisation all apply. <code>.head()</code> stops the scan
+early rather than reading to the end. <code>scan_lance</code> walks the Polars expression
+itself and emits Lance SQL:</p>
+<div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">starts_with</span><span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_in</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]))</span>
+<span class="n">LanceFilter</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="s2">&quot;(starts_with(`cat`, &#39;b&#39;) AND (`id` IN (1, 2)))&quot;</span><span class="p">,</span> <span class="n">exact</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>A predicate that only partly translates is pushed as far as it goes and finished
+in Polars (<code>exact=False</code> says so), so the answer never depends on how much of it
+Lance understood. <code>predicate_pushdown=False</code> turns the whole thing off. What this
+is worth, measured with and without scalar indices, is in
+<a href="PUSHDOWN/">predicate pushdown</a>.</p>
+<h3 id="vector-search">Vector search<a class="headerlink" href="#vector-search" title="Permanent link">&para;</a></h3>
+<p><code>nearest=</code> searches a vector column, returning a LazyFrame ordered by
+<code>_distance</code>. <code>prefilter=</code> restricts what that search may return:</p>
+<div class="highlight"><pre><span></span><code><span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span>
+    <span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span>
+    <span class="n">nearest</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;embedding&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="n">embedding</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span> <span class="s2">&quot;metric&quot;</span><span class="p">:</span> <span class="s2">&quot;cosine&quot;</span><span class="p">},</span>
+    <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;category = &#39;docs&#39;&quot;</span><span class="p">,</span>  <span class="c1"># or a Polars expression</span>
+<span class="p">)</span>
+</code></pre></div>
+<p><code>prefilter=</code> runs before the search, so it returns <code>k</code> rows chosen from the ones
+it admits. A downstream <code>.filter()</code> runs after, over rows already ranked, and so
+may return fewer than <code>k</code>; it is never promoted to a prefilter. A prefilter that
+does not translate exactly raises rather than quietly becoming a postfilter,
+since nothing downstream can repair a candidate set the search has already used.
+The <a href="VECTOR_SEARCH/">vector search guide</a> has the details.</p>
+<h3 id="full-text-search">Full-text search<a class="headerlink" href="#full-text-search" title="Permanent link">&para;</a></h3>
+<p><code>full_text_query=</code> exposes Lance's index-backed full-text search. It returns a
+LazyFrame with a <code>_score</code> column, so normal Polars operations can refine the
+ranked result:</p>
+<div class="highlight"><pre><span></span><code><span class="n">matches</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span> <span class="n">full_text_query</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;_score&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>The dataset must have a Lance inverted index on the searched text column. Pass
+a string to use Lance's default search behavior, or select the column explicitly
+with <code>{"query": "streaming", "columns": ["text"]}</code>.</p>
+<h2 id="writing">Writing<a class="headerlink" href="#writing" title="Permanent link">&para;</a></h2>
+<p><code>sink_lance()</code> runs a query and hands Lance each batch as it comes, so the
+result is written incrementally and never materialised in full. It also accepts
+an eager <code>DataFrame</code> for convenience, though that input is necessarily already
+in memory. Use a <code>LazyFrame</code> when the data starts in a file or another query:
+the query and write then run at the same time, and peak memory is one batch
+rather than one dataset.</p>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">,</span> <span class="n">max_rows_per_file</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">)</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">updates</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;merge&quot;</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>  <span class="c1"># upsert</span>
+<span class="n">plan</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">lazy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># write on collect</span>
+</code></pre></div>
+<h2 id="sharded-end-to-end-pipelines">Sharded end-to-end pipelines<a class="headerlink" href="#sharded-end-to-end-pipelines" title="Permanent link">&para;</a></h2>
+<p><code>scan_lance_fragments()</code> returns one lazy query per fragment (or shard), and
+<code>write_lance_fragments()</code> executes those queries and writes their output
+fragments concurrently. A single commit then publishes all fragments as one
+dataset version:</p>
+<div class="highlight"><pre><span></span><code><span class="n">shards</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance_fragments</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">,</span> <span class="n">n_shards</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">write_lance_fragments</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">shard</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span> <span class="k">for</span> <span class="n">shard</span> <span class="ow">in</span> <span class="n">shards</span><span class="p">],</span>
+    <span class="s2">&quot;filtered.lance&quot;</span><span class="p">,</span>
+    <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">,</span>
+    <span class="n">max_workers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Each shard stays lazy and bounded in memory; the full result is never collected
+before writing. A lazy <code>pl.concat(shards)</code> is also streaming, but Polars
+currently pulls registered Python IO sources one after another, so concatenation
+alone does not execute these shard scans concurrently.</p>
+<p>For distributed execution, workers can write fragment files separately;
+<code>commit_lance_fragments()</code> publishes their metadata as one dataset version
+afterward. It is what the <a href="#polars-cloud">Polars Cloud</a> path commits with once
+the workers are done.</p>
+<h2 id="memory-behaviour">Memory behaviour<a class="headerlink" href="#memory-behaviour" title="Permanent link">&para;</a></h2>
+<p>Peak RSS for <code>polars-pylance</code> across the size ladder in
+<a href="BENCHMARKS/"><code>bench/</code></a>, on datasets from 1 GiB to 49.2 GiB, a <strong>49x</strong>
+increase in data:</p>
+<p><strong>Reads</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>1 GiB source</th>
+<th>49.2 GiB source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Projection-only scan, payload column never read</td>
+<td>0.20 GiB</td>
+<td>0.25 GiB</td>
+</tr>
+<tr>
+<td>Sharded fragment scan (<code>scan_lance_fragments</code>)</td>
+<td>0.20 GiB</td>
+<td>0.27 GiB</td>
+</tr>
+<tr>
+<td>Substring filter + payload aggregate</td>
+<td>0.22 GiB</td>
+<td>0.32 GiB</td>
+</tr>
+<tr>
+<td>50% filter + payload aggregate</td>
+<td>0.79 GiB</td>
+<td>1.24 GiB</td>
+</tr>
+<tr>
+<td>Full scan + aggregate over the payload column</td>
+<td>0.46 GiB</td>
+<td>0.58 GiB</td>
+</tr>
+</tbody>
+</table>
+<p>Reads are flat: a full scan of 49 GiB costs 0.12 GiB more than a full scan of
+1 GiB, because nothing accumulates. Projection pushdown is the biggest lever,
+and a pushed-down filter is the next one: not reading the 512-byte column for
+rows that will not survive is the difference between 0.32 and 1.24 GiB.</p>
+<p><strong>Writes</strong></p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>1 GiB source</th>
+<th>49.2 GiB source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sink_lance</code> (scan -&gt; transform -&gt; write)</td>
+<td>0.99 GiB</td>
+<td>1.60 GiB</td>
+</tr>
+<tr>
+<td><code>write_lance_fragments</code> (parallel, 16 shards)</td>
+<td>0.90 GiB</td>
+<td>7.40 GiB</td>
+</tr>
+</tbody>
+</table>
+<p><code>sink_lance</code> grows slowly rather than with the result, which is what lets it
+write a 49 GiB source in under 2 GiB of RAM where an eager writer needs 51 GiB.
+The fragment-parallel path trades memory for wall time: 16 shards write at once,
+so its peak tracks the shard count.</p>
+<h2 id="development">Development<a class="headerlink" href="#development" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>pytest
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not cloud&quot;</span><span class="w">     </span><span class="c1"># what CI runs</span>
+uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w">                      </span><span class="c1"># strict, over src, tests and bench</span>
+uv<span class="w"> </span>run<span class="w"> </span>basedpyright
+uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w">   </span><span class="c1"># the version in uv.lock, as CI uses</span>
+uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
+uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>docs<span class="w"> </span>properdocs<span class="w"> </span>build<span class="w"> </span>--strict<span class="w"> </span>-f<span class="w"> </span>mkdocs.yml
+<span class="c1"># benchmarking:</span>
+uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>bench<span class="w"> </span>bench/plot.py<span class="w"> </span>bench/results-m8id4xl.jsonl<span class="w"> </span>--out<span class="w"> </span>bench/plots
+</code></pre></div>
+<h2 id="polars-cloud">Polars Cloud<a class="headerlink" href="#polars-cloud" title="Permanent link">&para;</a></h2>
+<p>Reads serialize into a cloud query plan, and since polars-cloud 0.10 the write
+runs on the workers too: <code>sink_batches()</code> cloudpickles a Lance fragment writer
+into the plan, and a single client-side commit publishes what they wrote. It is
+not installable today, because polars-cloud pins a polars below this package's
+floor.</p>
+<p>The <a href="POLARS_CLOUD/">Polars Cloud guide</a> has the whole story.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.sections", "navigation.indexes", "toc.follow", "content.code.copy"], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

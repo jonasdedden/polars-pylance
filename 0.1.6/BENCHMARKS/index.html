@@ -1,0 +1,1175 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Lazy, streaming Lance <-> Polars integration">
+      
+      
+      
+        <link rel="canonical" href="https://jonasdedden.github.io/polars-pylance/0.1.6/BENCHMARKS/">
+      
+      
+        <link rel="prev" href="../POLARS_CLOUD/">
+      
+      
+        <link rel="next" href="../reference/polars_pylance/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-ProperDocs 1.6.7, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Benchmarks - polars-pylance</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#benchmark" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="polars-pylance" class="md-header__button md-logo" aria-label="polars-pylance" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            polars-pylance
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Benchmarks
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jonasdedden/polars-pylance" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="polars-pylance" class="md-nav__button md-logo" aria-label="polars-pylance" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    polars-pylance
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jonasdedden/polars-pylance" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../COMPARISON/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison with polars-lance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../PUSHDOWN/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Predicate pushdown
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../VECTOR_SEARCH/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vector search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../POLARS_CLOUD/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Polars Cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-needs-a-real-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it needs a real machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it-on-aws" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it on AWS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running it on AWS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it-anywhere-else" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it anywhere else
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plots
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plots">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#viewing-the-interactive-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viewing the interactive pages
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-measures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it measures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What it measures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-three-passes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three passes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failures-and-answers-that-disagree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failures, and answers that disagree
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference/polars_pylance/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    polars_pylance
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    polars_pylance
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/polars_pylance/cloud/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cloud
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-it-needs-a-real-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it needs a real machine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it-on-aws" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it on AWS
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Running it on AWS">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-it-anywhere-else" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running it anywhere else
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plots
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Plots">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#viewing-the-interactive-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Viewing the interactive pages
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-measures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it measures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What it measures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-three-passes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three passes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#failures-and-answers-that-disagree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failures, and answers that disagree
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="benchmark">Benchmark<a class="headerlink" href="#benchmark" title="Permanent link">&para;</a></h1>
+<p>What happens between <strong>1 GiB and 200 GiB</strong>, where the two implementations stop
+behaving alike: one streams and the other materialises, and below a few GiB you
+cannot tell them apart.</p>
+<p>It compares polars-pylance against
+<a href="https://pypi.org/project/polars-lance/"><code>polars-lance</code></a> (a compiled Rust
+extension solving the same problem) across a nine-tier size ladder, measuring
+wall time and peak RSS for every case, plus whether the query completes at all
+under a fixed memory budget, and what a pushed-down predicate can reach once
+scalar indices exist.</p>
+<h2 id="why-it-needs-a-real-machine">Why it needs a real machine<a class="headerlink" href="#why-it-needs-a-real-machine" title="Permanent link">&para;</a></h2>
+<p>Two constraints make a laptop the wrong host:</p>
+<ul>
+<li><strong>Local NVMe is required.</strong> EBS or any network volume measures the network,
+  not the format. The Pulumi program picks an instance type with an instance
+  store and mounts it; nothing touches the root volume.</li>
+<li><strong><code>/tmp</code> on many Linux desktops is a RAM disk</strong>, which silently consumes the
+  memory being measured. <code>BENCH_ROOT</code> must point at real storage.</li>
+</ul>
+<h2 id="running-it-on-aws">Running it on AWS<a class="headerlink" href="#running-it-on-aws" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>bench/infra
+pulumi<span class="w"> </span>stack<span class="w"> </span>init<span class="w"> </span>bench
+pulumi<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>aws:region<span class="w"> </span>eu-central-1
+pulumi<span class="w"> </span>config<span class="w"> </span><span class="nb">set</span><span class="w"> </span>instanceType<span class="w"> </span>m8id.4xlarge<span class="w">   </span><span class="c1"># 16 vCPU, 64 GiB, 950 GB NVMe</span>
+./run_remote.sh<span class="w"> </span>--deploy
+</code></pre></div>
+<p>That provisions a dedicated VPC with <strong>no inbound rules</strong> (access is over SSM
+Session Manager, so no SSH keys and no open ports), builds the wheel, uploads
+it, generates the ladder, runs the matrix, and prints the tables.</p>
+<p>The instance is <strong>not</strong> destroyed automatically. The datasets take a while to
+regenerate, so you probably want it alive for follow-ups:</p>
+<div class="highlight"><pre><span></span><code>pulumi<span class="w"> </span>destroy<span class="w"> </span>--yes
+</code></pre></div>
+<p>The instance store is ephemeral: stopping the instance destroys the data, so
+"stop to save money" does not apply. It is running or it is gone.</p>
+<h3 id="cost">Cost<a class="headerlink" href="#cost" title="Permanent link">&para;</a></h3>
+<p><code>m8id.4xlarge</code> is about $1.26/hr in eu-central-1. A full nine-tier run takes
+roughly 1.5-2 h including data generation and index builds, so about
+<strong>$2.00-2.50</strong>.</p>
+<h2 id="running-it-anywhere-else">Running it anywhere else<a class="headerlink" href="#running-it-anywhere-else" title="Permanent link">&para;</a></h2>
+<p>The scripts have no AWS dependency; <code>infra/</code> is only there to obtain a
+suitable machine. On any box with a fast local filesystem:</p>
+<div class="highlight"><pre><span></span><code><span class="nb">export</span><span class="w"> </span><span class="nv">BENCH_ROOT</span><span class="o">=</span>/mnt/fast-nvme
+uv<span class="w"> </span>run<span class="w"> </span>bench/gen.py<span class="w"> </span><span class="m">2000000</span><span class="w"> </span><span class="m">4000000</span><span class="w"> </span><span class="m">8000000</span>
+<span class="nv">BENCH_PYTHON</span><span class="o">=</span><span class="k">$(</span>which<span class="w"> </span>python<span class="k">)</span><span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>bench/run_matrix.py<span class="w"> </span><span class="m">2000000</span>,4000000,8000000<span class="w"> </span><span class="m">55</span><span class="w"> </span><span class="m">8</span>
+uv<span class="w"> </span>run<span class="w"> </span>bench/analyse.py<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$BENCH_ROOT</span><span class="s2">/results.jsonl&quot;</span>
+</code></pre></div>
+<p><code>run_matrix.py</code> takes <code>&lt;ladder&gt; &lt;generous-cap-GiB&gt; &lt;fixed-budget-GiB&gt;</code>. It uses
+<code>systemd-run --scope</code> for the memory caps, so it needs systemd with cgroup v2,
+and on a desktop that prompts for authorisation. <code>BENCH_CAPS=0</code> runs each
+measurement directly instead: the scaling and indexed passes still mean what
+they say, and the fixed-budget pass, which is nothing but a cap, is skipped.</p>
+<p>The schema gained <code>text</code> and <code>ts</code> columns for the predicate cases, so a data
+directory written before that has to be regenerated. <code>gen.py</code> only skips a tier
+whose row count already matches, not its schema, so delete the old ladder.</p>
+<h2 id="plots">Plots<a class="headerlink" href="#plots" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>bench<span class="w"> </span>bench/plot.py<span class="w"> </span>bench/results-m8id4xl.jsonl<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--out<span class="w"> </span>bench/plots
+</code></pre></div>
+<p>Three interactive pages in <code>plots/</code>:</p>
+<ul>
+<li><code>scaling.html</code>, <code>fixed-budget.html</code> and <code>indexed.html</code> have one panel per
+  case, with <strong>both costs on the same axes</strong>: runtime on the left (solid, circles), peak memory on the
+  right (dotted, diamonds), colour per implementation. They belong together
+  because the interesting cases are the ones where the two metrics disagree:
+  the full scan is 1.2x slower <em>and</em> 2.5x lighter, and separate pages hide that.</li>
+<li><code>ratios.html</code> is polars-pylance / polars-lance, where below 1.0 means
+  polars-pylance wins.</li>
+</ul>
+<p>Every datapoint is on them, failures included: OOM kills, thread panics and
+unreadable expressions are drawn as distinct markers on the runtime axis rather
+than left as gaps, so "did not finish" never looks like "was not measured".</p>
+<p>Pages link plotly from the CDN by default; <code>--offline</code> writes a sibling
+<code>plotly.min.js</code> instead.</p>
+<p><code>--static</code> additionally writes the selected panels into <code>plots/static/</code> (needs
+<code>kaleido</code>); those are the ones embedded in
+<a href="../COMPARISON/"><code>COMPARISON.md</code></a>. <code>--format</code> picks the image format and
+defaults to <code>svg</code>, which is what is committed; <code>--format png</code> writes a 2x raster
+instead, for somewhere that will not take vector.</p>
+<h3 id="viewing-the-interactive-pages">Viewing the interactive pages<a class="headerlink" href="#viewing-the-interactive-pages" title="Permanent link">&para;</a></h3>
+<p>GitHub serves committed <code>.html</code> as source, not as a rendered page, so clicking
+one here shows markup. Two ways to actually look at them:</p>
+<ul>
+<li><strong>Download and open locally.</strong> <code>curl -LO</code> the raw file, or clone the repo and
+  open <code>bench/plots/scaling.html</code>. The CDN build needs a network; use
+  <code>--offline</code> if you want it self-contained.</li>
+<li><strong>Proxy it.</strong> Paste the file's GitHub URL into
+  <a href="https://htmlpreview.github.io/">htmlpreview.github.io</a>, e.g.
+  <code>https://htmlpreview.github.io/?https://github.com/jonasdedden/polars-lance/blob/main/bench/plots/scaling.html</code></li>
+</ul>
+<p>The static images in <code>COMPARISON.md</code> exist precisely because neither of those is
+a click, and the headline results should not need one.</p>
+<h2 id="layout">Layout<a class="headerlink" href="#layout" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>file</th>
+<th>role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gen.py</code></td>
+<td>writes the size ladder; payload bytes are random so nothing compresses away</td>
+</tr>
+<tr>
+<td><code>index.py</code></td>
+<td>builds the scalar indices the indexed pass needs, in place</td>
+</tr>
+<tr>
+<td><code>cases.py</code></td>
+<td>one measurement per process, because peak RSS is a per-process high-water mark and a materialising run would poison every later reading in the same interpreter</td>
+</tr>
+<tr>
+<td><code>run_matrix.py</code></td>
+<td>drives the matrix; each measurement gets its own cgroup scope with swap disabled, so an over-budget run is killed cleanly instead of swapping</td>
+</tr>
+<tr>
+<td><code>analyse.py</code></td>
+<td>renders <code>results.jsonl</code> as per-case scaling tables</td>
+</tr>
+<tr>
+<td><code>plot.py</code></td>
+<td>renders <code>results.jsonl</code> as interactive Plotly pages</td>
+</tr>
+<tr>
+<td><code>infra/</code></td>
+<td>Pulumi program, SSM wrapper, end-to-end driver</td>
+</tr>
+</tbody>
+</table>
+<h2 id="what-it-measures">What it measures<a class="headerlink" href="#what-it-measures" title="Permanent link">&para;</a></h2>
+<p>Eleven read shapes, the write path, and four cases only polars-pylance supports
+(fragment-parallel write, pinned version, <code>_rowid</code>, sharded fragment scans).</p>
+<p>Four of the read shapes are about <strong>predicate pushdown</strong>, and they all put the
+filter in front of the 512-byte payload column, which is where skipping rows is
+worth something:</p>
+<table>
+<thead>
+<tr>
+<th>case</th>
+<th>predicate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>r_is_in</code></td>
+<td><code>id.is_in(200 ids)</code></td>
+</tr>
+<tr>
+<td><code>r_str</code></td>
+<td><code>text.str.contains("-rare")</code>, one row in 10,000</td>
+</tr>
+<tr>
+<td><code>r_arith</code></td>
+<td><code>val * 2 &gt; 1.999</code></td>
+</tr>
+<tr>
+<td><code>r_temporal</code></td>
+<td><code>ts.dt.hour() &lt; 1</code></td>
+</tr>
+</tbody>
+</table>
+<p>None of them can be expressed as a PyArrow expression, which is the limit of
+what <code>scan_pyarrow_dataset</code> and <code>scan_delta</code> can offer Lance. polars-pylance
+translates the Polars expression into a Lance SQL filter instead, so the
+scanner does the work.</p>
+<p>polars-lance pushes no predicate into Lance at all, which is an acknowledged
+<code>TODO</code> on its side, so for these cases it reads the payload column in full and
+filters afterwards. Measured: with and without Polars' predicate pushdown its
+runtime is the same to within noise.</p>
+<h3 id="the-three-passes">The three passes<a class="headerlink" href="#the-three-passes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>scaling</code></strong> is a generous cap (55 GiB of 64), high enough to be a safety net
+  rather than a constraint. Shows how peak RSS and runtime grow with dataset
+  size: is memory flat or does it track the data?</li>
+<li><strong><code>fixed-budget</code></strong> pins memory (8 GiB) with swap disabled and grows the data
+  past it. Only the full scan and the write, because this is the question that
+  matters in production: not which is 30% faster, but which one still finishes.</li>
+<li><strong><code>indexed</code></strong> runs last, because <code>index.py</code> changes the datasets in place. It
+  builds BTREE indices on <code>id</code> and <code>val</code>, BITMAP on <code>cat</code> and NGRAM on <code>text</code>,
+  then re-runs the predicate cases. An index is only reachable by a reader that
+  pushes the predicate down, so this is the same query and the same data with
+  one implementation able to act on it.</li>
+</ul>
+<p><code>r_temporal</code> is the control in that pass: no index can answer <code>dt.hour()</code>, so it
+should not move. <code>r_cat</code> is the counter-example, and it is in there on purpose:
+a BITMAP index on four distinct values, asked for a predicate that keeps a
+quarter of the table, is slower than the scan it replaces. <code>r_cat_noindex</code> is
+the same query with <code>LanceScanOptions(use_scalar_index=False)</code>, which is the fix.</p>
+<p>The first two passes use <code>systemd-run --scope</code> with <code>MemoryMax</code> and
+<code>MemorySwapMax=0</code>, so exceeding the budget is a clean kill rather than a swap
+death-spiral.</p>
+<h3 id="failures-and-answers-that-disagree">Failures, and answers that disagree<a class="headerlink" href="#failures-and-answers-that-disagree" title="Permanent link">&para;</a></h3>
+<p>Failures are recorded by kind, never as a gap:</p>
+<ul>
+<li><code>OOM-killed</code> is the memory cap doing its job.</li>
+<li><code>panic-unsendable</code> is a polars-lance thread-safety bug: its scanner is not
+  <code>Send</code> and a scan can abort with <code>PyLanceScanner is unsendable</code>. The driver
+  retries three times, because it is probabilistic.</li>
+<li><code>expr-unsupported</code> is a polars-lance version mismatch. It links its own polars
+  crate and re-decodes the expression Polars already handed it as a <code>pl.Expr</code>,
+  so one built by a newer polars either fails to decode or decodes as a
+  different variant. On 0.5.0 against polars 1.44, <code>is_in</code>, <code>is_between</code>,
+  <code>is_null</code>, <code>abs</code>, <code>starts_with</code>, <code>dt.hour</code> and <code>is_nan</code> fail to decode, and
+  <code>str.contains</code> arrives as <code>is_leap_year</code>.</li>
+</ul>
+<p>The query itself is fine: the error escapes the scan node instead of being
+  reported as "predicate not applied", which is the path <code>register_io_source</code>
+  already provides and which Polars uses when its own decode fails. So the read
+  cases retry once with <code>predicate_pushdown=False</code>, which runs, and record
+  <code>"pushdown": "declined-by-scan"</code>. That is the same work, since the predicate
+  was never going into Lance, so the comparison stays like for like and the
+  tables mark it with a <code>+</code>. <code>expr-unsupported</code> remains as the status for
+  anything the retry does not cover.</p>
+<p><code>analyse.py</code> also compares the two answers and prints <code>DISAGREE</code> instead of a
+speed ratio when they differ, with a tolerance on float sums, whose aggregation
+order depends on batch size. That is not hypothetical: on 0.5.0,
+<code>-pl.col("id") &lt; -x</code> and <code>fill_null</code> both return zero rows where the correct
+answer is not zero.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.indexes", "toc.follow", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
