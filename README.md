@@ -13,18 +13,41 @@ projections, filters and row limits down into Lance, and batches are pulled only
 as the streaming engine consumes them. `sink_lance()` writes a query into Lance
 batch by batch. Neither direction holds the dataset or a whole fragment in memory.
 
+## Installation
+
+```sh
+pip install polars-pylance
+```
+
+## Quick start
+
+The following example creates a local Lance dataset, then lazily scans, filters
+and collects it:
+
 ```python
 import polars as pl
 import polars_pylance as pll
 
-lf = pll.scan_lance("s3://bucket/embeddings.lance")
+source = pl.DataFrame(
+    {
+        "id": [1, 2, 3],
+        "score": [0.72, 0.95, 0.98],
+        "text": ["draft", "guide", "reference"],
+    }
+).lazy()
+pll.sink_lance(source, "docs.lance", mode="overwrite")
 
-pll.sink_lance(
-    lf.filter(pl.col("score") > 0.9).select("id", "text", "vector"),
-    "filtered.lance",
-    mode="overwrite",
+result = (
+    pll.scan_lance("docs.lance")
+    .filter(pl.col("score") > 0.9)
+    .select("id", "text")
+    .collect(engine="streaming")
 )
 ```
+
+Passing a local path or an object-store URI such as
+`s3://bucket/embeddings.lance` works the same way. Supply credentials and other
+object-store settings with `storage_options=`.
 
 ## The name
 
@@ -97,22 +120,32 @@ does not translate exactly raises rather than quietly becoming a postfilter,
 since nothing downstream can repair a candidate set the search has already used.
 The [vector search guide](https://jonasdedden.github.io/polars-pylance/dev/VECTOR_SEARCH/) has the details.
 
-### Sharded reads
+### Full-text search
 
-`scan_lance_fragments()` returns one `LazyFrame` per fragment (or per shard) when
-you want to fan a read out over threads, processes or workers yourself.
+`full_text_query=` exposes Lance's index-backed full-text search. It returns a
+LazyFrame with a `_score` column, so normal Polars operations can refine the
+ranked result:
 
 ```python
-shards = pll.scan_lance_fragments("data.lance", n_shards=4)
-pl.concat(shards).collect(engine="streaming")
+matches = (
+    pll.scan_lance("docs.lance", full_text_query="streaming")
+    .select("id", "text", "_score")
+    .collect(engine="streaming")
+)
 ```
+
+The dataset must have a Lance inverted index on the searched text column. Pass
+a string to use Lance's default search behavior, or select the column explicitly
+with `{"query": "streaming", "columns": ["text"]}`.
 
 ## Writing
 
 `sink_lance()` runs a query and hands Lance each batch as it comes, so the
-result is written incrementally and never materialised in full. It takes a
-`LazyFrame` rather than a `DataFrame` for exactly that reason: the query and the
-write run at the same time, and the peak memory is one batch, not one dataset.
+result is written incrementally and never materialised in full. It also accepts
+an eager `DataFrame` for convenience, though that input is necessarily already
+in memory. Use a `LazyFrame` when the data starts in a file or another query:
+the query and write then run at the same time, and peak memory is one batch
+rather than one dataset.
 
 ```python
 pll.sink_lance(lf, "out.lance", mode="append", max_rows_per_file=1_000_000)
@@ -120,19 +153,32 @@ pll.sink_lance(updates, "out.lance", mode="merge", on="id")  # upsert
 plan = pll.sink_lance(lf, "out.lance", lazy=True)  # write on collect
 ```
 
-### Sharded writes
+## Sharded end-to-end pipelines
 
-For distributed writes, each shard writes its own fragments and a single commit
-makes them one version:
+`scan_lance_fragments()` returns one lazy query per fragment (or shard), and
+`write_lance_fragments()` executes those queries and writes their output
+fragments concurrently. A single commit then publishes all fragments as one
+dataset version:
 
 ```python
-shards = pll.scan_lance_fragments("in.lance")
-pll.write_lance_fragments([s.filter(pl.col("ok")) for s in shards], "out.lance")
+shards = pll.scan_lance_fragments("data.lance", n_shards=4)
+pll.write_lance_fragments(
+    [shard.filter(pl.col("score") > 0.9) for shard in shards],
+    "filtered.lance",
+    mode="overwrite",
+    max_workers=4,
+)
 ```
 
-`commit_lance_fragments()` is that second half on its own for publishing fragments
-someone else wrote. It is what the [Polars Cloud](#polars-cloud) path commits
-with once the workers are done.
+Each shard stays lazy and bounded in memory; the full result is never collected
+before writing. A lazy `pl.concat(shards)` is also streaming, but Polars
+currently pulls registered Python IO sources one after another, so concatenation
+alone does not execute these shard scans concurrently.
+
+For distributed execution, workers can write fragment files separately;
+`commit_lance_fragments()` publishes their metadata as one dataset version
+afterward. It is what the [Polars Cloud](#polars-cloud) path commits with once
+the workers are done.
 
 ## Memory behaviour
 
@@ -176,6 +222,7 @@ uv run mypy                      # strict, over src, tests and bench
 uv run basedpyright
 uv run --only-group lint ruff check .   # the version in uv.lock, as CI uses
 uv run --only-group lint ruff format --check .
+uv run --group docs properdocs build --strict -f mkdocs.yml
 # benchmarking:
 uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 ```

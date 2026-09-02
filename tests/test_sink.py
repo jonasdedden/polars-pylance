@@ -39,6 +39,15 @@ def test_create_round_trip(tmp_path: Path, lance_uri: str) -> None:
     assert len(dataset.get_fragments()) > 1, "expected several fragments"
 
 
+def test_accepts_eager_dataframe(tmp_path: Path) -> None:
+    frame = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+    out = str(tmp_path / "eager.lance")
+
+    sink_lance(frame, out)
+
+    assert_frame_equal(scan_lance(out).collect(engine="streaming"), frame)
+
+
 def test_create_refuses_existing(tmp_path: Path, lance_uri: str) -> None:
     out = str(tmp_path / "twice.lance")
     sink_lance(_transformed(lance_uri), out)

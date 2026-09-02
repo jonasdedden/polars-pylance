@@ -6,8 +6,35 @@
 The examples below use two-dimensional vectors so the distances can be checked
 by eye. Real embeddings have hundreds of dimensions; nothing else differs.
 
+Create the small dataset used throughout the guide:
+
 ```python
-pll.scan_lance("tiny.lance").collect()
+import polars as pl
+import polars_pylance as pll
+
+data = pl.DataFrame(
+    {
+        "id": range(7),
+        "cat": ["blog", "blog", "blog", "faq", "docs", "docs", "docs"],
+        "embedding": pl.Series(
+            [
+                [0.1, 0.0],
+                [0.0, 0.2],
+                [0.3, 0.0],
+                [0.5, 0.5],
+                [1.0, 0.0],
+                [0.0, 1.5],
+                [2.0, 0.0],
+            ],
+            dtype=pl.Array(pl.Float32, 2),
+        ),
+    }
+)
+pll.sink_lance(data, "tiny.lance", mode="overwrite")
+```
+
+```python
+pll.scan_lance("tiny.lance").collect(engine="streaming")
 ```
 
 ```
@@ -32,7 +59,7 @@ to it, which happen to be the `blog` rows:
 
 ```python
 search = {"column": "embedding", "q": [0.0, 0.0], "k": 3}
-pll.scan_lance("tiny.lance", nearest=search).collect()
+pll.scan_lance("tiny.lance", nearest=search).collect(engine="streaming")
 ```
 
 ```
@@ -72,7 +99,9 @@ They answer different questions, so they stay separate:
 A prefilter searches only the `docs` rows, so it returns three of them, ranked:
 
 ```python
-pll.scan_lance("tiny.lance", nearest=search, prefilter="cat = 'docs'").collect()
+pll.scan_lance("tiny.lance", nearest=search, prefilter="cat = 'docs'").collect(
+    engine="streaming"
+)
 ```
 
 ```
@@ -92,7 +121,11 @@ A downstream `.filter()` ranks first and filters after. The three nearest to the
 origin are all `blog`, so filtering them for `docs` leaves nothing:
 
 ```python
-pll.scan_lance("tiny.lance", nearest=search).filter(pl.col("cat") == "docs").collect()
+(
+    pll.scan_lance("tiny.lance", nearest=search)
+    .filter(pl.col("cat") == "docs")
+    .collect(engine="streaming")
+)
 ```
 
 ```

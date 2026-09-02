@@ -435,8 +435,8 @@ def scan_lance(
             `k` from the surviving rows only. A Polars expression that does not
             translate exactly is an error rather than a postfilter, since nothing
             downstream can repair a candidate set the search has already used.
-        with_row_id: Include Lance's `_rowid` / `_rowaddr` columns.
-        with_row_address: Include Lance's `_rowid` / `_rowaddr` columns.
+        with_row_id: Include Lance's stable `_rowid` column.
+        with_row_address: Include Lance's physical `_rowaddr` column.
         fragments: Restrict the scan to these fragment ids. See
             [`scan_lance_fragments`][polars_pylance.scan_lance_fragments] for the
             sharded form.
