@@ -2314,7 +2314,7 @@ downstream can repair a candidate set the search has already used.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Include Lance's <code>_rowid</code> / <code>_rowaddr</code> columns.</p>
+                <p>Include Lance's stable <code>_rowid</code> column.</p>
               </div>
             </td>
             <td>
@@ -2330,7 +2330,7 @@ downstream can repair a candidate set the search has already used.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Include Lance's <code>_rowid</code> / <code>_rowaddr</code> columns.</p>
+                <p>Include Lance's physical <code>_rowaddr</code> column.</p>
               </div>
             </td>
             <td>
@@ -2518,8 +2518,8 @@ SQL's.</p>
 <span class="sd">            `k` from the surviving rows only. A Polars expression that does not</span>
 <span class="sd">            translate exactly is an error rather than a postfilter, since nothing</span>
 <span class="sd">            downstream can repair a candidate set the search has already used.</span>
-<span class="sd">        with_row_id: Include Lance&#39;s `_rowid` / `_rowaddr` columns.</span>
-<span class="sd">        with_row_address: Include Lance&#39;s `_rowid` / `_rowaddr` columns.</span>
+<span class="sd">        with_row_id: Include Lance&#39;s stable `_rowid` column.</span>
+<span class="sd">        with_row_address: Include Lance&#39;s physical `_rowaddr` column.</span>
 <span class="sd">        fragments: Restrict the scan to these fragment ids. See</span>
 <span class="sd">            [`scan_lance_fragments`][polars_pylance.scan_lance_fragments] for the</span>
 <span class="sd">            sharded form.</span>
@@ -2907,11 +2907,7 @@ contents with these fragments), or <code>"append"</code> (add them to it).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_sink.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">261</span>
-<span class="normal">262</span>
-<span class="normal">263</span>
-<span class="normal">264</span>
-<span class="normal">265</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">265</span>
 <span class="normal">266</span>
 <span class="normal">267</span>
 <span class="normal">268</span>
@@ -2953,7 +2949,11 @@ contents with these fragments), or <code>"append"</code> (add them to it).</p>
 <span class="normal">304</span>
 <span class="normal">305</span>
 <span class="normal">306</span>
-<span class="normal">307</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">commit_lance_fragments</span><span class="p">(</span>
+<span class="normal">307</span>
+<span class="normal">308</span>
+<span class="normal">309</span>
+<span class="normal">310</span>
+<span class="normal">311</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">commit_lance_fragments</span><span class="p">(</span>
     <span class="n">uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">fragments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3014,14 +3014,15 @@ contents with these fragments), or <code>"append"</code> (add them to it).</p>
 
 
 <a href="#polars_pylance.sink_lance" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">:</span> <span class="n"><span title="polars.LazyFrame">LazyFrame</span></span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-external" title="pathlib.Path" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path">Path</a></span> <span class="o">|</span> <span class="n"><span title="lance.LanceDataset">LanceDataset</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n"><span title="polars_pylance._sink.WriteMode">WriteMode</span></span> <span class="o">=</span> <span class="s1">&#39;create&#39;</span><span class="p">,</span> <span class="n">on</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#list">list</a></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/functions.html#int">int</a></span> <span class="o">=</span> <span class="n"><span title="polars_pylance._sink.DEFAULT_CHUNK_SIZE">DEFAULT_CHUNK_SIZE</span></span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="n"><span title="polars_pylance._sink.EngineType">EngineType</span></span> <span class="o">=</span> <span class="s1">&#39;streaming&#39;</span><span class="p">,</span> <span class="n">lazy</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/functions.html#bool">bool</a></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">lance_write_kwargs</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" title="typing.Any" href="https://docs.python.org/3/library/typing.html#typing.Any">Any</a></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="lance.LanceDataset">LanceDataset</span></span> <span class="o">|</span> <span class="n"><span title="polars.LazyFrame">LazyFrame</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">:</span> <span class="n"><span title="polars.LazyFrame">LazyFrame</span></span> <span class="o">|</span> <span class="n"><span title="polars.DataFrame">DataFrame</span></span><span class="p">,</span> <span class="n">target</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-external" title="pathlib.Path" href="https://docs.python.org/3/library/pathlib.html#pathlib.Path">Path</a></span> <span class="o">|</span> <span class="n"><span title="lance.LanceDataset">LanceDataset</span></span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n"><span title="polars_pylance._sink.WriteMode">WriteMode</span></span> <span class="o">=</span> <span class="s1">&#39;create&#39;</span><span class="p">,</span> <span class="n">on</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#list">list</a></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/stdtypes.html#str">str</a></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/functions.html#int">int</a></span> <span class="o">=</span> <span class="n"><span title="polars_pylance._sink.DEFAULT_CHUNK_SIZE">DEFAULT_CHUNK_SIZE</span></span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="n"><span title="polars_pylance._sink.EngineType">EngineType</span></span> <span class="o">=</span> <span class="s1">&#39;streaming&#39;</span><span class="p">,</span> <span class="n">lazy</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" href="https://docs.python.org/3/library/functions.html#bool">bool</a></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">lance_write_kwargs</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-external" title="typing.Any" href="https://docs.python.org/3/library/typing.html#typing.Any">Any</a></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="lance.LanceDataset">LanceDataset</span></span> <span class="o">|</span> <span class="n"><span title="polars.LazyFrame">LazyFrame</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
 
-        <p>Stream a LazyFrame into a Lance dataset.</p>
-<p>The query is executed in batches and handed to Lance as it goes; the result
-is never materialised in full.</p>
+        <p>Write a Polars DataFrame or stream a LazyFrame into a Lance dataset.</p>
+<p>A LazyFrame query is executed in batches and handed to Lance as it goes, so
+its result is never materialised in full. A DataFrame is accepted for
+convenience, but is already materialised before this function is called.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -3040,11 +3041,11 @@ is never materialised in full.</p>
                 <code>lf</code>
             </td>
             <td>
-                  <code><span title="polars.LazyFrame">LazyFrame</span></code>
+                  <code><span title="polars.LazyFrame">LazyFrame</span> | <span title="polars.DataFrame">DataFrame</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The query to write.</p>
+                <p>The eager DataFrame or lazy query to write.</p>
               </div>
             </td>
             <td>
@@ -3293,8 +3294,12 @@ plan. Collecting it yields a one-row summary of what was written.</p>
 <span class="normal">136</span>
 <span class="normal">137</span>
 <span class="normal">138</span>
-<span class="normal">139</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">sink_lance</span><span class="p">(</span>
-    <span class="n">lf</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">,</span>
+<span class="normal">139</span>
+<span class="normal">140</span>
+<span class="normal">141</span>
+<span class="normal">142</span>
+<span class="normal">143</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">sink_lance</span><span class="p">(</span>
+    <span class="n">lf</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span> <span class="o">|</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">mode</span><span class="p">:</span> <span class="n">WriteMode</span> <span class="o">=</span> <span class="s2">&quot;create&quot;</span><span class="p">,</span>
@@ -3304,13 +3309,14 @@ plan. Collecting it yields a one-row summary of what was written.</p>
     <span class="n">lazy</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="o">**</span><span class="n">lance_write_kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>  <span class="c1"># noqa: ANN401 - passed through to Lance as given</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span> <span class="o">|</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stream a LazyFrame into a Lance dataset.</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write a Polars DataFrame or stream a LazyFrame into a Lance dataset.</span>
 
-<span class="sd">    The query is executed in batches and handed to Lance as it goes; the result</span>
-<span class="sd">    is never materialised in full.</span>
+<span class="sd">    A LazyFrame query is executed in batches and handed to Lance as it goes, so</span>
+<span class="sd">    its result is never materialised in full. A DataFrame is accepted for</span>
+<span class="sd">    convenience, but is already materialised before this function is called.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        lf: The query to write.</span>
+<span class="sd">        lf: The eager DataFrame or lazy query to write.</span>
 <span class="sd">        target: Destination URI, path, or an existing `lance.LanceDataset`.</span>
 <span class="sd">        mode: `&quot;create&quot;` (fail if it exists), `&quot;append&quot;`, `&quot;overwrite&quot;` (new version),</span>
 <span class="sd">            or `&quot;merge&quot;` for an upsert, which requires `on`.</span>
@@ -3332,6 +3338,9 @@ plan. Collecting it yields a one-row summary of what was written.</p>
 <span class="sd">        &gt;&gt;&gt; query = lf.filter(pl.col(&quot;ok&quot;))  # doctest: +SKIP</span>
 <span class="sd">        &gt;&gt;&gt; sink_lance(query, &quot;out.lance&quot;, mode=&quot;overwrite&quot;)  # doctest: +SKIP</span>
 <span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">):</span>
+        <span class="n">lf</span> <span class="o">=</span> <span class="n">lf</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
+
     <span class="n">uri</span> <span class="o">=</span> <span class="n">_target_uri</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
 
     <span class="k">if</span> <span class="n">mode</span> <span class="o">==</span> <span class="s2">&quot;merge&quot;</span><span class="p">:</span>
@@ -3555,11 +3564,7 @@ by materialising each shard first.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_sink.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">178</span>
-<span class="normal">179</span>
-<span class="normal">180</span>
-<span class="normal">181</span>
-<span class="normal">182</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">182</span>
 <span class="normal">183</span>
 <span class="normal">184</span>
 <span class="normal">185</span>
@@ -3623,7 +3628,11 @@ by materialising each shard first.</p>
 <span class="normal">243</span>
 <span class="normal">244</span>
 <span class="normal">245</span>
-<span class="normal">246</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_fragments</span><span class="p">(</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_fragments</span><span class="p">(</span>
     <span class="n">lazyframes</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">],</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>

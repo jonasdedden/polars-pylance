@@ -714,7 +714,31 @@
 <code>_distance</code> column and is ordered by it.</p>
 <p>The examples below use two-dimensional vectors so the distances can be checked
 by eye. Real embeddings have hundreds of dimensions; nothing else differs.</p>
-<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<p>Create the small dataset used throughout the guide:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">polars_pylance</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pll</span>
+
+<span class="n">data</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="nb">range</span><span class="p">(</span><span class="mi">7</span><span class="p">),</span>
+        <span class="s2">&quot;cat&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;blog&quot;</span><span class="p">,</span> <span class="s2">&quot;blog&quot;</span><span class="p">,</span> <span class="s2">&quot;blog&quot;</span><span class="p">,</span> <span class="s2">&quot;faq&quot;</span><span class="p">,</span> <span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;docs&quot;</span><span class="p">,</span> <span class="s2">&quot;docs&quot;</span><span class="p">],</span>
+        <span class="s2">&quot;embedding&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">0.3</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">],</span>
+                <span class="p">[</span><span class="mf">2.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span>
+            <span class="p">],</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="n">pl</span><span class="o">.</span><span class="n">Array</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">Float32</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+<span class="p">)</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code>shape: (7, 3)
 ┌─────┬──────┬───────────────┐
@@ -734,7 +758,7 @@ by eye. Real embeddings have hundreds of dimensions; nothing else differs.</p>
 <p>Searching for the three nearest to the origin returns the three points closest
 to it, which happen to be the <code>blog</code> rows:</p>
 <div class="highlight"><pre><span></span><code><span class="n">search</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;column&quot;</span><span class="p">:</span> <span class="s2">&quot;embedding&quot;</span><span class="p">,</span> <span class="s2">&quot;q&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">],</span> <span class="s2">&quot;k&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">}</span>
-<span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code>shape: (3, 4)
 ┌─────┬──────┬───────────────┬───────────┐
@@ -781,7 +805,9 @@ same way.</p>
 </tbody>
 </table>
 <p>A prefilter searches only the <code>docs</code> rows, so it returns three of them, ranked:</p>
-<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;cat = &#39;docs&#39;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">,</span> <span class="n">prefilter</span><span class="o">=</span><span class="s2">&quot;cat = &#39;docs&#39;&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span>
+<span class="p">)</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code>shape: (3, 4)
 ┌─────┬──────┬───────────────┬───────────┐
@@ -796,7 +822,11 @@ same way.</p>
 </code></pre></div>
 <p>A downstream <code>.filter()</code> ranks first and filters after. The three nearest to the
 origin are all <code>blog</code>, so filtering them for <code>docs</code> leaves nothing:</p>
-<div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;docs&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+<div class="highlight"><pre><span></span><code><span class="p">(</span>
+    <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;tiny.lance&quot;</span><span class="p">,</span> <span class="n">nearest</span><span class="o">=</span><span class="n">search</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;docs&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+<span class="p">)</span>
 </code></pre></div>
 <div class="highlight"><pre><span></span><code>shape: (0, 4)
 ┌─────┬─────┬───────────────┬───────────┐

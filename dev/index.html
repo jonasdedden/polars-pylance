@@ -288,6 +288,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-name" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -344,10 +366,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sharded-reads" class="md-nav__link">
+  <a href="#full-text-search" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sharded reads
+        Full-text search
       
     </span>
   </a>
@@ -368,22 +390,16 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Writing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sharded-writes" class="md-nav__link">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharded-end-to-end-pipelines" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sharded writes
+        Sharded end-to-end pipelines
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -755,6 +771,28 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-name" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -811,10 +849,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sharded-reads" class="md-nav__link">
+  <a href="#full-text-search" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sharded reads
+        Full-text search
       
     </span>
   </a>
@@ -835,22 +873,16 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Writing">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sharded-writes" class="md-nav__link">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sharded-end-to-end-pipelines" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Sharded writes
+        Sharded end-to-end pipelines
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -915,17 +947,34 @@
 projections, filters and row limits down into Lance, and batches are pulled only
 as the streaming engine consumes them. <code>sink_lance()</code> writes a query into Lance
 batch by batch. Neither direction holds the dataset or a whole fragment in memory.</p>
+<h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>polars-pylance
+</code></pre></div>
+<h2 id="quick-start">Quick start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<p>The following example creates a local Lance dataset, then lazily scans, filters
+and collects it:</p>
 <div class="highlight"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">polars_pylance</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pll</span>
 
-<span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;s3://bucket/embeddings.lance&quot;</span><span class="p">)</span>
+<span class="n">source</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+        <span class="s2">&quot;score&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.72</span><span class="p">,</span> <span class="mf">0.95</span><span class="p">,</span> <span class="mf">0.98</span><span class="p">],</span>
+        <span class="s2">&quot;text&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;draft&quot;</span><span class="p">,</span> <span class="s2">&quot;guide&quot;</span><span class="p">,</span> <span class="s2">&quot;reference&quot;</span><span class="p">],</span>
+    <span class="p">}</span>
+<span class="p">)</span><span class="o">.</span><span class="n">lazy</span><span class="p">()</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">)</span>
 
-<span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span>
-    <span class="n">lf</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;vector&quot;</span><span class="p">),</span>
-    <span class="s2">&quot;filtered.lance&quot;</span><span class="p">,</span>
-    <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">,</span>
+<span class="n">result</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;docs.lance&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
 <span class="p">)</span>
 </code></pre></div>
+<p>Passing a local path or an object-store URI such as
+<code>s3://bucket/embeddings.lance</code> works the same way. Supply credentials and other
+object-store settings with <code>storage_options=</code>.</p>
 <h2 id="the-name">The name<a class="headerlink" href="#the-name" title="Permanent link">&para;</a></h2>
 <p><code>polars</code> + <code>pylance</code>, composed in Python. There is no compiled extension here and
 no <code>lance</code> crate linked in: the package is pure Python over the two libraries it
@@ -979,30 +1028,51 @@ may return fewer than <code>k</code>; it is never promoted to a prefilter. A pre
 does not translate exactly raises rather than quietly becoming a postfilter,
 since nothing downstream can repair a candidate set the search has already used.
 The <a href="VECTOR_SEARCH/">vector search guide</a> has the details.</p>
-<h3 id="sharded-reads">Sharded reads<a class="headerlink" href="#sharded-reads" title="Permanent link">&para;</a></h3>
-<p><code>scan_lance_fragments()</code> returns one <code>LazyFrame</code> per fragment (or per shard) when
-you want to fan a read out over threads, processes or workers yourself.</p>
-<div class="highlight"><pre><span></span><code><span class="n">shards</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance_fragments</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">,</span> <span class="n">n_shards</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
-<span class="n">pl</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">shards</span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+<h3 id="full-text-search">Full-text search<a class="headerlink" href="#full-text-search" title="Permanent link">&para;</a></h3>
+<p><code>full_text_query=</code> exposes Lance's index-backed full-text search. It returns a
+LazyFrame with a <code>_score</code> column, so normal Polars operations can refine the
+ranked result:</p>
+<div class="highlight"><pre><span></span><code><span class="n">matches</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;docs.lance&quot;</span><span class="p">,</span> <span class="n">full_text_query</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="s2">&quot;text&quot;</span><span class="p">,</span> <span class="s2">&quot;_score&quot;</span><span class="p">)</span>
+    <span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">&quot;streaming&quot;</span><span class="p">)</span>
+<span class="p">)</span>
 </code></pre></div>
+<p>The dataset must have a Lance inverted index on the searched text column. Pass
+a string to use Lance's default search behavior, or select the column explicitly
+with <code>{"query": "streaming", "columns": ["text"]}</code>.</p>
 <h2 id="writing">Writing<a class="headerlink" href="#writing" title="Permanent link">&para;</a></h2>
 <p><code>sink_lance()</code> runs a query and hands Lance each batch as it comes, so the
-result is written incrementally and never materialised in full. It takes a
-<code>LazyFrame</code> rather than a <code>DataFrame</code> for exactly that reason: the query and the
-write run at the same time, and the peak memory is one batch, not one dataset.</p>
+result is written incrementally and never materialised in full. It also accepts
+an eager <code>DataFrame</code> for convenience, though that input is necessarily already
+in memory. Use a <code>LazyFrame</code> when the data starts in a file or another query:
+the query and write then run at the same time, and peak memory is one batch
+rather than one dataset.</p>
 <div class="highlight"><pre><span></span><code><span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">,</span> <span class="n">max_rows_per_file</span><span class="o">=</span><span class="mi">1_000_000</span><span class="p">)</span>
 <span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">updates</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;merge&quot;</span><span class="p">,</span> <span class="n">on</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">)</span>  <span class="c1"># upsert</span>
 <span class="n">plan</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">sink_lance</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">,</span> <span class="n">lazy</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>  <span class="c1"># write on collect</span>
 </code></pre></div>
-<h3 id="sharded-writes">Sharded writes<a class="headerlink" href="#sharded-writes" title="Permanent link">&para;</a></h3>
-<p>For distributed writes, each shard writes its own fragments and a single commit
-makes them one version:</p>
-<div class="highlight"><pre><span></span><code><span class="n">shards</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance_fragments</span><span class="p">(</span><span class="s2">&quot;in.lance&quot;</span><span class="p">)</span>
-<span class="n">pll</span><span class="o">.</span><span class="n">write_lance_fragments</span><span class="p">([</span><span class="n">s</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;ok&quot;</span><span class="p">))</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">shards</span><span class="p">],</span> <span class="s2">&quot;out.lance&quot;</span><span class="p">)</span>
+<h2 id="sharded-end-to-end-pipelines">Sharded end-to-end pipelines<a class="headerlink" href="#sharded-end-to-end-pipelines" title="Permanent link">&para;</a></h2>
+<p><code>scan_lance_fragments()</code> returns one lazy query per fragment (or shard), and
+<code>write_lance_fragments()</code> executes those queries and writes their output
+fragments concurrently. A single commit then publishes all fragments as one
+dataset version:</p>
+<div class="highlight"><pre><span></span><code><span class="n">shards</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance_fragments</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">,</span> <span class="n">n_shards</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="n">pll</span><span class="o">.</span><span class="n">write_lance_fragments</span><span class="p">(</span>
+    <span class="p">[</span><span class="n">shard</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;score&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.9</span><span class="p">)</span> <span class="k">for</span> <span class="n">shard</span> <span class="ow">in</span> <span class="n">shards</span><span class="p">],</span>
+    <span class="s2">&quot;filtered.lance&quot;</span><span class="p">,</span>
+    <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span><span class="p">,</span>
+    <span class="n">max_workers</span><span class="o">=</span><span class="mi">4</span><span class="p">,</span>
+<span class="p">)</span>
 </code></pre></div>
-<p><code>commit_lance_fragments()</code> is that second half on its own for publishing fragments
-someone else wrote. It is what the <a href="#polars-cloud">Polars Cloud</a> path commits
-with once the workers are done.</p>
+<p>Each shard stays lazy and bounded in memory; the full result is never collected
+before writing. A lazy <code>pl.concat(shards)</code> is also streaming, but Polars
+currently pulls registered Python IO sources one after another, so concatenation
+alone does not execute these shard scans concurrently.</p>
+<p>For distributed execution, workers can write fragment files separately;
+<code>commit_lance_fragments()</code> publishes their metadata as one dataset version
+afterward. It is what the <a href="#polars-cloud">Polars Cloud</a> path commits with once
+the workers are done.</p>
 <h2 id="memory-behaviour">Memory behaviour<a class="headerlink" href="#memory-behaviour" title="Permanent link">&para;</a></h2>
 <p>Peak RSS for <code>polars-pylance</code> across the size ladder in
 <a href="BENCHMARKS/"><code>bench/</code></a>, on datasets from 1 GiB to 49.2 GiB, a <strong>49x</strong>
@@ -1081,6 +1151,7 @@ uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w">       
 uv<span class="w"> </span>run<span class="w"> </span>basedpyright
 uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w">   </span><span class="c1"># the version in uv.lock, as CI uses</span>
 uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
+uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>docs<span class="w"> </span>properdocs<span class="w"> </span>build<span class="w"> </span>--strict<span class="w"> </span>-f<span class="w"> </span>mkdocs.yml
 <span class="c1"># benchmarking:</span>
 uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span>bench<span class="w"> </span>bench/plot.py<span class="w"> </span>bench/results-m8id4xl.jsonl<span class="w"> </span>--out<span class="w"> </span>bench/plots
 </code></pre></div>
