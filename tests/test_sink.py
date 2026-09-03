@@ -180,3 +180,51 @@ def test_round_trip_preserves_binary_payload(tmp_path: Path, lance_uri: str) -> 
     got = scan_lance(out).select("id", "payload").collect(engine="streaming")
     want = scan_lance(lance_uri).select("id", "payload").collect(engine="streaming")
     assert_frame_equal(got.sort("id"), want.sort("id"))
+
+
+def test_write_lance_shard_matches_write_lance_fragments(
+    tmp_path: Path, lance_uri: str
+) -> None:
+    """One `write_lance_shard` per shard, then one commit, equals the threaded path."""
+    import pickle
+
+    from polars_pylance import commit_lance_fragments, write_lance_shard
+
+    shards = [
+        shard.filter(pl.col("val") > 0.5).select("id", "cat")
+        for shard in scan_lance_fragments(lance_uri)
+    ]
+    schema = shards[0].collect_schema().to_arrow()
+
+    out = str(tmp_path / "sharded.lance")
+    fragments = [
+        f
+        for shard in shards
+        for f in pickle.loads(
+            pickle.dumps(write_lance_shard(shard, out, arrow_schema=schema))
+        )
+    ]
+    dataset = commit_lance_fragments(out, fragments, schema=schema)
+
+    want = (
+        scan_lance(lance_uri)
+        .filter(pl.col("val") > 0.5)
+        .select("id", "cat")
+        .collect(engine="streaming")
+    )
+    got = scan_lance(out).collect(engine="streaming")
+    assert_frame_equal(got.sort("id"), want.sort("id"))
+    assert dataset.count_rows() == want.height
+
+
+def test_write_lance_shard_commits_nothing(tmp_path: Path, lance_uri: str) -> None:
+    """The shard writes files but publishes no dataset version."""
+    import lance
+
+    from polars_pylance import write_lance_shard
+
+    out = str(tmp_path / "uncommitted.lance")
+    shard = scan_lance_fragments(lance_uri)[0].select("id", "cat")
+    assert write_lance_shard(shard, out)
+    with pytest.raises(ValueError, match="was not found"):
+        lance.dataset(out)

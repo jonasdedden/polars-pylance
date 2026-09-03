@@ -179,6 +179,72 @@ def _lazy_sink(
     return pl.defer(run, schema=SINK_SUMMARY_SCHEMA, validate_schema=False)
 
 
+def write_lance_shard(
+    shard: pl.LazyFrame,
+    target: str | Path,
+    *,
+    mode: Literal["create", "overwrite", "append"] = "create",
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    engine: EngineType = "streaming",
+    arrow_schema: pa.Schema | None = None,
+    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
+) -> list[FragmentMetadata]:
+    """Write one LazyFrame as Lance fragment files, without committing.
+
+    The single-shard primitive behind
+    [`write_lance_fragments`][polars_pylance.write_lance_fragments], factored out
+    so distributed workers can call the same code the threaded path calls. It
+    streams the query into fragment files and returns their metadata, publishing
+    nothing: the caller commits with
+    [`commit_lance_fragments`][polars_pylance.commit_lance_fragments] once every
+    shard is done.
+
+    Everything it takes is small and picklable -- a lazy query, a URI, a schema
+    -- so a scheduler ships kilobytes per shard while the data itself moves only
+    between the worker and Lance storage. The returned metadata is likewise
+    small enough to send back to the coordinator.
+
+    Args:
+        shard: The query to write. All shards committed together must produce
+            the same schema.
+        target: Destination URI or path. Workers writing to the same dataset
+            must address it identically.
+        mode: `"create"`/`"overwrite"` write fragment files for a fresh schema;
+            `"append"` reuses the existing dataset's field ids. Mirrors
+            [`write_lance_fragments`][polars_pylance.write_lance_fragments].
+        chunk_size: Rows buffered per batch handed to Lance.
+        engine: Polars engine. Leave at `"streaming"`; `"in-memory"` defeats the
+            purpose by materialising the shard first.
+        arrow_schema: Schema to write. Inferred from the shard when omitted;
+            pass the coordinator's schema so every worker writes identically.
+        **lance_write_kwargs: Passed to `lance.fragment.write_fragments`.
+
+    Returns:
+        The `lance.fragment.FragmentMetadata` records for this shard's files.
+
+    Examples:
+        >>> shards = scan_lance_fragments("in.lance")  # doctest: +SKIP
+        >>> write_lance_shard(
+        ...     shards[0].filter(pl.col("ok")), "out.lance"
+        ... )  # doctest: +SKIP
+    """
+    uri = str(target)
+    schema = arrow_schema or shard.collect_schema().to_arrow()
+    fragment_mode = fragment_write_mode(mode)
+    reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
+    # `return_transaction=False` is the default; naming it picks the
+    # overload that returns fragments rather than a transaction, which
+    # `**lance_write_kwargs` would otherwise leave unresolved.
+    return lance.fragment.write_fragments(
+        reader,
+        uri,
+        schema=schema,
+        mode=fragment_mode,
+        return_transaction=False,
+        **lance_write_kwargs,
+    )
+
+
 def write_lance_fragments(
     lazyframes: Iterable[pl.LazyFrame],
     target: str | Path,
@@ -224,24 +290,20 @@ def write_lance_fragments(
 
     uri = str(target)
     schema = arrow_schema or shards[0].collect_schema().to_arrow()
-    fragment_mode = fragment_write_mode(mode)
 
-    def write_shard(shard: pl.LazyFrame) -> list[FragmentMetadata]:
-        reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
-        # `return_transaction=False` is the default; naming it picks the
-        # overload that returns fragments rather than a transaction, which
-        # `**lance_write_kwargs` would otherwise leave unresolved.
-        return lance.fragment.write_fragments(
-            reader,
+    def write_one(shard: pl.LazyFrame) -> list[FragmentMetadata]:
+        return write_lance_shard(
+            shard,
             uri,
-            schema=schema,
-            mode=fragment_mode,
-            return_transaction=False,
+            mode=mode,
+            chunk_size=chunk_size,
+            engine=engine,
+            arrow_schema=schema,
             **lance_write_kwargs,
         )
 
     with ThreadPoolExecutor(max_workers=max_workers or len(shards)) as pool:
-        written = list(pool.map(write_shard, shards))
+        written = list(pool.map(write_one, shards))
 
     fragments = [f for shard in written for f in shard]
     storage_options = lance_write_kwargs.get("storage_options")

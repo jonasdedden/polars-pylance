@@ -28,6 +28,7 @@ from ._sink import (
     commit_lance_fragments,
     sink_lance,
     write_lance_fragments,
+    write_lance_shard,
 )
 
 # `_version.py` is written at build time from the git tag; it is not in the
@@ -47,4 +48,5 @@ __all__ = [
     "sink_lance",
     "to_lance_filter",
     "write_lance_fragments",
+    "write_lance_shard",
 ]
