@@ -2,38 +2,38 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/BENCHMARKS/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/COMPARISON/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/POLARS_CLOUD/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/PUSHDOWN/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/VECTOR_SEARCH/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/reference/SUMMARY/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/reference/polars_pylance/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
     <url>
          <loc>https://jonasdedden.github.io/polars-pylance/dev/reference/polars_pylance/cloud/</loc>
-         <lastmod>2026-09-02</lastmod>
+         <lastmod>2026-09-03</lastmod>
     </url>
 </urlset>
