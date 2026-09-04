@@ -1,6 +1,7 @@
 """Render results.jsonl as interactive Plotly pages.
 
-    uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl
+    uv run --group bench bench/polars_lance/plot.py \
+        bench/polars_lance/results-m8id4xl.jsonl
 
 Writes one HTML per view into `--out` (default: next to the results file). The
 pages link plotly from the CDN so they stay a few KB; pass ``--offline`` to

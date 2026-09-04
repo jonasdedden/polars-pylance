@@ -137,7 +137,7 @@ raises instead of silently becoming a postfilter; see
 ## Reproducing the numbers
 
 ```sh
-uv run --group bench bench/pushdown.py --out bench/plots/static
+uv run --group bench bench/polars_lance/pushdown.py --out bench/polars_lance/plots/static
 ```
 
 It builds its own dataset and needs no particular machine: it compares two

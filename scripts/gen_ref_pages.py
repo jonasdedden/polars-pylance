@@ -51,27 +51,38 @@ publish(
     comparison,
     "COMPARISON.md",
     {
-        "bench/plots/static/": "assets/comparison/",
-        "](bench/README.md)": "](BENCHMARKS.md)",
+        "bench/polars_lance/plots/static/": "assets/comparison/",
+        "](bench/polars_lance/README.md)": "](BENCHMARKS.md)",
     },
 )
 copy_assets(
-    sorted(set(re.findall(r"bench/plots/static/([\w-]+\.svg)", comparison))),
-    ROOT / "bench" / "plots" / "static",
+    sorted(
+        set(re.findall(r"bench/polars_lance/plots/static/([\w-]+\.svg)", comparison))
+    ),
+    ROOT / "bench" / "polars_lance" / "plots" / "static",
     "assets/comparison",
 )
 
 # How the benchmarks are run, for anyone reproducing them.
 publish(
-    (ROOT / "bench" / "README.md").read_text(),
+    (ROOT / "bench" / "polars_lance" / "README.md").read_text(),
     "BENCHMARKS.md",
-    {"](../COMPARISON.md)": "](COMPARISON.md)"},
+    {
+        "](../../COMPARISON.md)": "](COMPARISON.md)",
+        "](../dataframe/README.md)": "](DIST_BENCHMARKS.md)",
+    },
+)
+
+# The dataframe benchmarks have their own guide next to its code.
+publish(
+    (ROOT / "bench" / "dataframe" / "README.md").read_text(),
+    "DIST_BENCHMARKS.md",
 )
 
 # `PUSHDOWN.md` is a real file in `docs/`, but its plots are not.
 copy_assets(
     ["pushdown-none.svg", "pushdown-indexed.svg"],
-    ROOT / "bench" / "plots" / "static",
+    ROOT / "bench" / "polars_lance" / "plots" / "static",
     "assets/bench",
 )
 

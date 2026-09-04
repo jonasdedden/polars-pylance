@@ -1,6 +1,7 @@
 """Measure what predicate pushdown is worth, with and without scalar indices.
 
-    uv run --group bench bench/pushdown.py --out bench/plots/static
+    uv run --group bench bench/polars_lance/pushdown.py \
+        --out bench/polars_lance/plots/static
 
 Runs each case twice, once with `predicate_pushdown=True` and once with it
 off, and does that over an unindexed dataset and an indexed one. Every
@@ -103,8 +104,12 @@ def measure(uri: str, case: str, *, pushdown: bool) -> dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("/tmp/pll-pushdown"))  # noqa: S108
-    parser.add_argument("--out", type=Path, default=Path("bench/plots/static"))
-    parser.add_argument("--json", type=Path, default=Path("bench/pushdown.jsonl"))
+    parser.add_argument(
+        "--out", type=Path, default=Path("bench/polars_lance/plots/static")
+    )
+    parser.add_argument(
+        "--json", type=Path, default=Path("bench/polars_lance/pushdown.jsonl")
+    )
     parser.add_argument("--child", nargs=3, help=argparse.SUPPRESS)
     args = parser.parse_args()
 

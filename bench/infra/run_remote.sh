@@ -6,7 +6,7 @@
 #   ./run_remote.sh
 #
 # Assumes: AWS credentials, pulumi, uv, and a stack that has been `pulumi up`'d
-# (or pass --deploy to do it here). Results land in ../results.jsonl.
+# (or pass --deploy to do it here). Results land in ../polars_lance/results.jsonl.
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
@@ -39,7 +39,7 @@ TMP=$(mktemp -d)
 # The archive must not live in the directory being archived: tar notices it
 # growing under itself and exits non-zero, which `set -e` turns into an abort.
 mkdir "$TMP/payload"
-cp ../gen.py ../index.py ../cases.py ../run_matrix.py bootstrap.sh "$TMP/payload/"
+cp ../polars_lance/gen.py ../polars_lance/index.py ../polars_lance/cases.py ../polars_lance/run_matrix.py bootstrap.sh "$TMP/payload/"
 cp "$HERE"/dist/polars_pylance-*.whl "$TMP/payload/"
 tar czf "$TMP/payload.tgz" -C "$TMP/payload" .
 
@@ -96,13 +96,13 @@ echo "== fetching results =="
 # fits in one response with room to spare.
 printf 'gzip -c /mnt/nvme/results.jsonl | base64 -w0\n' > "$TMP/fetch.sh"
 ./ssm.sh "$TMP/fetch.sh" 300 \
-  | grep -E '^[A-Za-z0-9+/=]{100,}$' | base64 -d | gunzip > ../results.jsonl
+  | grep -E '^[A-Za-z0-9+/=]{100,}$' | base64 -d | gunzip > ../polars_lance/results.jsonl
 REMOTE=$(printf 'wc -l < /mnt/nvme/results.jsonl\n' > "$TMP/count.sh"; \
          ./ssm.sh "$TMP/count.sh" 120 | grep -E '^[0-9]+$' | head -1)
-LOCAL=$(wc -l < ../results.jsonl)
+LOCAL=$(wc -l < ../polars_lance/results.jsonl)
 echo "records: $LOCAL local, $REMOTE remote"
 [ "$LOCAL" = "$REMOTE" ] || { echo "TRUNCATED FETCH, refusing to analyse" >&2; exit 1; }
-python3 ../analyse.py ../results.jsonl | tee ../results.txt
+python3 ../polars_lance/analyse.py ../polars_lance/results.jsonl | tee ../polars_lance/results.txt
 
 echo
 echo "Done. The instance is STILL RUNNING and still billing."

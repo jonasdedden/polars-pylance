@@ -10,8 +10,8 @@ copy, on `polars` 1.44.1 and `pylance` 10.0.0. Used a 1 GiB to 49.2 GiB dataset
 ladder on an AWS instance `m8id.4xlarge` (16 vCPU Xeon 6975P-C, 64 GiB RAM,
 885 GB local NVMe).
 
-301 measurements, reproducible with [`bench`](bench/README.md).
-Raw data is committed as `bench/results-m8id4xl.jsonl`.
+301 measurements, reproducible with [`bench`](bench/polars_lance/README.md).
+Raw data is committed as `bench/polars_lance/results-m8id4xl.jsonl`.
 
 ---
 
@@ -108,7 +108,7 @@ reported upstream rather than dissected here:
   retries those with Polars' predicate pushdown disabled, which runs and is the
   same work, since `polars-lance` pushes no predicate into Lance either way.
 - [#14](https://github.com/jorritsandbrink/polars-lance/issues/14): the reason 
-  `bench/analyse.py` compares answers rather than only times: the same mismatch
+  `bench/polars_lance/analyse.py` compares answers rather than only times: the same mismatch
   can decode into a *different* operation instead of failing, and then the query
   is silently wrong.
 
@@ -116,7 +116,7 @@ reported upstream rather than dissected here:
 
 ### Write benchmarks
 
-![write: `polars-lance` peak tracks the result, ours stays flat](bench/plots/static/write-scaling.svg)
+![write: `polars-lance` peak tracks the result, ours stays flat](bench/polars_lance/plots/static/write-scaling.svg)
 
 | write filtered projection | `polars-lance` | `polars-pylance` | |
 | --- | --- | --- | --- |
@@ -139,7 +139,7 @@ The **fixed-budget** pass pins memory at 8 GiB with swap
 disabled and grows the data past it, which is the question that decides whether
 a job exists at all:
 
-![write under a fixed 8 GiB budget](bench/plots/static/write-fixed-budget.svg)
+![write under a fixed 8 GiB budget](bench/polars_lance/plots/static/write-fixed-budget.svg)
 
 | write, 8 GiB budget | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
@@ -175,7 +175,7 @@ Three of those four are measured with Polars' predicate pushdown turned off on
 the `polars-lance` side, because its scan node refuses the expression outright
 (see [above](#correctness-and-stability-issues-in-polars-lance)).
 
-![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.svg)
+![computed predicate: the gap widens with the data](bench/polars_lance/plots/static/computed-predicate-scaling.svg)
 
 None of these four can be expressed as a PyArrow expression, which is the
 ceiling for `pl.scan_pyarrow_dataset` and for Polars' own `scan_delta` and
@@ -188,7 +188,7 @@ in Polars, so the answer never depends on how much of it Lance understood.
 
 #### Full scan
 
-![full scan: runtime and peak memory vs dataset size](bench/plots/static/full-scan-scaling.svg)
+![full scan: runtime and peak memory vs dataset size](bench/polars_lance/plots/static/full-scan-scaling.svg)
 
 | full scan + payload aggregate | `polars-lance` | `polars-pylance` |
 | --- | --- | --- |
@@ -215,7 +215,7 @@ indices on `id` and `val`, BITMAP on `cat` and NGRAM on `text`:
 
 | membership, indexed | substring, indexed |
 | --- | --- |
-| ![is_in against polars-lance, indexed](bench/plots/static/indexed-membership-scaling.svg) | ![contains against polars-lance, indexed](bench/plots/static/indexed-substring-scaling.svg) |
+| ![is_in against polars-lance, indexed](bench/polars_lance/plots/static/indexed-membership-scaling.svg) | ![contains against polars-lance, indexed](bench/polars_lance/plots/static/indexed-substring-scaling.svg) |
 
 `polars-lance` line climbs with the data and `polars-pylance` is flat, which is **186x** on
 membership and **106x** on substring at the top tier.
@@ -225,7 +225,7 @@ itself shows up:
 
 | membership, BTREE | substring, NGRAM |
 | --- | --- |
-| ![is_in with and without a BTREE index](bench/plots/static/index-membership.svg) | ![contains with and without an NGRAM index](bench/plots/static/index-substring.svg) |
+| ![is_in with and without a BTREE index](bench/polars_lance/plots/static/index-membership.svg) | ![contains with and without an NGRAM index](bench/polars_lance/plots/static/index-substring.svg) |
 
 The indexed lines are flat while the unindexed ones grow, which is the whole
 point of an index and is visible only because the predicate got there.

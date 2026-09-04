@@ -57,4 +57,5 @@ nav:
   - Vector search: VECTOR_SEARCH.md
   - Polars Cloud: POLARS_CLOUD.md
   - Benchmarks: BENCHMARKS.md
+  - Dataframe benchmarks: DIST_BENCHMARKS.md
   - API reference: reference/

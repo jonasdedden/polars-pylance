@@ -63,9 +63,27 @@ typing = [
 ]
 # Pinned here because "ALL" rules.
 lint = ["ruff>=0.16.5"]
-# Only for `bench/plot.py`, which renders the large-scale results.
+# Only for `bench/polars_lance/plot.py`, which renders the large-scale results.
 # kaleido renders the static PNG/SVG embedded in COMPARISON.md.
 bench = ["plotly>=5", "kaleido>=0.2"]
+# `bench/dataframe/` runs the sharded pipeline on Ray Core, Dask, Ray Data
+# (lance-ray) and Daft, on both of Daft's runners. They arrive here rather than
+# in the runtime dependencies: distributing a benchmark is opt-in, and the
+# library itself only ever needs polars, pylance and pyarrow.
+dataframe = [
+    "ray>=2.40",
+    "lance-ray>=0.4",
+    "dask[distributed]>=2024.8",
+    # The `lance` extra is `daft-lance`, without which `daft.read_lance`
+    # raises at call time rather than failing to import.
+    "daft[lance]>=0.6",
+    # One Narwhals spelling covers the Polars, Daft and Arrow query paths.
+    "narwhals>=2.10",
+    # sin/cos for the Daft backend arrive via the narwhals-daft plugin; git
+    # tracks jonasdedden/narwhals-daft@trig-exprs (upstream PR #137) until
+    # it is released, then this goes back to PyPI.
+    "narwhals-daft @ git+https://github.com/jonasdedden/narwhals-daft@trig-exprs",
+]
 # `properdocs build --strict` renders the site. ProperDocs is the maintained
 # continuation of MkDocs 1.x, by its last active maintainer: `mkdocs` itself has
 # had no release since 1.6.1 in August 2024, and the "MkDocs 2.0" that is
@@ -196,6 +214,10 @@ convention = "google"
     "S603",
     "T201",
 ]
+# The query registry lowers predicates through narwhals' private compliant
+# layer on purpose (see `_extract_polars`); the two inline markers name the
+# remaining private-use diagnostics.
+"bench/dataframe/queries/cases.py" = ["SLF001"]
 # `filter` is the argument name Lance's own `scanner()` uses; renaming it here
 # would make the passthrough read worse.
 "src/polars_pylance/_scan.py" = ["A002"]
