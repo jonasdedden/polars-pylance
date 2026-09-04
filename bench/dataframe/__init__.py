@@ -9,5 +9,5 @@ Layout, by area:
 - `metrics` -- measurement code: wall time, CPU and peak memory over the
   query only, never cluster startup.
 - `driver` -- the case matrix and its per-process measurements.
-- `analyse` -- renders `dist-results.jsonl` as comparison tables.
+- `analyse` -- renders `dataframe-results.jsonl` as comparison tables.
 """

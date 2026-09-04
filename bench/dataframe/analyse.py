@@ -1,4 +1,4 @@
-"""Render dist-results.jsonl as one comparison table per case."""
+"""Render dataframe-results.jsonl as one comparison table per case."""
 
 from __future__ import annotations
 

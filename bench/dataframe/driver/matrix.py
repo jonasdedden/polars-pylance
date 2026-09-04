@@ -27,7 +27,7 @@ from bench.dataframe.queries import CaseName
 
 ROOT = os.environ.get("BENCH_ROOT", "/mnt/nvme")
 PY = os.environ.get("BENCH_PYTHON", sys.executable)
-RESULTS = Path(ROOT) / "dist-results.jsonl"
+RESULTS = Path(ROOT) / "dataframe-results.jsonl"
 # Memory caps need systemd with cgroup v2; `BENCH_CAPS=0` runs each
 # measurement directly, like the single-node driver.
 CAPS = os.environ.get("BENCH_CAPS", "1") != "0"

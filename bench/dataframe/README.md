@@ -75,19 +75,27 @@ small tier and invert the ranking.
 export BENCH_ROOT=/mnt/fast-nvme
 uv run bench/polars_lance/gen.py 2000000 4000000 8000000
 uv run --group dataframe python -m bench.dataframe.driver.matrix 2000000,4000000,8000000 55
-uv run --group dataframe python -m bench.dataframe.analyse "$BENCH_ROOT/dist-results.jsonl"
+uv run --group dataframe python -m bench.dataframe.analyse "$BENCH_ROOT/dataframe-results.jsonl"
 ```
 
-The distributed tier needs a real cluster and storage every worker reaches:
+On EC2 the same tier runs through `bench/infra/run_dataframe_remote.sh`,
+which uploads the payload, bootstraps the venv, generates the ladder, runs
+the matrix in the background, and fetches the records (`LADDER`, `CAP_GIB`
+and `DIST_SHARDS` tune it; the Pulumi stack itself is untouched).
+
+The distributed tier needs a real cluster and storage every worker reaches.
+Multi-node provisioning (more EC2 instances behind one cluster) is TODO --
+`bench/infra/` only provisions the single node, and `run_dataframe_remote.sh`
+covers the single-node tier. Against a cluster you already run yourself:
 
 ```sh
 export BENCH_ROOT=/mnt/fast-nvme          # shared by driver and workers
-uv run bench/gen.py 400000000 800000000   # ~200 and ~400 GiB
+uv run bench/polars_lance/gen.py 400000000 800000000   # ~200 and ~400 GiB
 DIST_CLUSTER=ray://head-node:10001 uv run --group dataframe \
     python -m bench.dataframe.driver.matrix 400000000,800000000 55
 ```
 
-`run_matrix` takes `<ladder> <cap-GiB>` and writes `dist-results.jsonl`.
+`run_matrix` takes `<ladder> <cap-GiB>` and writes `dataframe-results.jsonl`.
 Each (backend, case, tier) runs in its own process -- except the commit
 sweep, which shares one warmed process per backend -- and every (case,
 tier) is verified before the next one starts. A failure is recorded, not
@@ -195,4 +203,4 @@ Either way the interesting column next to wall time is `plan_bytes` /
 | `backends/` | platform code: `threads`, `ray-core`, `dask`, `ray-data`, `daft`, `daft-ray`, plus the registry and the shared plan-shipping pipeline in `sharded` |
 | `metrics/` | measurement code: the timed region (`measured`), machine-wide CPU, peak memory |
 | `driver/` | `cases` (one measurement per process) and `matrix` (the full ladder) |
-| `analyse.py` | renders `dist-results.jsonl` as a comparison table |
+| `analyse.py` | renders `dataframe-results.jsonl` as a comparison table |
