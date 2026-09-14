@@ -1,10 +1,7 @@
 # Polars Cloud
 
-> **Not installable today.** polars-cloud 0.10 pins `polars==1.43.2`, below this
-> package's `polars>=1.44.1` floor, so there is no `cloud` extra and the two
-> cannot be resolved together. Everything here is written and kept working
-> against the 0.10 API; it becomes usable when polars-cloud ships a release
-> tracking 1.44.
+Install the client with the `cloud` extra (`pip install polars-pylance[cloud]`),
+which brings `polars-cloud>=0.11` tracking `polars==1.44.2`.
 
 Reads are designed to ship: a scan serializes to a few kB and carries a URI,
 never an open dataset handle. Workers need `pylance` and `polars-pylance`

@@ -352,9 +352,8 @@ def test_callback_survives_into_a_cloud_plan(tmp_path: Path, lance_uri: str) -> 
 
     Also skipped without `cloudpickle`, which polars needs to serialize the
     callback into the plan. It arrives as `polars[cloudpickle]`, a transitive
-    dependency of polars-cloud -- and polars-cloud cannot currently be installed
-    beside this package, since 0.10 pins `polars==1.43.2` below our 1.44.0 floor.
-    `pip install cloudpickle` is enough to run this test on its own.
+    dependency of polars-cloud, and as an explicit test dependency so this test
+    also runs without the `cloud` extra installed.
     """
     prepare_cloud_plan = pytest.importorskip("polars._utils.cloud").prepare_cloud_plan
     pytest.importorskip("cloudpickle")

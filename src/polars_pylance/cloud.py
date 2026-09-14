@@ -1,13 +1,10 @@
 """Helpers for running Lance scans and writes on Polars Cloud.
 
-!!! warning "Not installable today"
-    polars-cloud pins polars with `==` (0.10.0 pins `polars==1.43.2`), which is
-    below this package's `polars>=1.44.1` floor, so there is no `cloud` extra and
-    the two cannot be resolved together. Everything here is written and kept
-    working against the 0.10 API; it becomes usable as soon as polars-cloud ships
-    a release tracking 1.44. See "The polars pin" below.
+Install the client with the `cloud` extra (`pip install polars-pylance[cloud]`),
+which brings `polars-cloud>=0.11` tracking `polars==1.44.2`. See "The polars pin"
+below for why the extra exists rather than a hard dependency.
 
-What works and what does not, as of polars-cloud 0.10:
+What works and what does not, as of polars-cloud 0.11:
 
 ### Reading
 
@@ -40,17 +37,16 @@ a single call, in direct mode with anonymous storage configured for `allow_delet
 
 ### The polars pin
 
-polars-cloud 0.10 requires `polars==1.43.2`, up from 1.42.1 in 0.9, and this
-package now requires `polars>=1.44.1`. Those are mutually exclusive, which is why
-the `cloud` extra was dropped rather than left declared: an extra pinning below
-the floor breaks `uv lock` as well as `pip install polars-pylance[cloud]`.
+polars-cloud pins polars with `==` (0.11 tracks `polars==1.44.2`, 0.10 required
+`polars==1.43.2`), and this package requires `polars>=1.44.1`. The `cloud` extra
+is an extra rather than a hard dependency so a plain `pip install polars-pylance`
+stays usable without a Cloud workspace; installing the extra resolves both to a
+1.44 line that supports the IO-plugin hook `scan_lance` is built on.
 
 The floor is there because 1.43.2 is the last release in which a `sort().head()`
 pushes an unevaluable `dynamic_pred` node into an IO plugin's predicate, which is
 exactly what `scan_lance` is. 1.44.0 fixed that but was yanked, so 1.44.1 is the
-first usable release. Installing polars-cloud alongside polars-pylance downgrades
-polars into that range and reintroduces it, so it is not a supported workaround.
-Wait for the polars-cloud release that tracks 1.44.
+first usable release.
 """
 
 from __future__ import annotations

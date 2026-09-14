@@ -41,6 +41,11 @@ dependencies = [
     "pyarrow",
 ]
 
+[project.optional-dependencies]
+# polars-cloud 0.11 tracks polars 1.44, so this resolves together with the
+# `polars>=1.44.1` floor again (0.10 pinned `polars==1.43.2` and could not).
+cloud = ["polars-cloud>=0.11"]
+
 [project.urls]
 Homepage = "https://github.com/jonasdedden/polars-pylance"
 Documentation = "https://jonasdedden.github.io/polars-pylance/"
@@ -55,10 +60,13 @@ Changelog = "https://github.com/jonasdedden/polars-pylance/releases"
 test = ["pytest>=8", "numpy", "cloudpickle"]
 # pyarrow ships no py.typed marker of its own; `pyarrow-stubs` is the community
 # stub package. `test` included because `tests/`'s type checking depends on it.
+# `polars-cloud` so the `TYPE_CHECKING` import in `_remote.py` resolves; it is
+# the same pin as the `cloud` extra, kept in step with it.
 typing = [
     "mypy>=1.11",
     "basedpyright>=1.20",
     "pyarrow-stubs>=20",
+    "polars-cloud>=0.11",
     { include-group = "test" },
 ]
 # Pinned here because "ALL" rules.
@@ -121,7 +129,6 @@ include = [
 testpaths = ["tests", "src"]
 addopts = ["--doctest-modules"]
 markers = [
-    # Deselected in CI (`-m "not cloud"`) while polars-cloud is uninstallable.
     "cloud: exercises the Polars Cloud write path",
 ]
 filterwarnings = [
@@ -129,7 +136,7 @@ filterwarnings = [
     "error",
     # `register_io_source` (scan_lance), `collect_batches` (sink_lance) and
     # `sink_batches` (the Polars Cloud write) all still carry polars'
-    # `@unstable()` in 1.44.1.
+    # `@unstable()` in 1.44.2.
     "ignore::polars.exceptions.UnstableWarning",
 ]
 

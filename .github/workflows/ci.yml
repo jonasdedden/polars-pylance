@@ -78,8 +78,6 @@ jobs:
         with:
           enable-cache: true
           cache-suffix: ${{ github.job }}-${{ matrix.python-version }}
-      # `-m "not cloud"` deselects the Polars Cloud write path. Drop the flag
-      # once a polars-cloud release tracks polars 1.44.
-      # Only the `test` group: the type checkers are irrelevant here, and this
-      # job installs five times over.
-      - run: uv run --python ${{ matrix.python-version }} --no-default-groups --group test pytest -q -m "not cloud"
+      # Only the `test` group plus the `cloud` extra: the type checkers are
+      # irrelevant here, and this job installs five times over.
+      - run: uv run --python ${{ matrix.python-version }} --no-default-groups --group test --extra cloud pytest -q

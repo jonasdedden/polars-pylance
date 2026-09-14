@@ -216,8 +216,7 @@ so its peak tracks the shard count.
 ## Development
 
 ```sh
-uv run pytest
-uv run pytest -m "not cloud"     # what CI runs
+uv run --group test --extra cloud pytest
 uv run mypy                      # strict, over src, tests and bench
 uv run basedpyright
 uv run --only-group lint ruff check .   # the version in uv.lock, as CI uses
@@ -231,8 +230,7 @@ uv run --group bench bench/plot.py bench/results-m8id4xl.jsonl --out bench/plots
 
 Reads serialize into a cloud query plan, and since polars-cloud 0.10 the write
 runs on the workers too: `sink_batches()` cloudpickles a Lance fragment writer
-into the plan, and a single client-side commit publishes what they wrote. It is
-not installable today, because polars-cloud pins a polars below this package's
-floor.
+into the plan, and a single client-side commit publishes what they wrote.
+Install it with `pip install polars-pylance[cloud]`.
 
 The [Polars Cloud guide](https://jonasdedden.github.io/polars-pylance/dev/POLARS_CLOUD/) has the whole story.

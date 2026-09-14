@@ -33,7 +33,7 @@ jobs:
       # No version step: `uv-dynamic-versioning` derives it from the tag that
       # this release points at, and the build hook writes it into `_version.py`.
       - name: tests
-        run: uv run --no-default-groups --group test pytest -q -m "not cloud"
+        run: uv run --no-default-groups --group test --extra cloud pytest -q
 
       - name: build sdist and wheel
         run: uv build
