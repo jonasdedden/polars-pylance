@@ -1145,8 +1145,7 @@ write a 49 GiB source in under 2 GiB of RAM where an eager writer needs 51 GiB.
 The fragment-parallel path trades memory for wall time: 16 shards write at once,
 so its peak tracks the shard count.</p>
 <h2 id="development">Development<a class="headerlink" href="#development" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>pytest
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;not cloud&quot;</span><span class="w">     </span><span class="c1"># what CI runs</span>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </span><span class="nb">test</span><span class="w"> </span>--extra<span class="w"> </span>cloud<span class="w"> </span>pytest
 uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w">                      </span><span class="c1"># strict, over src, tests and bench</span>
 uv<span class="w"> </span>run<span class="w"> </span>basedpyright
 uv<span class="w"> </span>run<span class="w"> </span>--only-group<span class="w"> </span>lint<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w">   </span><span class="c1"># the version in uv.lock, as CI uses</span>
@@ -1158,9 +1157,8 @@ uv<span class="w"> </span>run<span class="w"> </span>--group<span class="w"> </s
 <h2 id="polars-cloud">Polars Cloud<a class="headerlink" href="#polars-cloud" title="Permanent link">&para;</a></h2>
 <p>Reads serialize into a cloud query plan, and since polars-cloud 0.10 the write
 runs on the workers too: <code>sink_batches()</code> cloudpickles a Lance fragment writer
-into the plan, and a single client-side commit publishes what they wrote. It is
-not installable today, because polars-cloud pins a polars below this package's
-floor.</p>
+into the plan, and a single client-side commit publishes what they wrote.
+Install it with <code>pip install polars-pylance[cloud]</code>.</p>
 <p>The <a href="POLARS_CLOUD/">Polars Cloud guide</a> has the whole story.</p>
 
 

@@ -688,13 +688,8 @@
 
 
 <h1 id="polars-cloud">Polars Cloud<a class="headerlink" href="#polars-cloud" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p><strong>Not installable today.</strong> polars-cloud 0.10 pins <code>polars==1.43.2</code>, below this
-package's <code>polars&gt;=1.44.1</code> floor, so there is no <code>cloud</code> extra and the two
-cannot be resolved together. Everything here is written and kept working
-against the 0.10 API; it becomes usable when polars-cloud ships a release
-tracking 1.44.</p>
-</blockquote>
+<p>Install the client with the <code>cloud</code> extra (<code>pip install polars-pylance[cloud]</code>),
+which brings <code>polars-cloud&gt;=0.11</code> tracking <code>polars==1.44.2</code>.</p>
 <p>Reads are designed to ship: a scan serializes to a few kB and carries a URI,
 never an open dataset handle. Workers need <code>pylance</code> and <code>polars-pylance</code>
 installed, via <code>ComputeContext(requirements=...)</code>.
