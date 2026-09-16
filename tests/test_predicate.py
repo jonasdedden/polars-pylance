@@ -205,7 +205,10 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "cast",
         pl.col("id").cast(pl.Float64) > 1,
-        "((CAST(`id` AS double) > 1) OR CAST(`id` AS double) < CAST('-inf' AS double))",
+        (
+            "((CAST(`id` AS double) > 1.0) "
+            "OR CAST(`id` AS double) < CAST('-inf' AS double))"
+        ),
     ),
     ("date part", pl.col("ts").dt.year() == 2024, "(date_part('year', `ts`) = 2024)"),
     # Polars counts Monday as 1; SQL's `dow` counts Sunday as 0.
@@ -793,6 +796,10 @@ EDGES = pl.DataFrame(
         "b": [True, False, None, True, None, False, True, False, None, True, False],
         "l": [[1.0], [-0.0], None, [], [0.0], [1.0, None], [7.0], [2.0], [], [], []],
     }
+).with_columns(
+    # The same floats one level down, where only the struct's type says so.
+    s=pl.struct(x=pl.col("f")),
+    fl=pl.concat_list(pl.col("f")),
 )
 
 EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
@@ -820,6 +827,20 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("computed float vs float", (pl.col("f") * 2.0) <= pl.col("g").abs()),
     ("is_between zeros", pl.col("f").is_between(-0.0, 0.0)),
     ("list contains a zero", pl.col("l").list.contains(0.0)),
+    # An integer literal is compared as a float, as Polars' optimizer would.
+    ("float >= int 0", pl.col("f") >= 0),
+    ("float < int 1", pl.col("f") < 1),
+    ("is_in an int zero", pl.col("f").is_in([0, 5])),
+    ("list contains an int zero", pl.col("l").list.contains(0)),
+    # Nested floats get their type from the struct or list type in the schema.
+    ("struct field = 0", pl.col("s").struct.field("x") == 0),
+    ("struct field > 1.0", pl.col("s").struct.field("x") > 1.0),
+    ("struct field < float", pl.col("s").struct.field("x") < pl.col("g")),
+    ("list element = 0", pl.col("fl").list.get(0, null_on_oob=True) == 0),
+    (
+        "list element <= float",
+        pl.col("fl").list.get(0, null_on_oob=True) <= pl.col("g"),
+    ),
     ("null literal", pl.lit(None, dtype=pl.Boolean)),
     ("modulo", (pl.col("i") % 2) == 1),
     ("modulo of a negation", (-pl.col("i") % 2) == 1),
