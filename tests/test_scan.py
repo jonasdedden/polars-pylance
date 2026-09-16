@@ -138,6 +138,53 @@ def test_fragments_n_shards(lance_uri: str, expected: pl.DataFrame) -> None:
     assert got.item() == expected.height
 
 
+def test_fragment_shards_keep_the_version_their_ids_came_from(
+    tmp_path: Path, expected: pl.DataFrame
+) -> None:
+    """Fragment ids are reused across versions, so a shard must not follow the latest.
+
+    After an overwrite, fragment 0 exists again but holds the new data. An unpinned
+    shard would read it without any error.
+    """
+    uri = str(tmp_path / "overwritten.lance")
+    lance.write_dataset(expected.to_arrow(), uri, max_rows_per_file=len(expected) // 4)
+    shards = scan_lance_fragments(uri)
+
+    lance.write_dataset(expected.head(5).to_arrow(), uri, mode="overwrite")
+
+    got = pl.concat(shards).collect(engine="streaming")
+    assert_frame_equal(got.sort("id"), expected.sort("id"))
+
+
+def test_fragment_shards_resolve_a_tag_once(
+    tmp_path: Path, expected: pl.DataFrame
+) -> None:
+    """A tag can be moved; the shards keep the version it named when they were made."""
+    uri = str(tmp_path / "tagged-shards.lance")
+    dataset = lance.write_dataset(expected.to_arrow(), uri)
+    dataset.tags.create("current", dataset.version)
+    shards = scan_lance_fragments(uri, version="current")
+
+    moved = lance.write_dataset(expected.head(5).to_arrow(), uri, mode="overwrite")
+    moved.tags.update("current", moved.version)
+
+    got = pl.concat(shards).select(pl.len()).collect(engine="streaming")
+    assert got.item() == expected.height
+
+
+def test_fragment_shards_of_a_dataset_object_honour_version(
+    tmp_path: Path, expected: pl.DataFrame
+) -> None:
+    uri = str(tmp_path / "object-shards.lance")
+    first = lance.write_dataset(expected.to_arrow(), uri).version
+    latest = lance.write_dataset(expected.to_arrow(), uri, mode="append")
+
+    shards = scan_lance_fragments(latest, version=first)
+
+    got = pl.concat(shards).select(pl.len()).collect(engine="streaming")
+    assert got.item() == expected.height
+
+
 def test_dataset_object_pins_version(tmp_path: Path, expected: pl.DataFrame) -> None:
     uri = str(tmp_path / "versioned.lance")
     lance.write_dataset(expected.to_arrow(), uri)
