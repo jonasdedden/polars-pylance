@@ -2041,19 +2041,7 @@ scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_predicate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">183</span>
-<span class="normal">184</span>
-<span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
-<span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">195</span>
 <span class="normal">196</span>
 <span class="normal">197</span>
 <span class="normal">198</span>
@@ -2087,7 +2075,19 @@ scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
 <span class="normal">226</span>
 <span class="normal">227</span>
 <span class="normal">228</span>
-<span class="normal">229</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
     <span class="n">predicate</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">max_in_list</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">MAX_IN_LIST</span><span class="p">,</span>

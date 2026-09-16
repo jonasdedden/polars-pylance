@@ -930,6 +930,10 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 <td>Polars floors, SQL truncates</td>
 </tr>
 <tr>
+<td><code>min_horizontal</code> / <code>max_horizontal</code> over floats</td>
+<td>Polars skips NaN, <code>least</code> / <code>greatest</code> do not</td>
+</tr>
+<tr>
 <td>narrowing integer cast</td>
 <td>Polars raises on overflow, Lance wraps</td>
 </tr>
@@ -948,9 +952,15 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 </tbody>
 </table>
 <p>Everything else translates, including <code>is_in</code> of any length, <code>xor</code>,
-<code>eq_missing</code>, arithmetic, <code>abs</code>, <code>**</code>, <code>min_horizontal</code> / <code>max_horizontal</code>,
-<code>fill_null</code>, the <code>is_nan</code> family, <code>cast</code>, the <code>dt</code> parts, <code>list.contains</code> /
+<code>eq_missing</code>, arithmetic, <code>abs</code>, <code>**</code>, <code>min_horizontal</code> / <code>max_horizontal</code> over
+integers, <code>fill_null</code>, the <code>is_nan</code> family, <code>cast</code>, the <code>dt</code> parts, <code>list.contains</code> /
 <code>len</code> / <code>get</code>, <code>struct.field</code> and <code>concat_str</code>.</p>
+<p>Float comparisons translate with a correction. Lance orders floats by IEEE total
+order, so <code>-0.0 &lt; 0.0</code> and a NaN with its sign bit set, which is what <code>0 / 0</code>
+produces, sorts below every number. Polars treats the zeros as equal and every NaN
+as larger than any number. So <code>val &gt; 0.5</code> is sent as
+<code>((val &gt; 0.5) OR val &lt; CAST('-inf' AS double))</code>, which still uses a scalar index on
+<code>val</code>.</p>
 <h2 id="prefilters-are-stricter">Prefilters are stricter<a class="headerlink" href="#prefilters-are-stricter" title="Permanent link">&para;</a></h2>
 <p>A prefilter for a vector search cannot lower loosely, because there is no
 second pass that could repair the candidate set the search already used. It
