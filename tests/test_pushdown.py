@@ -142,7 +142,7 @@ BEYOND_PYARROW: list[tuple[str, pl.Expr, str]] = [
     ("string length", pl.col("cat").str.len_chars() == 1, "length"),
     ("is_nan", pl.col("val").is_nan(), "isnan"),
     ("xor", (pl.col("id") > 5) ^ (pl.col("cat") == "b"), "NOT"),
-    ("min_horizontal", pl.min_horizontal("id", "val") > 0.5, "least"),
+    ("min_horizontal", pl.min_horizontal("id", pl.col("id") * 2) > 100, "least"),
 ]
 
 
@@ -393,7 +393,8 @@ def test_an_indexed_column_keeps_its_index(
         .collect(engine="streaming")
     )
 
-    assert filters == ["(`val` > 0.999)"]
+    assert filters == ["((`val` > 0.999) OR `val` < CAST('-inf' AS double))"]
+    assert "ScalarIndexQuery" in dataset.scanner(filter=filters[0]).explain_plan()
     assert got.item() == rich_frame.filter(pl.col("val") > 0.999).height
 
 

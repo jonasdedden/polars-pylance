@@ -9,6 +9,7 @@ differential tests that run both against a real dataset.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import operator
 import random
 import threading
@@ -160,12 +161,31 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.col("val") == 0.0,
         "(CAST(`val` AS double) IN (-0.0, 0.0))",
     ),
-    ("float below zero", pl.col("val") < 0.0, "(CAST(`val` AS double) < -0.0)"),
-    ("float above zero", pl.col("val") > 0.0, "(CAST(`val` AS double) > 0.0)"),
+    # `x < -inf` holds for exactly a NaN with its sign bit set, which Lance
+    # orders below every number and Polars above.
+    (
+        "float below zero",
+        pl.col("val") < 0.0,
+        (
+            "((CAST(`val` AS double) < -0.0)"
+            " AND CAST(`val` AS double) >= CAST('-inf' AS double))"
+        ),
+    ),
+    (
+        "float above zero",
+        pl.col("val") > 0.0,
+        (
+            "((CAST(`val` AS double) > 0.0)"
+            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
+        ),
+    ),
     (
         "zero on the left",
         pl.lit(0.0) <= pl.col("val"),
-        "(CAST(`val` AS double) >= -0.0)",
+        (
+            "((CAST(`val` AS double) >= -0.0)"
+            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
+        ),
     ),
     ("negate", -pl.col("id") < 0, "((- `id`) < 0)"),
     ("power", (pl.col("id") ** 2) > 9, "(power(`id`, 2) > 9)"),
@@ -181,7 +201,12 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         "(greatest(`id`, `opt`) > 3)",
     ),
     ("column vs column", pl.col("id") > pl.col("opt"), "(`id` > `opt`)"),
-    ("cast", pl.col("id").cast(pl.Float64) > 1, "(CAST(`id` AS double) > 1)"),
+    # Without a schema `id` may be a float column, and so may hold a NaN.
+    (
+        "cast",
+        pl.col("id").cast(pl.Float64) > 1,
+        "((CAST(`id` AS double) > 1) OR CAST(`id` AS double) < CAST('-inf' AS double))",
+    ),
     ("date part", pl.col("ts").dt.year() == 2024, "(date_part('year', `ts`) = 2024)"),
     # Polars counts Monday as 1; SQL's `dow` counts Sunday as 0.
     (
@@ -243,8 +268,22 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     ("alias is transparent", (pl.col("id") > 7).alias("x"), "(`id` > 7)"),
     ("quoted identifier", pl.col("odd name") > 1, "(`odd name` > 1)"),
     # Polars promotes to float to compare; Lance refuses the mixed comparison.
-    ("int against float", pl.col("id") > 1.5, "(CAST(`id` AS double) > 1.5)"),
-    ("true division", pl.col("id") / 2 > 1.5, "((CAST(`id` AS double) / 2) > 1.5)"),
+    (
+        "int against float",
+        pl.col("id") > 1.5,
+        (
+            "((CAST(`id` AS double) > 1.5)"
+            " OR CAST(`id` AS double) < CAST('-inf' AS double))"
+        ),
+    ),
+    (
+        "true division",
+        pl.col("id") / 2 > 1.5,
+        (
+            "(((CAST(`id` AS double) / 2) > 1.5)"
+            " OR (CAST(`id` AS double) / 2) < CAST('-inf' AS double))"
+        ),
+    ),
     ("string escaping", pl.col("cat") == "o'brien", "(`cat` = 'o''brien')"),
     (
         "date literal",
@@ -394,7 +433,10 @@ def test_relaxation_survives_nesting_in_a_conjunction() -> None:
     lowered = to_lance_filter(predicate)
     assert lowered is not None
     assert not lowered.exact
-    assert lowered.sql == "((`id` > 5) OR (CAST(`val` AS double) < 0.1))"
+    assert lowered.sql == (
+        "((`id` > 5) OR ((CAST(`val` AS double) < 0.1) "
+        "AND CAST(`val` AS double) >= CAST('-inf' AS double)))"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -594,10 +636,57 @@ def test_a_float_column_is_not_cast_when_the_schema_says_so() -> None:
     """A redundant `CAST` costs Lance's scalar index, so drop it where we can."""
     predicate = pl.col("val") > 0.999
     assert to_lance_filter(predicate) == LanceFilter(
-        sql="(CAST(`val` AS double) > 0.999)", exact=True
+        sql=(
+            "((CAST(`val` AS double) > 0.999)"
+            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
+        ),
+        exact=True,
     )
     assert to_lance_filter(predicate, schema=pl.Schema({"val": pl.Float64})) == (
-        LanceFilter(sql="(`val` > 0.999)", exact=True)
+        LanceFilter(
+            sql="((`val` > 0.999) OR `val` < CAST('-inf' AS double))", exact=True
+        )
+    )
+
+
+def test_a_float32_column_gets_a_bound_of_its_own_type() -> None:
+    """A `double` bound makes Lance cast the column, which costs its index."""
+    lowered = to_lance_filter(
+        pl.col("val") <= 0.5, schema=pl.Schema({"val": pl.Float32})
+    )
+    assert lowered == LanceFilter(
+        sql="((`val` <= 0.5) AND `val` >= CAST('-inf' AS float))", exact=True
+    )
+
+
+def test_an_integer_column_is_not_guarded_against_nan() -> None:
+    schema = pl.Schema({"id": pl.Int64, "val": pl.Float64})
+    assert to_lance_filter(pl.col("id") > 1.5, schema=schema) == LanceFilter(
+        sql="(CAST(`id` AS double) > 1.5)", exact=True
+    )
+
+
+def test_float_columns_are_compared_with_nan_made_positive() -> None:
+    schema = pl.Schema({"f": pl.Float64, "g": pl.Float64})
+    lowered = to_lance_filter(pl.col("f") < pl.col("g"), schema=schema)
+    nan = "CAST('NaN' AS double)"
+    left, right = f"nanvl(`f`, {nan})", f"nanvl(`g`, {nan})"
+    assert lowered == LanceFilter(
+        sql=(
+            f"(({left} < {right}) AND NOT "
+            f"({left} IN (-0.0, 0.0) AND {right} IN (-0.0, 0.0)))"
+        ),
+        exact=True,
+    )
+
+
+def test_min_and_max_horizontal_over_floats_decline() -> None:
+    """Polars skips NaN there; `least` and `greatest` do not."""
+    schema = pl.Schema({"id": pl.Int64, "val": pl.Float64})
+    assert to_lance_filter(pl.min_horizontal("id", "val") > 1, schema=schema) is None
+    assert to_lance_filter(pl.max_horizontal("id", "val") > 1, schema=schema) is None
+    assert to_lance_filter(pl.max_horizontal("id", "id") > 1, schema=schema) == (
+        LanceFilter(sql="(greatest(`id`, `id`) > 1)", exact=True)
     )
 
 
@@ -679,13 +768,30 @@ def test_the_schema_does_not_change_which_rows_survive(
 # Boolean composition: values where SQL and Polars part ways
 # ---------------------------------------------------------------------------
 
+NAN = float("nan")
+NEG_NAN = math.copysign(math.nan, -1.0)
+
 EDGES = pl.DataFrame(
     {
-        "i": [1, 2, 3, None, 5, 0, -7, 7],
-        "f": [1.0, float("nan"), None, -0.0, 2.5, 0.0, -1.5, 1.5],
-        "g": [0.0, 1.0, 2.0, 0.0, -0.0, -0.0, None, 2.0],
-        "b": [True, False, None, True, None, False, True, False],
-        "l": [[1.0], [-0.0], None, [], [0.0], [1.0, None], [7.0], [2.0]],
+        "i": [1, 2, 3, None, 5, 0, -7, 7, 4, 6, -1],
+        # A NaN with its sign bit set is what `0 / 0` gives on x86. Lance orders
+        # it below every number, Polars above.
+        "f": [
+            1.0,
+            NAN,
+            None,
+            -0.0,
+            2.5,
+            0.0,
+            -1.5,
+            1.5,
+            NEG_NAN,
+            NEG_NAN,
+            float("inf"),
+        ],
+        "g": [0.0, 1.0, 2.0, 0.0, -0.0, -0.0, None, 2.0, NAN, 1.0, NEG_NAN],
+        "b": [True, False, None, True, None, False, True, False, None, True, False],
+        "l": [[1.0], [-0.0], None, [], [0.0], [1.0, None], [7.0], [2.0], [], [], []],
     }
 )
 
@@ -719,6 +825,11 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("modulo of a negation", (-pl.col("i") % 2) == 1),
     ("modulo by a negative", (pl.col("i") % -3) == -1),
     ("nan comparison", pl.col("f") > 1.0),
+    ("nan below", pl.col("f") < 1.0),
+    ("nan at most", pl.col("f") <= 2.5),
+    ("nan at least", pl.col("f") >= -1.5),
+    ("nan between", pl.col("f").is_between(-10.0, 10.0)),
+    ("nan against a computed value", (pl.col("f") * 2.0) > 1.0),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
 ]
 
