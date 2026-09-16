@@ -72,5 +72,10 @@ a workaround, and 0.10's
 submits N shards as one distributed query instead of N remote ones. Note that
 `collect_all(lazy=True)` requires every LazyFrame to end in a sink.
 
-Still untested without a workspace: how the planner *executes* those nodes.
-Serializing is necessary, not sufficient.
+Serializing is necessary, not sufficient, so how a planner *executes* those
+nodes is what `tests/k8s/` exercises: a scheduler and two workers in a local
+Kubernetes cluster, a `scan_lance` node running on a worker, a sharded
+`pl.concat()` read that has to land on more than one of them, and a
+`sink_lance_remote()` write the client commits. Deploying the cluster needs a
+workspace's credentials, so it runs in CI rather than on a plain checkout;
+`.github/actions/polars-onprem-cluster/README.md` has the setup.

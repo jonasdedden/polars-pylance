@@ -1,0 +1,110 @@
+name: polars-cloud k8s e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      chart_version:
+        description: polars-inc/polars Helm chart version
+        default: "3.0.2"
+
+# The free tier allows ONE concurrent cluster per workspace, so all runs of
+# this workflow (across branches) queue behind each other.
+concurrency:
+  group: polars-cloud-k8s-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Client and workers have to agree on the full Python version: Polars checks
+  # the patch release too when deserializing Python IO sources.
+  PYTHON_VERSION: "3.12.14"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check credentials are available
+        id: creds
+        env:
+          HAS_ID: ${{ secrets.POLARS_CLIENT_ID != '' }}
+        run: |
+          if [[ "$HAS_ID" != "true" ]]; then
+            echo "::warning::POLARS_* secrets not available (e.g. fork PR); skipping k8s e2e."
+          fi
+          echo "ok=$HAS_ID" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: steps.creds.outputs.ok == 'true'
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        if: steps.creds.outputs.ok == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+          cache-suffix: ${{ github.job }}
+
+      # The pins come from `requirements_txt()`, so the workers run the polars
+      # the client runs -- polars-cloud rejects a mismatch -- and the commit
+      # under test (the merge commit, for a pull request) stands in for the
+      # released package, which is what makes this a test of the branch rather
+      # than of PyPI.
+      - name: Render worker requirements
+        id: requirements
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          SOURCE: ${{ github.server_url }}/${{ github.repository }}/archive/${{ github.sha }}.tar.gz
+        run: |
+          {
+            echo "text<<REQUIREMENTS"
+            uv run --no-default-groups --group test --extra cloud python -c \
+              'from polars_pylance.cloud import requirements_txt; print(requirements_txt(), end="")' \
+              | sed "s|^polars-pylance$|polars-pylance @ $SOURCE|"
+            echo "REQUIREMENTS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Start Polars cluster
+        id: cluster
+        if: steps.creds.outputs.ok == 'true'
+        uses: ./.github/actions/polars-onprem-cluster
+        with:
+          client-id: ${{ secrets.POLARS_CLIENT_ID }}
+          client-secret: ${{ secrets.POLARS_CLIENT_SECRET }}
+          workspace-id: ${{ secrets.POLARS_WORKSPACE_ID }}
+          chart-version: ${{ inputs.chart_version || '3.0.2' }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          worker-requirements: ${{ steps.requirements.outputs.text }}
+
+      # The project environment, because the client here *is* this package:
+      # it writes the source dataset, ships the scan, and commits what the
+      # workers wrote. `-o filterwarnings=default` overrides the `error` in
+      # `[tool.pytest.ini_options]`: that one guards our own code, and a
+      # warning out of the cloud client or the cluster is not this
+      # repository's to fix and should not fail the job.
+      - name: Client e2e tests (runner -> cluster)
+        if: steps.creds.outputs.ok == 'true'
+        env:
+          POLARS_K8S_E2E: "1"
+          POLARS_SCHEDULER_URI: ${{ steps.cluster.outputs.scheduler-uri }}
+          POLARS_OBSERVATORY_URI: ${{ steps.cluster.outputs.observatory-uri }}
+          S3_ENDPOINT: ${{ steps.cluster.outputs.object-store-endpoint }}
+          S3_BUCKET: ${{ steps.cluster.outputs.object-store-bucket }}
+        run: >-
+          uv run --no-default-groups --group test --extra cloud
+          pytest tests/k8s -v -rs --durations=10 -o filterwarnings=default
+
+      - name: Stop Polars cluster
+        if: always() && steps.creds.outputs.ok == 'true'
+        uses: ./.github/actions/polars-onprem-cluster/teardown
+        with:
+          collect-diagnostics: ${{ job.status == 'failure' }}
+          artifact-name: k8s-diagnostics

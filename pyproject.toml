@@ -187,6 +187,10 @@ convention = "google"
     "S301",
     "S311",
 ]
+# The cluster suite sits in its own directory under `tests/`, which makes it an
+# implicit namespace package. pytest collects it by path like the rest of
+# `tests/`, so there is nothing to import it as.
+"tests/k8s/*" = ["INP001"]
 # Run by `mkdocs-gen-files` by path, not imported, so it is no more a package
 # than `bench/` is.
 "scripts/*" = ["INP001"]

@@ -1,0 +1,101 @@
+name: Polars on-premises cluster teardown
+description: >-
+  Collect diagnostics from a cluster deployed by `polars-onprem-cluster` and
+  uninstall it, which deregisters it from the control plane and frees the
+  workspace's cluster slot. Run it with `if: always()`.
+
+inputs:
+  namespace:
+    description: Kubernetes namespace of the release.
+    default: polars
+  release:
+    description: Helm release name.
+    default: polars
+  collect-diagnostics:
+    description: >-
+      Dump nodes, resources, events and pod logs, print a summary and upload
+      them as an artifact. Typically set from `job.status == 'failure'`.
+    default: "false"
+  artifact-name:
+    description: Name of the diagnostics artifact.
+    default: polars-onprem-diagnostics
+  retention-days:
+    description: Days to keep the diagnostics artifact.
+    default: "7"
+
+runs:
+  using: composite
+  steps:
+    - name: Snapshot cluster state
+      if: inputs.collect-diagnostics == 'true'
+      id: snapshot
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+      # Best effort: a cluster that failed to come up is exactly the one to
+      # describe, so one command failing must not stop the rest.
+      run: |
+        set +e
+        out="$RUNNER_TEMP/polars-onprem-diagnostics"
+        mkdir -p "$out"
+        echo "dir=$out" >> "$GITHUB_OUTPUT"
+
+        kubectl get nodes -o wide                             &> "$out/nodes.txt"
+        kubectl -n "$NAMESPACE" get all -o wide               &> "$out/resources.txt"
+        kubectl -n "$NAMESPACE" describe pods                 &> "$out/pods-describe.txt"
+        kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp &> "$out/events.txt"
+        helm -n "$NAMESPACE" status "$RELEASE"                &> "$out/helm-status.txt"
+
+    - name: Collect pod logs
+      if: inputs.collect-diagnostics == 'true'
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        OUT: ${{ steps.snapshot.outputs.dir }}
+      run: |
+        set +e
+        for pod in $(kubectl -n "$NAMESPACE" get pods -o name); do
+          name="${pod#pod/}"
+          kubectl -n "$NAMESPACE" logs "$pod" --all-containers --prefix &> "$OUT/logs-$name.txt"
+          kubectl -n "$NAMESPACE" logs "$pod" --all-containers --prefix --previous \
+            &> "$OUT/logs-$name-previous.txt" || rm -f "$OUT/logs-$name-previous.txt"
+        done
+
+    - name: Summarize diagnostics
+      if: inputs.collect-diagnostics == 'true'
+      shell: bash
+      env:
+        OUT: ${{ steps.snapshot.outputs.dir }}
+      run: |
+        echo "::group::Resources"; cat "$OUT/resources.txt"; echo "::endgroup::"
+        echo "::group::Recent events"; tail -n 50 "$OUT/events.txt"; echo "::endgroup::"
+        for file in "$OUT"/logs-*scheduler*.txt "$OUT"/logs-*worker*.txt; do
+          [[ -f "$file" ]] || continue
+          echo "::group::$(basename "$file" .txt) (tail)"; tail -n 80 "$file"; echo "::endgroup::"
+        done
+
+    - name: Upload diagnostics
+      if: inputs.collect-diagnostics == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.snapshot.outputs.dir }}
+        retention-days: ${{ inputs.retention-days }}
+
+    # Before uninstalling, while the images and the workers' installed
+    # packages still occupy the disk: the peak a runner has to accommodate.
+    - name: Report disk usage
+      shell: bash
+      continue-on-error: true
+      run: |
+        df -h /
+        docker system df
+
+    - name: Uninstall Polars
+      shell: bash
+      continue-on-error: true
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+      run: helm uninstall "$RELEASE" -n "$NAMESPACE" --wait --timeout 3m

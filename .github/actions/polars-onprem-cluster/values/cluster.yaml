@@ -1,0 +1,83 @@
+# Values for polars-inc/polars (written against chart 3.0.2 / app 0.8.5),
+# sized for a standard GitHub-hosted Linux runner (4 vCPU / 16 GiB).
+#
+# Credentials are not in this file: they are read from the
+# "polars-onprem-license" secret the action creates from its inputs. The
+# runtime image tag, worker requirements, worker count and cluster ID are set
+# from inputs too.
+
+license:
+  onPrem:
+    enabled: true
+    clientId:
+      valueFrom:
+        secretKeyRef:
+          name: polars-onprem-license
+          key: client_id
+    clientSecret:
+      valueFrom:
+        secretKeyRef:
+          name: polars-onprem-license
+          key: client_secret
+    workspaceId:
+      valueFrom:
+        secretKeyRef:
+          name: polars-onprem-license
+          key: workspace_id
+
+logLevel: info
+
+scheduler:
+  services:
+    # NodePort so kind can map it to the host; the action pins the port numbers.
+    scheduler:
+      type: NodePort
+    observatory:
+      type: NodePort
+  deployment:
+    distContainer:
+      resources:
+        requests:
+          ephemeral-storage: 1Gi
+    runtimeContainer:
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+          ephemeral-storage: 1Gi
+
+worker:
+  deployment:
+    # Prefer one worker per kind worker node.
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: worker
+    distContainer:
+      resources:
+        requests:
+          ephemeral-storage: 1Gi
+    runtimeContainer:
+      resources:
+        requests:
+          cpu: "1"
+          memory: 3Gi
+          ephemeral-storage: 1Gi
+        limits:
+          memory: 4Gi
+
+tests:
+  pod:
+    distContainer:
+      resources:
+        requests:
+          ephemeral-storage: 1Gi
+    runtimeContainer:
+      resources:
+        requests:
+          ephemeral-storage: 1Gi

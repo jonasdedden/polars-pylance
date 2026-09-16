@@ -1,0 +1,261 @@
+name: Polars on-premises cluster in kind
+description: >-
+  Deploy a Polars on-premises cluster (scheduler, workers and an optional
+  S3-compatible object store) into a throwaway kind cluster on the runner, and
+  expose it on localhost so a polars-cloud client in the job can query it.
+  Pair with the `teardown` action to collect diagnostics and free the
+  workspace's cluster slot.
+
+inputs:
+  client-id:
+    description: Service account client ID of a Kubernetes-type Polars Cloud workspace.
+    required: true
+  client-secret:
+    description: Service account client secret of that workspace.
+    required: true
+  workspace-id:
+    description: ID of that workspace.
+    required: true
+  cluster-id:
+    description: >-
+      UUID the cluster registers under. Defaults to one derived from the
+      repository, run ID and run attempt, so a re-run registers afresh.
+    default: ""
+  chart-version:
+    description: Version of the `polars-inc/polars` Helm chart.
+    default: "3.0.2"
+  python-version:
+    description: >-
+      Full Python version of the worker runtime image. Python IO sources carry
+      serialized closures, so this has to match the client's Python exactly,
+      patch release included.
+    default: "3.12.14"
+  worker-requirements:
+    description: >-
+      requirements.txt contents installed on every worker at boot, for the
+      packages a query needs to import there. Empty installs nothing extra.
+    default: ""
+  worker-replicas:
+    description: Number of worker pods.
+    default: "2"
+  values:
+    description: >-
+      Extra Helm values as inline YAML, applied last, for anything the other
+      inputs do not cover.
+    default: ""
+  object-store:
+    description: >-
+      Deploy a SeaweedFS S3 store reachable as `http://objectstore:8333` from
+      the cluster and the runner alike, and route anonymous query results
+      through it. Adds an `/etc/hosts` entry on the runner.
+    default: "true"
+  object-store-access-key-id:
+    description: Access key ID of the throwaway object store.
+    default: ci-access-key
+  object-store-secret-access-key:
+    description: Secret access key of the throwaway object store.
+    default: ci-secret-key-not-sensitive
+  run-chart-tests:
+    description: Run the chart's own in-cluster suite (`helm test`) as a readiness check.
+    default: "true"
+  kind-cluster-name:
+    description: Name of the kind cluster.
+    default: polars
+  kind-config:
+    description: >-
+      Path to a kind cluster config. Defaults to the bundled one: a control
+      plane and two worker nodes, with host ports 5051, 3001 and 8333 mapped
+      to the NodePorts this action pins. A replacement has to keep those
+      mappings.
+    default: ""
+  namespace:
+    description: Kubernetes namespace for the release.
+    default: polars
+  release:
+    description: Helm release name; also the prefix of every resource the chart creates.
+    default: polars
+
+outputs:
+  scheduler-uri:
+    description: Scheduler endpoint on the runner, for `polars_cloud.ClusterContext(uri=...)`.
+    value: http://localhost:5051
+  observatory-uri:
+    description: Observatory endpoint on the runner, for `polars_cloud.ClientOptions(uri=...)`.
+    value: http://localhost:3001
+  object-store-endpoint:
+    description: S3 endpoint of the object store, the same on the runner and in the cluster. Empty without one.
+    value: ${{ inputs.object-store == 'true' && 'http://objectstore:8333' || '' }}
+  object-store-bucket:
+    description: Bucket created in the object store. Empty without one.
+    value: ${{ inputs.object-store == 'true' && 'polars' || '' }}
+  cluster-id:
+    description: UUID the cluster registered under.
+    value: ${{ steps.cluster-id.outputs.cluster-id }}
+  namespace:
+    description: Kubernetes namespace of the release.
+    value: ${{ inputs.namespace }}
+  release:
+    description: Helm release name.
+    value: ${{ inputs.release }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create kind cluster
+      uses: helm/kind-action@v1
+      with:
+        cluster_name: ${{ inputs.kind-cluster-name }}
+        config: ${{ inputs.kind-config || format('{0}/kind-config.yaml', github.action_path) }}
+        wait: 120s
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v5
+
+    - name: Derive cluster ID
+      id: cluster-id
+      shell: bash
+      env:
+        CLUSTER_ID: ${{ inputs.cluster-id }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+      run: |
+        if [[ -z "$CLUSTER_ID" ]]; then
+          CLUSTER_ID="$(python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))' "$RUN_URL")"
+        fi
+        echo "cluster-id=$CLUSTER_ID" >> "$GITHUB_OUTPUT"
+        echo "Cluster ID: $CLUSTER_ID"
+
+    - name: Create namespace
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      run: kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Store workspace credentials
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        CLIENT_SECRET: ${{ inputs.client-secret }}
+        WORKSPACE_ID: ${{ inputs.workspace-id }}
+      run: |
+        kubectl -n "$NAMESPACE" create secret generic polars-onprem-license \
+          --from-literal=client_id="$CLIENT_ID" \
+          --from-literal=client_secret="$CLIENT_SECRET" \
+          --from-literal=workspace_id="$WORKSPACE_ID" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Store object store credentials
+      if: inputs.object-store == 'true'
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        ACCESS_KEY_ID: ${{ inputs.object-store-access-key-id }}
+        SECRET_ACCESS_KEY: ${{ inputs.object-store-secret-access-key }}
+      run: |
+        kubectl -n "$NAMESPACE" create secret generic objectstore-credentials \
+          --from-literal=aws_access_key_id="$ACCESS_KEY_ID" \
+          --from-literal=aws_secret_access_key="$SECRET_ACCESS_KEY" \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    - name: Deploy object store
+      if: inputs.object-store == 'true'
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        MANIFEST: ${{ github.action_path }}/manifests/object-store.yaml
+      run: |
+        kubectl -n "$NAMESPACE" apply -f "$MANIFEST"
+        kubectl -n "$NAMESPACE" rollout status deployment/objectstore --timeout=5m
+
+    - name: Resolve object store hostname on the runner
+      if: inputs.object-store == 'true'
+      shell: bash
+      run: echo "127.0.0.1 objectstore" | sudo tee -a /etc/hosts
+
+    # Every file in this directory is handed to Helm in name order, so the
+    # bundled values come first and the caller's own override them.
+    - name: Stage Helm values
+      id: values
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        OBJECT_STORE: ${{ inputs.object-store }}
+        WORKER_REQUIREMENTS: ${{ inputs.worker-requirements }}
+        EXTRA_VALUES: ${{ inputs.values }}
+      run: |
+        dir="$RUNNER_TEMP/polars-onprem-cluster"
+        mkdir -p "$dir/values"
+        cp "$ACTION_PATH/values/cluster.yaml" "$dir/values/10-cluster.yaml"
+        if [[ "$OBJECT_STORE" == "true" ]]; then
+          cp "$ACTION_PATH/values/object-store.yaml" "$dir/values/20-object-store.yaml"
+        fi
+        printf '%s\n' "$EXTRA_VALUES" > "$dir/values/90-extra.yaml"
+        printf '%s' "$WORKER_REQUIREMENTS" > "$dir/requirements.txt"
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+
+        echo "::group::Worker requirements"
+        cat "$dir/requirements.txt"
+        echo "::endgroup::"
+
+    - name: Install Polars chart
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+        CHART_VERSION: ${{ inputs.chart-version }}
+        CLUSTER_ID: ${{ steps.cluster-id.outputs.cluster-id }}
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        WORKER_REPLICAS: ${{ inputs.worker-replicas }}
+        STAGED: ${{ steps.values.outputs.dir }}
+      run: |
+        values=()
+        for file in "$STAGED"/values/*.yaml; do values+=(--values "$file"); done
+
+        helm upgrade --install "$RELEASE" polars \
+          --repo https://polars-inc.github.io/helm-charts \
+          --version "$CHART_VERSION" \
+          --namespace "$NAMESPACE" \
+          "${values[@]}" \
+          --set-string fullnameOverride="$RELEASE" \
+          --set-string clusterId="$CLUSTER_ID" \
+          --set-string runtime.composed.runtime.tag="$PYTHON_VERSION-slim-bookworm" \
+          --set-file runtime.composed.requirements="$STAGED/requirements.txt" \
+          --set worker.deployment.replicaCount="$WORKER_REPLICAS" \
+          --wait --timeout 15m
+
+    # The chart has no value for a fixed nodePort, and kind can only map
+    # ports it knows before the cluster exists.
+    - name: Pin NodePorts to the host port mappings
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+      run: |
+        kubectl -n "$NAMESPACE" patch service "$RELEASE-scheduler" \
+          -p '{"spec":{"ports":[{"port":5051,"nodePort":30051}]}}'
+        kubectl -n "$NAMESPACE" patch service "$RELEASE-observatory" \
+          -p '{"spec":{"ports":[{"port":3001,"nodePort":30001}]}}'
+
+    - name: Wait for endpoints on the runner
+      shell: bash
+      env:
+        PORTS: ${{ inputs.object-store == 'true' && '5051 3001 8333' || '5051 3001' }}
+      run: |
+        for port in $PORTS; do
+          timeout 120 bash -c "until (exec 3<>/dev/tcp/localhost/$port) 2>/dev/null; do sleep 2; done"
+          echo "localhost:$port is reachable"
+        done
+
+    - name: Show pods
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+      run: kubectl -n "$NAMESPACE" get pods -o wide
+
+    - name: Run chart tests
+      if: inputs.run-chart-tests == 'true'
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.namespace }}
+        RELEASE: ${{ inputs.release }}
+      run: helm test "$RELEASE" -n "$NAMESPACE" --timeout 15m --logs
