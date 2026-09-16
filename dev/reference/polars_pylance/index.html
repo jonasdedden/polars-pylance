@@ -1439,8 +1439,7 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 50</span>
-<span class="normal"> 51</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 51</span>
 <span class="normal"> 52</span>
 <span class="normal"> 53</span>
 <span class="normal"> 54</span>
@@ -1599,7 +1598,8 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 <span class="normal">207</span>
 <span class="normal">208</span>
 <span class="normal">209</span>
-<span class="normal">210</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="normal">210</span>
+<span class="normal">211</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">LanceScanSpec</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Everything needed to reproduce a scan, and nothing that cannot be pickled.</span>
 
@@ -1794,10 +1794,10 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">121</span>
-<span class="normal">122</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">122</span>
 <span class="normal">123</span>
-<span class="normal">124</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">arrow_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">:</span>
+<span class="normal">124</span>
+<span class="normal">125</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">arrow_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Full output schema, including any Lance-generated columns.&quot;&quot;&quot;</span>
     <span class="n">dataset</span> <span class="o">=</span> <span class="n">dataset</span> <span class="k">if</span> <span class="n">dataset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">scanner</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span><span class="o">.</span><span class="n">projected_schema</span>
@@ -1827,8 +1827,7 @@ dropping the generator early stops the scan.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">134</span>
-<span class="normal">135</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">135</span>
 <span class="normal">136</span>
 <span class="normal">137</span>
 <span class="normal">138</span>
@@ -1875,7 +1874,8 @@ dropping the generator early stops the scan.</p>
 <span class="normal">179</span>
 <span class="normal">180</span>
 <span class="normal">181</span>
-<span class="normal">182</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">iter_frames</span><span class="p">(</span>
+<span class="normal">182</span>
+<span class="normal">183</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">iter_frames</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -2164,11 +2164,11 @@ limits are pushed into Lance; batches are pulled only as the query consumes
 them, so <code>.head()</code> stops the scan early. Use <code>engine="streaming"</code> when
 collecting: the in-memory engine materialises the whole result and gives up
 the memory advantage.</p>
-<p>The filter becomes a Lance SQL filter, so <code>is_in</code>, string functions, arithmetic,
-temporal parts and list or struct access reach the scanner, none of which a PyArrow
-expression can carry. A predicate that only partly translates is pushed as far as it
-goes and finished in Polars. <a class="autorefs autorefs-internal" title="            to_lance_filter" href="#polars_pylance.to_lance_filter"><code>to_lance_filter</code></a>
-shows what a given one lowers to.</p>
+<p>The filter becomes a Lance SQL filter, so string functions, arithmetic, temporal
+parts, long <code>is_in</code> lists and list or struct access reach the scanner, none of which
+Polars' own PyArrow lowering passes on. A predicate that only partly translates is
+pushed as far as it goes and finished in Polars.
+<a class="autorefs autorefs-internal" title="            to_lance_filter" href="#polars_pylance.to_lance_filter"><code>to_lance_filter</code></a> shows what one lowers to.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2398,8 +2398,7 @@ SQL's.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">429</span>
-<span class="normal">430</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">430</span>
 <span class="normal">431</span>
 <span class="normal">432</span>
 <span class="normal">433</span>
@@ -2481,7 +2480,8 @@ SQL's.</p>
 <span class="normal">509</span>
 <span class="normal">510</span>
 <span class="normal">511</span>
-<span class="normal">512</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
+<span class="normal">512</span>
+<span class="normal">513</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2503,11 +2503,11 @@ SQL's.</p>
 <span class="sd">    collecting: the in-memory engine materialises the whole result and gives up</span>
 <span class="sd">    the memory advantage.</span>
 
-<span class="sd">    The filter becomes a Lance SQL filter, so `is_in`, string functions, arithmetic,</span>
-<span class="sd">    temporal parts and list or struct access reach the scanner, none of which a PyArrow</span>
-<span class="sd">    expression can carry. A predicate that only partly translates is pushed as far as it</span>
-<span class="sd">    goes and finished in Polars. [`to_lance_filter`][polars_pylance.to_lance_filter]</span>
-<span class="sd">    shows what a given one lowers to.</span>
+<span class="sd">    The filter becomes a Lance SQL filter, so string functions, arithmetic, temporal</span>
+<span class="sd">    parts, long `is_in` lists and list or struct access reach the scanner, none of which</span>
+<span class="sd">    Polars&#39; own PyArrow lowering passes on. A predicate that only partly translates is</span>
+<span class="sd">    pushed as far as it goes and finished in Polars.</span>
+<span class="sd">    [`to_lance_filter`][polars_pylance.to_lance_filter] shows what one lowers to.</span>
 
 <span class="sd">    Args:</span>
 <span class="sd">        source: Dataset URI, path, or an open `lance.LanceDataset`. Passing a dataset</span>
@@ -2672,8 +2672,7 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">515</span>
-<span class="normal">516</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">516</span>
 <span class="normal">517</span>
 <span class="normal">518</span>
 <span class="normal">519</span>
@@ -2728,7 +2727,8 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 <span class="normal">568</span>
 <span class="normal">569</span>
 <span class="normal">570</span>
-<span class="normal">571</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
+<span class="normal">571</span>
+<span class="normal">572</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">n_shards</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>

@@ -988,9 +988,12 @@ The two can coexist in one environment but follow different implementation desig
 <p>Polars has no native Lance reader or writer
 (<a href="https://github.com/pola-rs/polars/issues/14452">pola-rs/polars#14452</a> has been
 open since 2024). Lance datasets do implement the PyArrow dataset protocol, so
-<code>pl.scan_pyarrow_dataset</code> works, but it cannot push down row limits, cannot pin a
-dataset version, cannot reach vector or full-text search, and leaves Lance's
-read-ahead defaults untouched where <code>io_buffer_size</code> alone defaults to 2 GiB.</p>
+<code>pl.scan_pyarrow_dataset</code> works, but Polars only lowers comparisons, Boolean logic,
+null checks, <code>is_between</code> and <code>is_in</code> of up to 100 values into the PyArrow filter it
+hands over. String functions, arithmetic, temporal parts and the rest are evaluated
+after reading. A <code>head()</code> stops pulling batches but never reaches Lance's scanner as a
+limit, vector and full-text search are out of reach, and Lance's read-ahead defaults
+stay untouched, where <code>io_buffer_size</code> alone defaults to 2 GiB.</p>
 <h2 id="reading">Reading<a class="headerlink" href="#reading" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span>
     <span class="s2">&quot;data.lance&quot;</span><span class="p">,</span>

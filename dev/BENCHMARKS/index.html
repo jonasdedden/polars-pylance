@@ -1059,8 +1059,9 @@ worth something:</p>
 </tr>
 </tbody>
 </table>
-<p>None of them can be expressed as a PyArrow expression, which is the limit of
-what <code>scan_pyarrow_dataset</code> and <code>scan_delta</code> can offer Lance. polars-pylance
+<p>On Polars 1.44.2 none of them reaches Lance through <code>scan_pyarrow_dataset</code> or
+<code>scan_delta</code> either: Polars' PyArrow lowering skips arithmetic, temporal parts and
+string functions, and lowers <code>is_in</code> only up to 100 values. polars-pylance
 translates the Polars expression into a Lance SQL filter instead, so the
 scanner does the work.</p>
 <p>polars-lance pushes no predicate into Lance at all, which is an acknowledged

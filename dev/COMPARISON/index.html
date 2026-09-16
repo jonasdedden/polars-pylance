@@ -1373,11 +1373,11 @@ never materialises the 512-byte payload for rows that do not survive.</p>
 the <code>polars-lance</code> side, because its scan node refuses the expression outright
 (see <a href="#correctness-and-stability-issues-in-polars-lance">above</a>).</p>
 <p><img alt="computed predicate: the gap widens with the data" src="../assets/comparison/computed-predicate-scaling.svg" /></p>
-<p>None of these four can be expressed as a PyArrow expression, which is the
-ceiling for <code>pl.scan_pyarrow_dataset</code> and for Polars' own <code>scan_delta</code> and
-<code>scan_iceberg</code> hook. Of 55 predicate shapes run through a real scan, that route
-gets 11 to Lance and this one gets 52. <code>docs/PUSHDOWN.md</code> has the table and the
-three deliberate exceptions.</p>
+<p>On Polars 1.44.2, none of these four reaches Lance through
+<code>pl.scan_pyarrow_dataset</code> either. Polars' PyArrow lowering, which also backs
+<code>scan_delta</code> and <code>scan_iceberg</code>, leaves arithmetic, temporal parts and string
+functions to be evaluated after the read, and lowers <code>is_in</code> only up to 100 values.
+<code>docs/PUSHDOWN.md</code> lists the constructs this translation deliberately declines.</p>
 <p>A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.</p>
 <h4 id="full-scan">Full scan<a class="headerlink" href="#full-scan" title="Permanent link">&para;</a></h4>
