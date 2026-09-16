@@ -119,7 +119,9 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
 | `//` | Polars floors, SQL truncates |
-| `%` by zero or by a column | a zero divisor gives null in Polars and fails the scan in Lance |
+| `%` by a column | a zero divisor row gives null in Polars and fails the scan in Lance |
+| `%` by a literal zero over a float or a column of unknown type | float `% 0` is NaN, not null, so only a known integer dividend lowers |
+| `%` by a literal zero over anything but a plain integer column or literal | replacing a computed dividend with null would hide its own errors (a failing strict cast raises in Polars) |
 | `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
 | `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
@@ -128,7 +130,9 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length, `xor`,
-`eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `**`,
+`eq_missing`, arithmetic (`%` by a non-zero integer literal, and `%` by a
+literal zero over a known integer column or literal, which lowers to a typed
+null), `abs`, `**`,
 `min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
 `cast`, the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.

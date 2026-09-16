@@ -707,23 +707,51 @@ class _Lowering:
         raise _Decline
 
     def _modulus(self, left: Json, right: Json) -> _Value:
-        """`a % b`, restricted to integers and a non-zero literal divisor.
+        """`a % b`, restricted to integers and a literal divisor.
 
         Polars' `%` takes the sign of the divisor and SQL's the sign of the
         dividend, which `((a % b) + b) % b` reconciles. A column divisor could be
         zero, which Polars answers with null and Lance with an error, or large
-        enough to overflow the sum. Float remainders drift in that spelling.
+        enough to overflow the sum. Float remainders drift in that spelling, and
+        a float `% 0` is NaN rather than null, so floats keep declining.
+
+        The one zero that lowers is an integer literal zero over an infallible
+        integer dividend: Polars answers that with null in the dividend's dtype
+        for every row, which `CAST(NULL AS <int type>)` spells. The dividend
+        must be a plain column or literal of known integer dtype. Anything
+        computed (a cast, arithmetic, function call, ...) could fail in Polars
+        -- a strict cast over a bad string raises instead of yielding null --
+        where the constant null would silently hide the error, so those keep
+        declining. Without a schema the column's dtype is unknown and may be
+        floating point, which also declines.
         """
         dividend = self.value(left)
         divisor = self.value(right)
-        kind, _ = _unpack(right)
-        if kind != "Literal" or dividend.floating or divisor.floating:
+        if _effective_kind(right) != "Literal" or dividend.floating or divisor.floating:
+            raise _Decline
+        if not (
+            divisor.is_literal
+            and divisor.dtype is not None
+            and divisor.dtype.is_integer()
+        ):
             raise _Decline
         try:
             number = int(divisor.sql)
         except ValueError as exc:
             raise _Decline from exc
-        if number == 0 or abs(number) > _MAX_MODULUS:
+        if number == 0:
+            if dividend.dtype is None or not dividend.dtype.is_integer():
+                raise _Decline
+            if _effective_kind(left) not in ("Column", "Literal"):
+                raise _Decline
+            sql_type = _integer_null_sql(dividend.dtype)
+            if sql_type is None:
+                raise _Decline
+            return _Value(
+                f"CAST(NULL AS {sql_type})",
+                dtype=dividend.dtype,
+            )
+        if abs(number) > _MAX_MODULUS:
             raise _Decline
         return _Value(
             f"((({dividend.sql} % {number}) + {number}) % {number})",
@@ -1112,6 +1140,40 @@ def _numeric_supertype(
         return None
     if left.is_integer() and right.is_integer():
         return pl.Int64()
+    return None
+
+
+def _effective_kind(node: Json) -> str:
+    """The IR tag of `node`, seeing through an `Alias` wrapper."""
+    kind, body = _unpack(node)
+    while kind == "Alias":
+        node = _inputs(body)[0]
+        kind, body = _unpack(node)
+    return kind
+
+
+def _integer_null_sql(dtype: pl.DataType) -> str | None:
+    """The SQL type for a typed null holding `dtype`, or None if unmapped.
+
+    Lance parses `<base> unsigned` but rejects `utinyint` and friends, and
+    `unsigned <base>`.
+    """
+    if isinstance(dtype, pl.Int8):
+        return "tinyint"
+    if isinstance(dtype, pl.Int16):
+        return "smallint"
+    if isinstance(dtype, pl.Int32):
+        return "integer"
+    if isinstance(dtype, pl.Int64):
+        return "bigint"
+    if isinstance(dtype, pl.UInt8):
+        return "tinyint unsigned"
+    if isinstance(dtype, pl.UInt16):
+        return "smallint unsigned"
+    if isinstance(dtype, pl.UInt32):
+        return "integer unsigned"
+    if isinstance(dtype, pl.UInt64):
+        return "bigint unsigned"
     return None
 
 

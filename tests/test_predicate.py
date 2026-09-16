@@ -419,8 +419,10 @@ DECLINED: list[tuple[str, pl.Expr]] = [
         pl.col("ts").dt.truncate("2d") == dt.datetime(2024, 1, 2),
     ),
     ("floor division", (pl.col("id") // 2) == 1),
-    # Polars yields null for a zero divisor where Lance fails the scan, and a
-    # column divisor could be zero or overflow the sign correction.
+    # A column divisor could be zero (null in Polars, an error in Lance) or
+    # overflow the sign correction. An integer literal zero over a known
+    # integer column lowers to a typed null (see below); without a schema the
+    # column may be floating point, where `% 0` is NaN rather than null.
     ("modulo by zero", (pl.col("id") % 0) == 1),
     ("modulo by a column", (pl.col("id") % pl.col("opt")) == 1),
     # The sign correction drifts for floats.
@@ -448,6 +450,134 @@ DECLINED: list[tuple[str, pl.Expr]] = [
 )
 def test_declined(predicate: pl.Expr) -> None:
     assert to_lance_filter(predicate) is None
+
+
+# ---------------------------------------------------------------------------
+# modulo by a literal zero: integers lower to a typed null
+# ---------------------------------------------------------------------------
+
+ZERO_SCHEMA = pl.Schema({"id": pl.Int64, "val": pl.Float64})
+
+
+def test_modulo_by_zero_lowers_to_a_typed_null() -> None:
+    """An integer column modulo a literal zero is null in every row.
+
+    Polars answers `int_col % 0` with null in the dividend's dtype, where Lance
+    fails the scan with divide-by-zero. `CAST(NULL AS <int type>)` spells that
+    null, so comparisons, `NOT`, `is_null` and friends stay exact. Float `% 0`
+    is NaN instead, so only known integers lower.
+    """
+    lowered = to_lance_filter((pl.col("id") % 0) == 1, schema=ZERO_SCHEMA)
+    assert lowered == LanceFilter(sql="(CAST(NULL AS bigint) = 1)", exact=True)
+    assert to_lance_filter(
+        ~((pl.col("id") % 0) == 1), schema=ZERO_SCHEMA
+    ) == LanceFilter(sql="(NOT (CAST(NULL AS bigint) = 1))", exact=True)
+    assert to_lance_filter(
+        (pl.col("id") % 0).is_null(), schema=ZERO_SCHEMA
+    ) == LanceFilter(sql="(CAST(NULL AS bigint) IS NULL)", exact=True)
+    assert to_lance_filter(
+        (pl.col("id") % 0).is_not_null(), schema=ZERO_SCHEMA
+    ) == LanceFilter(sql="(CAST(NULL AS bigint) IS NOT NULL)", exact=True)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "sql_type"),
+    [
+        pytest.param(pl.Int8, "tinyint", id="int8"),
+        pytest.param(pl.Int16, "smallint", id="int16"),
+        pytest.param(pl.Int32, "integer", id="int32"),
+        pytest.param(pl.Int64, "bigint", id="int64"),
+        pytest.param(pl.UInt8, "tinyint unsigned", id="uint8"),
+        pytest.param(pl.UInt16, "smallint unsigned", id="uint16"),
+        pytest.param(pl.UInt32, "integer unsigned", id="uint32"),
+        pytest.param(pl.UInt64, "bigint unsigned", id="uint64"),
+    ],
+)
+def test_modulo_by_zero_preserves_the_dividend_dtype(
+    dtype: pl.DataType, sql_type: str
+) -> None:
+    """The typed null keeps the dividend's width and signedness."""
+    schema = pl.Schema({"id": dtype})
+    lowered = to_lance_filter((pl.col("id") % 0) == 1, schema=schema)
+    assert lowered == LanceFilter(sql=f"(CAST(NULL AS {sql_type}) = 1)", exact=True)
+
+
+def test_modulo_by_zero_of_a_literal_lowers() -> None:
+    """An integer literal dividend cannot fail, so it lowers without a schema."""
+    lowered = to_lance_filter((pl.lit(5) % 0) == 1)
+    assert lowered is not None
+    assert lowered.exact
+    assert "CAST(NULL AS" in lowered.sql
+
+
+MODULO_ZERO_DECLINED: list[tuple[str, pl.Expr, pl.Schema | None]] = [
+    # Without a schema the column may be floating point, where `% 0` is NaN.
+    ("no schema", (pl.col("id") % 0) == 1, None),
+    # Float `% 0` is NaN, not null -- even with an integer zero divisor.
+    ("float dividend", (pl.col("val") % 0) == 1, ZERO_SCHEMA),
+    # An integer dividend with a float zero divisor is NaN as well.
+    ("float divisor", (pl.col("id") % 0.0) == 1, ZERO_SCHEMA),
+    # Replacing the whole expression with null would hide this cast failure:
+    # Polars raises instead of yielding null.
+    (
+        "strict cast dividend",
+        (pl.col("cat").cast(pl.Int64) % 0) == 1,
+        pl.Schema({"cat": pl.String}),
+    ),
+    # Anything computed could fail (or overflow differently) where a constant
+    # null would not, so only a plain column or literal qualifies.
+    ("computed dividend", ((pl.col("id") + 1) % 0) == 1, ZERO_SCHEMA),
+    ("negated dividend", ((-pl.col("id")) % 0) == 1, ZERO_SCHEMA),
+]
+
+
+@pytest.mark.parametrize(
+    ("predicate", "schema"),
+    [pytest.param(e, s, id=name) for name, e, s in MODULO_ZERO_DECLINED],
+)
+def test_modulo_by_zero_still_declines(
+    predicate: pl.Expr, schema: pl.Schema | None
+) -> None:
+    assert to_lance_filter(predicate, schema=schema) is None
+
+
+def test_modulo_by_zero_prefilter_needs_the_schema() -> None:
+    """The schema-less prefilter check declines; the schema'd scan lowers."""
+    from polars_pylance._scan import _prefilter_sql
+
+    predicate = (pl.col("id") % 0) == 1
+    with pytest.raises(ValueError, match="does not translate"):
+        _prefilter_sql(predicate, schema=None)
+    assert _prefilter_sql(predicate, schema=ZERO_SCHEMA) == (
+        "(CAST(NULL AS bigint) = 1)"
+    )
+
+
+def test_modulo_by_zero_matches_polars(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    """The typed null keeps exactly the rows Polars keeps, negated too."""
+    frame = pl.DataFrame({"id": pl.Series([1, 2, None, 0, -3], dtype=pl.Int64)})
+    uri = str(tmp_path_factory.mktemp("zero") / "zero.lance")
+    lance.write_dataset(frame.to_arrow(), uri)
+    dataset = lance.dataset(uri)
+    schema = frame.schema
+    predicates = [
+        (pl.col("id") % 0) == 1,
+        ~((pl.col("id") % 0) == 1),
+        (pl.col("id") % 0).is_null(),
+        (pl.col("id") % 0).is_not_null(),
+        (pl.col("id") % 0).is_in([1, 2]),
+        ~((pl.col("id") % 0).is_in([1, 2])),
+    ]
+    for predicate in predicates:
+        lowered = to_lance_filter(predicate, schema=schema)
+        assert lowered is not None, f"expected {predicate} to lower"
+        assert lowered.exact
+        pushed = set(dataset.scanner(filter=lowered.sql).to_table()["id"].to_pylist())
+        # `filter` drops nulls, which is what the scan's filter does.
+        kept = set(frame.filter(predicate)["id"].to_list())
+        assert pushed == kept, lowered.sql
 
 
 def test_long_is_in_is_declined() -> None:
