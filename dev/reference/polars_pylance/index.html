@@ -2589,6 +2589,10 @@ SQL's.</p>
 files. Use this to fan a scan out over threads, processes or workers, then recombine
 with <a class="autorefs autorefs-external" href="https://docs.pola.rs/api/python/stable/reference/api/polars.concat.html#polars.concat"><code>polars.concat</code></a>. Also the manual parallelisation route if a
 distributed planner refuses a Python scan node.</p>
+<p>Fragment ids only mean something within one version, so every shard is pinned to
+the version the ids were read from, which is the latest (or <code>version</code>) at the time
+of this call. A later write then cannot hand a shard another version's fragment
+under the same id.</p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2649,7 +2653,7 @@ yields one fragment per shard, not empty shards.</p>
               <div class="doc-md-description">
                 <p>Forwarded to <a class="autorefs autorefs-internal" title="            scan_lance" href="#polars_pylance.scan_lance"><code>scan_lance</code></a> for every
 shard, so <code>version</code>, <code>options</code>, <code>prefilter</code> and the rest apply to all of
-them alike.</p>
+them alike. <code>version</code> reaches the shards resolved to a number.</p>
               </div>
             </td>
             <td>
@@ -2717,7 +2721,14 @@ them alike.</p>
 <span class="normal">561</span>
 <span class="normal">562</span>
 <span class="normal">563</span>
-<span class="normal">564</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
+<span class="normal">564</span>
+<span class="normal">565</span>
+<span class="normal">566</span>
+<span class="normal">567</span>
+<span class="normal">568</span>
+<span class="normal">569</span>
+<span class="normal">570</span>
+<span class="normal">571</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">n_shards</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2730,6 +2741,11 @@ them alike.</p>
 <span class="sd">    with [`polars.concat`][polars.concat]. Also the manual parallelisation route if a</span>
 <span class="sd">    distributed planner refuses a Python scan node.</span>
 
+<span class="sd">    Fragment ids only mean something within one version, so every shard is pinned to</span>
+<span class="sd">    the version the ids were read from, which is the latest (or `version`) at the time</span>
+<span class="sd">    of this call. A later write then cannot hand a shard another version&#39;s fragment</span>
+<span class="sd">    under the same id.</span>
+
 <span class="sd">    Args:</span>
 <span class="sd">        source: Dataset URI, path, or an open `lance.LanceDataset`, as</span>
 <span class="sd">            [`scan_lance`][polars_pylance.scan_lance] takes it.</span>
@@ -2739,21 +2755,23 @@ them alike.</p>
 <span class="sd">            yields one fragment per shard, not empty shards.</span>
 <span class="sd">        **kwargs: Forwarded to [`scan_lance`][polars_pylance.scan_lance] for every</span>
 <span class="sd">            shard, so `version`, `options`, `prefilter` and the rest apply to all of</span>
-<span class="sd">            them alike.</span>
+<span class="sd">            them alike. `version` reaches the shards resolved to a number.</span>
 
 <span class="sd">    Examples:</span>
 <span class="sd">        &gt;&gt;&gt; shards = scan_lance_fragments(&quot;data.lance&quot;, n_shards=4)  # doctest: +SKIP</span>
 <span class="sd">        &gt;&gt;&gt; pl.concat(shards).collect(engine=&quot;streaming&quot;)  # doctest: +SKIP</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">dataset</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="n">source</span>
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">)</span>
-        <span class="k">else</span> <span class="n">lance</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span>
+    <span class="n">version</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;version&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">):</span>
+        <span class="n">dataset</span> <span class="o">=</span> <span class="n">source</span> <span class="k">if</span> <span class="n">version</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">source</span><span class="o">.</span><span class="n">checkout_version</span><span class="p">(</span><span class="n">version</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dataset</span> <span class="o">=</span> <span class="n">lance</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span>
             <span class="nb">str</span><span class="p">(</span><span class="n">source</span><span class="p">),</span>
-            <span class="n">version</span><span class="o">=</span><span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;version&quot;</span><span class="p">),</span>
+            <span class="n">version</span><span class="o">=</span><span class="n">version</span><span class="p">,</span>
             <span class="n">storage_options</span><span class="o">=</span><span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;storage_options&quot;</span><span class="p">),</span>
         <span class="p">)</span>
-    <span class="p">)</span>
+    <span class="c1"># A number, not the tag or &quot;latest&quot; it was resolved from: both can move.</span>
+    <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;version&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">version</span>
     <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span><span class="o">.</span><span class="n">fragment_id</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">get_fragments</span><span class="p">()]</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">ids</span><span class="p">:</span>
         <span class="k">return</span> <span class="p">[</span><span class="n">scan_lance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">fragments</span><span class="o">=</span><span class="p">[],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)]</span>
