@@ -253,6 +253,31 @@ def _frames(
             spec, options=spec.options.replace(batch_size=batch_size)
         )
 
+    schema = spec.polars_schema(dataset) if predicate is not None else None
+    plan = _plan_scan(spec, predicate, schema=schema)
+    yield from _execute_scan(plan, dataset, with_columns, n_rows)
+
+
+@dataclass(frozen=True)
+class _ScanPlan:
+    """Serializable filter decisions, independent of an open dataset or iterator.
+
+    `predicate` is retained even for exact SQL: execution must be able to
+    recover if Lance rejects it. Projection and limits remain execution inputs
+    so an optimizer can narrow them after the plan has been constructed.
+    """
+
+    spec: LanceScanSpec
+    sql: str | None
+    residual: pl.Expr | None
+    predicate: pl.Expr | None
+    prefilter: bool
+
+
+def _plan_scan(
+    spec: LanceScanSpec, predicate: pl.Expr | None, *, schema: pl.Schema | None
+) -> _ScanPlan:
+    """Translate a scan's filter without opening a scanner or consuming rows."""
     sql: str | None
     if spec.prefilter is not None:
         # Lance's one filter slot is spoken for. The prefilter decides which
@@ -262,7 +287,7 @@ def _frames(
         sql, residual, prefilter = spec.prefilter, predicate, True
     else:
         lowered = (
-            to_lance_filter(predicate, schema=spec.polars_schema(dataset))
+            to_lance_filter(predicate, schema=schema)
             if predicate is not None and spec.predicate_pushdown
             else None
         )
@@ -272,23 +297,37 @@ def _frames(
         sql = lowered.sql if lowered is not None else None
         prefilter = False
 
+    return _ScanPlan(spec, sql, residual, predicate, prefilter)
+
+
+def _execute_scan(
+    plan: _ScanPlan,
+    dataset: lance.LanceDataset,
+    projection: list[str] | None,
+    n_rows: int | None,
+) -> Iterator[pl.DataFrame]:
+    """Execute a planned scan, retaining equivalent fallback semantics."""
     batches = _apply(
-        spec, dataset, with_columns, sql, residual, n_rows, prefilter=prefilter
+        plan.spec,
+        dataset,
+        projection,
+        plan.sql,
+        plan.residual,
+        n_rows,
+        prefilter=plan.prefilter,
     )
     try:
         first = next(batches)
     except StopIteration:
         return
     except _FilterRejected as exc:
-        # Only reachable for a lowered predicate: `iter_frames` lets a rejected
-        # prefilter raise Lance's own error instead.
         warnings.warn(
             f"polars-pylance: Lance rejected the pushed-down filter ({exc}); "
             "scanning without it",
             RuntimeWarning,
             stacklevel=2,
         )
-        yield from _apply(spec, dataset, with_columns, None, predicate, n_rows)
+        yield from _apply(plan.spec, dataset, projection, None, plan.predicate, n_rows)
         return
     yield first
     yield from batches
