@@ -22,7 +22,7 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import lance
 import polars as pl
@@ -440,6 +440,7 @@ def scan_lance(
     with_row_address: bool = False,
     fragments: Sequence[int] | None = None,
     predicate_pushdown: bool = True,
+    backend: Literal["io", "resolver"] = "io",
 ) -> pl.LazyFrame:
     """Lazily read a Lance dataset as a Polars `LazyFrame`.
 
@@ -484,6 +485,12 @@ def scan_lance(
             trying if you depend on Polars' null comparison semantics, which differ from
             SQL's.
 
+        backend: "io" (default) uses the supported IO plugin. "resolver" opts into
+            Polars' unstable LazyFrameResolver API and requires a compatible
+            development build. It pins a snapshot per resolution, rechecks latest
+            on collection, and rejects schema changes. Cloud compatibility must
+            be validated against the deployed Polars version separately.
+
     Examples:
         >>> lf = scan_lance("s3://bucket/data.lance")  # doctest: +SKIP
         >>> lf.filter(pl.col("label").is_in([3, 7])).select("id", "score").collect(
@@ -510,6 +517,13 @@ def scan_lance(
         predicate_pushdown=predicate_pushdown,
     )
 
+    if backend == "resolver":
+        from ._resolver import LanceResolver
+
+        return LanceResolver(spec).lazy()
+    if backend != "io":
+        msg = f"unknown scan backend: {backend!r}"
+        raise ValueError(msg)
     return _io_plugin_lazyframe(spec)
 
 
