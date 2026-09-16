@@ -859,6 +859,12 @@ rewrite it, or pass the Lance SQL as a string.
 </code></pre></div>
 <p>The refusal lands at the call site, before anything is read. Pass Lance SQL as a
 string to say exactly what should be pushed, bypassing the translation entirely.</p>
+<p>The SQL itself is produced when the query runs, against the dataset's schema.
+Column types decide how a float comparison is spelled: Lance and Polars disagree
+on where NaN and <code>-0.0</code> sort, so <code>pl.col("score") &gt;= 0</code> needs extra terms on a
+float column and none on an integer one. A few constructs are refused only once
+the types are known, such as <code>max_horizontal</code> over floats, and those raise when
+the query is collected.</p>
 <h2 id="indices">Indices<a class="headerlink" href="#indices" title="Permanent link">&para;</a></h2>
 <p>A prefilter is where a scalar index earns its place: it runs before the vector
 search, so Lance can use <code>cat</code>'s BTREE to pick the candidate set instead of

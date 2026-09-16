@@ -1426,8 +1426,8 @@ then keep evaluating the predicate.</p>
 scan be serialized into a query plan and executed elsewhere, which is the
 prerequisite for Polars Cloud.</p>
 <p>The fields are the arguments of <a class="autorefs autorefs-internal" title="            scan_lance" href="#polars_pylance.scan_lance"><code>scan_lance</code></a>, which
-documents them, with two differences: <code>prefilter</code> has already been lowered
-to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
+documents them, with two differences: a Polars-expression <code>prefilter</code> is held
+serialized in <code>prefilter_expr</code>, and <code>fragment_ids</code> is the resolved list that
 <code>fragments</code> selected.</p>
 
 
@@ -1439,8 +1439,7 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 
               <details class="mkdocstrings-source">
                 <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 51</span>
-<span class="normal"> 52</span>
+                <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 52</span>
 <span class="normal"> 53</span>
 <span class="normal"> 54</span>
 <span class="normal"> 55</span>
@@ -1599,7 +1598,12 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 <span class="normal">208</span>
 <span class="normal">209</span>
 <span class="normal">210</span>
-<span class="normal">211</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="nd">@dataclass</span>
 <span class="k">class</span><span class="w"> </span><span class="nc">LanceScanSpec</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Everything needed to reproduce a scan, and nothing that cannot be pickled.</span>
 
@@ -1608,8 +1612,8 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 <span class="sd">    prerequisite for Polars Cloud.</span>
 
 <span class="sd">    The fields are the arguments of [`scan_lance`][polars_pylance.scan_lance], which</span>
-<span class="sd">    documents them, with two differences: `prefilter` has already been lowered</span>
-<span class="sd">    to a Lance SQL string, and `fragment_ids` is the resolved list that</span>
+<span class="sd">    documents them, with two differences: a Polars-expression `prefilter` is held</span>
+<span class="sd">    serialized in `prefilter_expr`, and `fragment_ids` is the resolved list that</span>
 <span class="sd">    `fragments` selected.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
@@ -1619,9 +1623,13 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
     <span class="n">options</span><span class="p">:</span> <span class="n">LanceScanOptions</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="n">LanceScanOptions</span><span class="p">)</span>
     <span class="n">nearest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">full_text_query</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
-    <span class="c1"># Already lowered to Lance SQL by `scan_lance`, so the spec stays a plain</span>
-    <span class="c1"># picklable record and an unsupported prefilter fails at the call site.</span>
+    <span class="c1"># A prefilter given as Lance SQL.</span>
     <span class="n">prefilter</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="c1"># A prefilter given as a Polars expression, serialized so the spec stays a</span>
+    <span class="c1"># plain picklable record that compares by value. It is lowered only once the</span>
+    <span class="c1"># dataset is open: whether a comparison needs Polars&#39; float semantics spelled</span>
+    <span class="c1"># out depends on the column types, which `scan_lance` does not look up.</span>
+    <span class="n">prefilter_expr</span><span class="p">:</span> <span class="nb">bytes</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">with_row_id</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">with_row_address</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
     <span class="n">fragment_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -1794,10 +1802,10 @@ to a Lance SQL string, and <code>fragment_ids</code> is the resolved list that
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">122</span>
-<span class="normal">123</span>
-<span class="normal">124</span>
-<span class="normal">125</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">arrow_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">127</span>
+<span class="normal">128</span>
+<span class="normal">129</span>
+<span class="normal">130</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">arrow_schema</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pa</span><span class="o">.</span><span class="n">Schema</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;Full output schema, including any Lance-generated columns.&quot;&quot;&quot;</span>
     <span class="n">dataset</span> <span class="o">=</span> <span class="n">dataset</span> <span class="k">if</span> <span class="n">dataset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">scanner</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span><span class="o">.</span><span class="n">projected_schema</span>
@@ -1827,12 +1835,7 @@ dropping the generator early stops the scan.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">135</span>
-<span class="normal">136</span>
-<span class="normal">137</span>
-<span class="normal">138</span>
-<span class="normal">139</span>
-<span class="normal">140</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">140</span>
 <span class="normal">141</span>
 <span class="normal">142</span>
 <span class="normal">143</span>
@@ -1875,7 +1878,12 @@ dropping the generator early stops the scan.</p>
 <span class="normal">180</span>
 <span class="normal">181</span>
 <span class="normal">182</span>
-<span class="normal">183</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">iter_frames</span><span class="p">(</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">iter_frames</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">dataset</span><span class="p">:</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -2309,7 +2317,9 @@ question as <code>.filter()</code> on the result, which ranks first and filters 
 and so may return fewer than <code>k</code> rows; with a prefilter the search picks its
 <code>k</code> from the surviving rows only. A Polars expression that does not
 translate exactly is an error rather than a postfilter, since nothing
-downstream can repair a candidate set the search has already used.</p>
+downstream can repair a candidate set the search has already used. The
+expression is translated when the query runs, against the dataset's
+schema, so float comparisons keep Polars' NaN and signed-zero rules.</p>
               </div>
             </td>
             <td>
@@ -2398,28 +2408,7 @@ SQL's.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">430</span>
-<span class="normal">431</span>
-<span class="normal">432</span>
-<span class="normal">433</span>
-<span class="normal">434</span>
-<span class="normal">435</span>
-<span class="normal">436</span>
-<span class="normal">437</span>
-<span class="normal">438</span>
-<span class="normal">439</span>
-<span class="normal">440</span>
-<span class="normal">441</span>
-<span class="normal">442</span>
-<span class="normal">443</span>
-<span class="normal">444</span>
-<span class="normal">445</span>
-<span class="normal">446</span>
-<span class="normal">447</span>
-<span class="normal">448</span>
-<span class="normal">449</span>
-<span class="normal">450</span>
-<span class="normal">451</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">451</span>
 <span class="normal">452</span>
 <span class="normal">453</span>
 <span class="normal">454</span>
@@ -2481,7 +2470,37 @@ SQL's.</p>
 <span class="normal">510</span>
 <span class="normal">511</span>
 <span class="normal">512</span>
-<span class="normal">513</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
+<span class="normal">513</span>
+<span class="normal">514</span>
+<span class="normal">515</span>
+<span class="normal">516</span>
+<span class="normal">517</span>
+<span class="normal">518</span>
+<span class="normal">519</span>
+<span class="normal">520</span>
+<span class="normal">521</span>
+<span class="normal">522</span>
+<span class="normal">523</span>
+<span class="normal">524</span>
+<span class="normal">525</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span>
+<span class="normal">533</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2528,7 +2547,9 @@ SQL's.</p>
 <span class="sd">            and so may return fewer than `k` rows; with a prefilter the search picks its</span>
 <span class="sd">            `k` from the surviving rows only. A Polars expression that does not</span>
 <span class="sd">            translate exactly is an error rather than a postfilter, since nothing</span>
-<span class="sd">            downstream can repair a candidate set the search has already used.</span>
+<span class="sd">            downstream can repair a candidate set the search has already used. The</span>
+<span class="sd">            expression is translated when the query runs, against the dataset&#39;s</span>
+<span class="sd">            schema, so float comparisons keep Polars&#39; NaN and signed-zero rules.</span>
 <span class="sd">        with_row_id: Include Lance&#39;s stable `_rowid` column.</span>
 <span class="sd">        with_row_address: Include Lance&#39;s physical `_rowaddr` column.</span>
 <span class="sd">        fragments: Restrict the scan to these fragment ids. See</span>
@@ -2550,6 +2571,12 @@ SQL's.</p>
     <span class="k">else</span><span class="p">:</span>
         <span class="n">uri</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
 
+    <span class="n">expr_prefilter</span> <span class="o">=</span> <span class="n">prefilter</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">prefilter</span><span class="p">,</span> <span class="n">pl</span><span class="o">.</span><span class="n">Expr</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">expr_prefilter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># Refuse an untranslatable prefilter here rather than mid-collect. The</span>
+        <span class="c1"># SQL is produced again, with the dataset&#39;s schema, when the scan runs.</span>
+        <span class="n">_prefilter_sql</span><span class="p">(</span><span class="n">expr_prefilter</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
     <span class="n">spec</span> <span class="o">=</span> <span class="n">LanceScanSpec</span><span class="p">(</span>
         <span class="n">uri</span><span class="o">=</span><span class="n">uri</span><span class="p">,</span>
         <span class="n">version</span><span class="o">=</span><span class="n">version</span><span class="p">,</span>
@@ -2557,7 +2584,8 @@ SQL's.</p>
         <span class="n">options</span><span class="o">=</span><span class="n">options</span> <span class="k">if</span> <span class="n">options</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">LanceScanOptions</span><span class="p">(),</span>
         <span class="n">nearest</span><span class="o">=</span><span class="n">nearest</span><span class="p">,</span>
         <span class="n">full_text_query</span><span class="o">=</span><span class="n">full_text_query</span><span class="p">,</span>
-        <span class="n">prefilter</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">prefilter</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_prefilter_sql</span><span class="p">(</span><span class="n">prefilter</span><span class="p">),</span>
+        <span class="n">prefilter</span><span class="o">=</span><span class="n">prefilter</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">prefilter</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">prefilter_expr</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">expr_prefilter</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_serialize</span><span class="p">(</span><span class="n">expr_prefilter</span><span class="p">),</span>
         <span class="n">with_row_id</span><span class="o">=</span><span class="n">with_row_id</span><span class="p">,</span>
         <span class="n">with_row_address</span><span class="o">=</span><span class="n">with_row_address</span><span class="p">,</span>
         <span class="n">fragment_ids</span><span class="o">=</span><span class="nb">list</span><span class="p">(</span><span class="n">fragments</span><span class="p">)</span> <span class="k">if</span> <span class="n">fragments</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
@@ -2672,37 +2700,7 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">516</span>
-<span class="normal">517</span>
-<span class="normal">518</span>
-<span class="normal">519</span>
-<span class="normal">520</span>
-<span class="normal">521</span>
-<span class="normal">522</span>
-<span class="normal">523</span>
-<span class="normal">524</span>
-<span class="normal">525</span>
-<span class="normal">526</span>
-<span class="normal">527</span>
-<span class="normal">528</span>
-<span class="normal">529</span>
-<span class="normal">530</span>
-<span class="normal">531</span>
-<span class="normal">532</span>
-<span class="normal">533</span>
-<span class="normal">534</span>
-<span class="normal">535</span>
-<span class="normal">536</span>
-<span class="normal">537</span>
-<span class="normal">538</span>
-<span class="normal">539</span>
-<span class="normal">540</span>
-<span class="normal">541</span>
-<span class="normal">542</span>
-<span class="normal">543</span>
-<span class="normal">544</span>
-<span class="normal">545</span>
-<span class="normal">546</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">546</span>
 <span class="normal">547</span>
 <span class="normal">548</span>
 <span class="normal">549</span>
@@ -2728,7 +2726,37 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 <span class="normal">569</span>
 <span class="normal">570</span>
 <span class="normal">571</span>
-<span class="normal">572</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
+<span class="normal">572</span>
+<span class="normal">573</span>
+<span class="normal">574</span>
+<span class="normal">575</span>
+<span class="normal">576</span>
+<span class="normal">577</span>
+<span class="normal">578</span>
+<span class="normal">579</span>
+<span class="normal">580</span>
+<span class="normal">581</span>
+<span class="normal">582</span>
+<span class="normal">583</span>
+<span class="normal">584</span>
+<span class="normal">585</span>
+<span class="normal">586</span>
+<span class="normal">587</span>
+<span class="normal">588</span>
+<span class="normal">589</span>
+<span class="normal">590</span>
+<span class="normal">591</span>
+<span class="normal">592</span>
+<span class="normal">593</span>
+<span class="normal">594</span>
+<span class="normal">595</span>
+<span class="normal">596</span>
+<span class="normal">597</span>
+<span class="normal">598</span>
+<span class="normal">599</span>
+<span class="normal">600</span>
+<span class="normal">601</span>
+<span class="normal">602</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">n_shards</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
