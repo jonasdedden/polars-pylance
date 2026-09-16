@@ -117,15 +117,23 @@ Rather than return wrong rows quickly, these decline and run in Polars:
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
 | `//` | Polars floors, SQL truncates |
+| `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
 | narrowing integer cast | Polars raises on overflow, Lance wraps |
 | non-strict cast, unless widening | Polars yields null, Lance fails the scan |
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length, `xor`,
-`eq_missing`, arithmetic, `abs`, `**`, `min_horizontal` / `max_horizontal`,
-`fill_null`, the `is_nan` family, `cast`, the `dt` parts, `list.contains` /
+`eq_missing`, arithmetic, `abs`, `**`, `min_horizontal` / `max_horizontal` over
+integers, `fill_null`, the `is_nan` family, `cast`, the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
+
+Float comparisons translate with a correction. Lance orders floats by IEEE total
+order, so `-0.0 < 0.0` and a NaN with its sign bit set, which is what `0 / 0`
+produces, sorts below every number. Polars treats the zeros as equal and every NaN
+as larger than any number. So `val > 0.5` is sent as
+`((val > 0.5) OR val < CAST('-inf' AS double))`, which still uses a scalar index on
+`val`.
 
 ## Prefilters are stricter
 

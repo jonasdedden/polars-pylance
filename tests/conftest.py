@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import ParamSpec, TypeVar
@@ -238,6 +239,10 @@ RICH_SCHEMA = pa.schema(_RICH_FIELDS)
 
 
 def _odd(i: int) -> float:
+    if i % 22 == 0:
+        # What `0 / 0` produces on x86: a NaN with its sign bit set, which Lance
+        # orders below every number.
+        return math.copysign(math.nan, -1.0)
     if i % 11 == 0:
         return float("nan")
     if i % 13 == 0:
