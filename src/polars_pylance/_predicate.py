@@ -94,13 +94,13 @@ _TRUNCATE_UNITS = {
 
 # Narrower integers are absent on purpose: Polars raises on a value that does
 # not fit and Lance wraps.
-_CAST_TYPES = {
-    "Int64": "bigint",
-    "Float32": "float",
-    "Float64": "double",
-    "String": "string",
-    "Boolean": "boolean",
-    "Date": "date",
+_CAST_TYPES: dict[str, tuple[str, pl.DataType]] = {
+    "Int64": ("bigint", pl.Int64()),
+    "Float32": ("float", pl.Float32()),
+    "Float64": ("double", pl.Float64()),
+    "String": ("string", pl.String()),
+    "Boolean": ("boolean", pl.Boolean()),
+    "Date": ("date", pl.Date()),
 }
 
 # A namespace and a bare function's options are both single-key objects, so
@@ -152,29 +152,39 @@ class _Value:
     """A lowered value-position expression."""
 
     sql: str
-    # Lance rejects `int_col > 1.5` rather than coercing, so a float literal
-    # needs the other side cast.
-    is_float_literal: bool = False
-    # Already floating point, so that cast would be a no-op.
-    is_double: bool = False
-    # Known to be text, which is how a `Plus` node is told from concatenation.
-    is_string: bool = False
-    # Known to be floating point without being cast to double, such as the
-    # result of arithmetic on a float column.
-    is_float: bool = False
+    # The Polars type, where the schema or the expression settles it. Unknown
+    # (`None`) is a column the caller gave no schema for, or anything built on
+    # one; such a value is spelled as if it were not a float.
+    dtype: pl.DataType | None = None
     # A literal cannot become `-0.0` unless it already is a zero, and is never
     # NaN: NaN literals decline.
     is_literal: bool = False
-    # A `Float32` column, whose index only serves bounds of its own type.
-    is_float32: bool = False
-    # Cannot be NaN even as a float: a literal, a column the schema says is not
-    # a float, or a cast of either.
+    # Cannot be NaN even as a float: a literal, or a cast of a value that is
+    # known not to be a float.
     nan_free: bool = False
 
     @property
     def floating(self) -> bool:
         """Whether this value is known to be floating point: `-0.0` or NaN."""
-        return self.is_float or self.is_double or self.is_float_literal
+        return isinstance(self.dtype, (pl.Float32, pl.Float64))
+
+    @property
+    def is_float_literal(self) -> bool:
+        # Lance rejects `int_col > 1.5` rather than coercing, so a float literal
+        # needs the other side cast.
+        return self.is_literal and self.floating
+
+    @property
+    def is_string(self) -> bool:
+        # Which is how a `Plus` node is told from concatenation.
+        return self.dtype == pl.String or isinstance(
+            self.dtype, (pl.Categorical, pl.Enum)
+        )
+
+    @property
+    def is_float32(self) -> bool:
+        # An index on a `Float32` column only serves bounds of its own type.
+        return isinstance(self.dtype, pl.Float32)
 
     @property
     def is_zero_literal(self) -> bool:
@@ -184,11 +194,27 @@ class _Value:
     def may_be_nan(self) -> bool:
         return self.floating and not self.nan_free
 
+    @property
+    def cannot_be_nan(self) -> bool:
+        """Known to hold no NaN: a non-float type, or a `nan_free` float."""
+        return self.nan_free or (self.dtype is not None and not self.floating)
+
     def as_double(self) -> _Value:
-        if self.is_float_literal or self.is_double:
+        if self.floating:
             return self
         return _Value(
-            f"CAST({self.sql} AS double)", is_double=True, nan_free=self.nan_free
+            f"CAST({self.sql} AS double)",
+            dtype=pl.Float64(),
+            nan_free=self.cannot_be_nan,
+        )
+
+    def as_float_literal(self) -> _Value:
+        """An integer literal re-spelled as the float Polars would compare it as."""
+        return _Value(
+            _scalar(float(self.sql), pl.Float64()),
+            dtype=pl.Float64(),
+            is_literal=True,
+            nan_free=True,
         )
 
 
@@ -203,9 +229,12 @@ def to_lance_filter(
     Args:
         predicate: Any boolean Polars expression, however deeply nested.
         max_in_list: Largest `is_in` membership list to spell out as SQL `IN`.
-        schema: The scanned schema, when the caller has it. Used to drop a promotion the
-            schema shows is a no-op, since a `CAST` around an indexed column costs its
-            scalar index, and to tell a string `+` from an arithmetic one.
+        schema: The scanned schema, when the caller has it. Column types, down to
+            struct fields and list elements, decide how a float comparison is spelled
+            (Lance and Polars order NaN and `-0.0` differently), whether an integer
+            literal is compared as a float, whether a promotion is a no-op (a `CAST`
+            around an indexed column costs its scalar index), and whether `+` is
+            string concatenation.
 
     Examples:
         >>> import polars as pl
@@ -344,6 +373,7 @@ class _Lowering:
             rhs = self.value(right)
         except _Decline:
             return None, False
+        lhs, rhs = _coerce_literal(lhs, rhs), _coerce_literal(rhs, lhs)
         if lhs.is_float_literal != rhs.is_float_literal:
             # Lance refuses the mixed comparison Polars promotes through.
             lhs, rhs = lhs.as_double(), rhs.as_double()
@@ -431,6 +461,9 @@ class _Lowering:
             return None, False
         if values.len() > self.max_in_list:
             return None, False
+        if column.floating and values.dtype.is_integer():
+            # Polars compares as floats, so `0` must also find `-0.0`.
+            values = values.cast(pl.Float64)
         # Polars never matches a null element, where SQL's `IN` turns null on
         # any non-match, which `NOT` cannot undo.
         values = values.drop_nulls()
@@ -520,35 +553,17 @@ class _Lowering:
             column, needle = self.value(args[0]), self.value(args[1])
         except _Decline:
             return None, False
+        needle = _coerce_literal(needle, _Value("", dtype=_inner(column.dtype)))
         if needle.is_float_literal and needle.sql in _ZEROS:
             # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
             either = " OR ".join(f"array_has({column.sql}, {z})" for z in _ZEROS)
             return f"({either})", True
         return f"array_has({column.sql}, {needle.sql})", True
 
-    def _is_floating(self, name: Json) -> bool:
-        """Whether `name` is already a float column, so a promotion is a no-op."""
+    def _column_dtype(self, name: Json) -> pl.DataType | None:
         if self.schema is None or not isinstance(name, str):
-            return False
-        return isinstance(self.schema.get(name), (pl.Float32, pl.Float64))
-
-    def _is_known_non_float(self, name: Json) -> bool:
-        if self.schema is None or not isinstance(name, str):
-            return False
-        dtype = self.schema.get(name)
-        return dtype is not None and not isinstance(dtype, (pl.Float32, pl.Float64))
-
-    def _is_float32(self, name: Json) -> bool:
-        if self.schema is None or not isinstance(name, str):
-            return False
-        return isinstance(self.schema.get(name), pl.Float32)
-
-    def _is_text(self, name: Json) -> bool:
-        """Whether `name` is a text column, so a `+` on it means concatenation."""
-        if self.schema is None or not isinstance(name, str):
-            return False
-        dtype = self.schema.get(name)
-        return dtype == pl.String or isinstance(dtype, (pl.Categorical, pl.Enum))
+            return None
+        return self.schema.get(name)
 
     # -- value position ----------------------------------------------------
 
@@ -562,13 +577,7 @@ class _Lowering:
         if kind == "Alias":
             return self.value(_inputs(body)[0])
         if kind == "Column":
-            return _Value(
-                _column(body),
-                is_double=self._is_floating(body),
-                is_string=self._is_text(body),
-                is_float32=self._is_float32(body),
-                nan_free=self._is_known_non_float(body),
-            )
+            return _Value(_column(body), dtype=self._column_dtype(body))
         if kind == "Literal":
             return _literal(node)
         if kind == "Cast":
@@ -590,10 +599,11 @@ class _Lowering:
             # unless it cannot fail, which is the case the optimizer creates.
             raise _Decline
         inner = self.value(_field(body, "expr"))
+        sql_type, target = _CAST_TYPES[name]
         return _Value(
-            f"CAST({inner.sql} AS {_CAST_TYPES[name]})",
-            is_double=name in ("Float32", "Float64"),
-            nan_free=inner.nan_free,
+            f"CAST({inner.sql} AS {sql_type})",
+            dtype=target,
+            nan_free=inner.cannot_be_nan,
         )
 
     def _is_widening(self, body: dict[str, Json], target: str) -> bool:
@@ -627,10 +637,10 @@ class _Lowering:
                 # Polars overloads `+` for text; SQL spells that `||`. A string
                 # literal settles it on its own; two columns need the schema,
                 # without which this stays `+` and Lance declines to plan it.
-                return _Value(f"({left.sql} || {right.sql})", is_string=True)
+                return _Value(f"({left.sql} || {right.sql})", dtype=pl.String())
             return _Value(
                 f"({left.sql} {_ARITHMETIC[op]} {right.sql})",
-                is_float=left.floating or right.floating,
+                dtype=_numeric_supertype(left.dtype, right.dtype),
             )
         if op == "Modulus":
             return self._modulus(_field(body, "left"), _field(body, "right"))
@@ -639,7 +649,7 @@ class _Lowering:
             # between integers.
             left = self.value(_field(body, "left")).as_double()
             divisor = self.value(_field(body, "right"))
-            return _Value(f"({left.sql} / {divisor.sql})", is_double=True)
+            return _Value(f"({left.sql} / {divisor.sql})", dtype=pl.Float64())
         # FloorDivide has no Lance spelling (`floor()` is rejected).
         raise _Decline
 
@@ -662,7 +672,10 @@ class _Lowering:
             raise _Decline from exc
         if number == 0 or abs(number) > _MAX_MODULUS:
             raise _Decline
-        return _Value(f"((({dividend.sql} % {number}) + {number}) % {number})")
+        return _Value(
+            f"((({dividend.sql} % {number}) + {number}) % {number})",
+            dtype=dividend.dtype,
+        )
 
     def _function_value(self, node: Json) -> _Value:
         body = _fields(node)
@@ -672,15 +685,15 @@ class _Lowering:
 
         if name == ("Abs",):
             inner = self.value(args[0])
-            return _Value(f"abs({inner.sql})", is_float=inner.floating)
+            return _Value(f"abs({inner.sql})", dtype=inner.dtype)
         if name == ("Negate",):
             inner = self.value(args[0])
-            return _Value(f"(- {inner.sql})", is_float=inner.floating)
+            return _Value(f"(- {inner.sql})", dtype=inner.dtype)
         if name == ("FillNull",) and len(args) == 2:
             left, right = self.value(args[0]), self.value(args[1])
             return _Value(
                 f"coalesce({left.sql}, {right.sql})",
-                is_float=left.floating or right.floating,
+                dtype=_numeric_supertype(left.dtype, right.dtype),
             )
         if name in (("MinHorizontal",), ("MaxHorizontal",)):
             # `least` / `greatest` skip nulls, which is what the Polars
@@ -691,7 +704,10 @@ class _Lowering:
             if any(v.floating for v in values):
                 raise _Decline
             rendered = ", ".join(v.sql for v in values)
-            return _Value(f"{fn}({rendered})")
+            dtype = values[0].dtype
+            for v in values[1:]:
+                dtype = _numeric_supertype(dtype, v.dtype)
+            return _Value(f"{fn}({rendered})", dtype=dtype)
         if name == ("Pow", "Generic") and len(args) == 2:
             return self._power(args)
         # `Round` is deliberately absent: Polars breaks ties to even, Lance
@@ -705,9 +721,13 @@ class _Lowering:
         if name == ("StructExpr", "FieldByName") and len(args) == 1:
             if not isinstance(payload, str):
                 raise _Decline
-            return _Value(f"{self.value(args[0]).sql}.{_quote(payload)}")
+            parent = self.value(args[0])
+            return _Value(
+                f"{parent.sql}.{_quote(payload)}",
+                dtype=_struct_field(parent.dtype, payload),
+            )
         if name[0] in ("ListExpr", "ArrayExpr") and name[-1] == "Length":
-            return _Value(f"array_length({self.value(args[0]).sql})")
+            return _Value(f"array_length({self.value(args[0]).sql})", dtype=pl.UInt32())
         if name[0] in ("ListExpr", "ArrayExpr") and name[-1] == "Get":
             return self._list_get(payload, args)
         raise _Decline
@@ -725,7 +745,7 @@ class _Lowering:
         if whole < 0:
             raise _Decline
         base = self.value(args[0])
-        return _Value(f"power({base.sql}, {whole})", is_float=base.floating)
+        return _Value(f"power({base.sql}, {whole})", dtype=base.dtype)
 
     def _list_get(self, payload: Json, args: Sequence[Json]) -> _Value:
         """`list.get(i)`, only in its null-on-out-of-bounds spelling.
@@ -742,18 +762,21 @@ class _Lowering:
             # A non-integer index has no `array_element` spelling.
             raise _Decline from exc
         position = index + 1 if index >= 0 else index
-        return _Value(f"array_element({self.value(args[0]).sql}, {position})")
+        array = self.value(args[0])
+        return _Value(
+            f"array_element({array.sql}, {position})", dtype=_inner(array.dtype)
+        )
 
     def _string_value(self, name: str, payload: Json, args: Sequence[Json]) -> _Value:
         column = self.value(args[0]).sql
         if name == "Lowercase":
-            return _Value(f"lower({column})", is_string=True)
+            return _Value(f"lower({column})", dtype=pl.String())
         if name == "Uppercase":
-            return _Value(f"upper({column})", is_string=True)
+            return _Value(f"upper({column})", dtype=pl.String())
         if name == "LenChars" and len(args) == 1:
-            return _Value(f"length({column})")
+            return _Value(f"length({column})", dtype=pl.UInt32())
         if name == "LenBytes" and len(args) == 1:
-            return _Value(f"octet_length({column})")
+            return _Value(f"octet_length({column})", dtype=pl.UInt32())
         if name in ("StripChars", "StripCharsStart", "StripCharsEnd"):
             return self._strip(name, column, args)
         if name == "Replace" and len(args) == 3:
@@ -779,12 +802,12 @@ class _Lowering:
         if not delimiter:
             joined = ", ".join(parts)
             if ignore_nulls:
-                return _Value(f"concat({joined})", is_string=True)
-            return _Value(f"({' || '.join(parts)})", is_string=True)
+                return _Value(f"concat({joined})", dtype=pl.String())
+            return _Value(f"({' || '.join(parts)})", dtype=pl.String())
         if not ignore_nulls:
             raise _Decline
         separator = _string_literal(delimiter)
-        return _Value(f"concat_ws({separator}, {', '.join(parts)})", is_string=True)
+        return _Value(f"concat_ws({separator}, {', '.join(parts)})", dtype=pl.String())
 
     def _strip(self, name: str, column: str, args: Sequence[Json]) -> _Value:
         """`str.strip_chars` and friends, only with an explicit character set.
@@ -798,7 +821,7 @@ class _Lowering:
         if chars.sql == "NULL":
             raise _Decline
         fn = {"StripChars": "btrim", "StripCharsStart": "ltrim"}.get(name, "rtrim")
-        return _Value(f"{fn}({column}, {chars.sql})", is_string=True)
+        return _Value(f"{fn}({column}, {chars.sql})", dtype=pl.String())
 
     def _replace(
         self, options: dict[str, Json], column: str, args: Sequence[Json]
@@ -815,31 +838,35 @@ class _Lowering:
             if not every:
                 raise _Decline
             return _Value(
-                f"replace({column}, {pattern.sql}, {replacement.sql})", is_string=True
+                f"replace({column}, {pattern.sql}, {replacement.sql})",
+                dtype=pl.String(),
             )
         flags = ", 'g'" if every else ""
         return _Value(
             f"regexp_replace({column}, {pattern.sql}, {replacement.sql}{flags})",
-            is_string=True,
+            dtype=pl.String(),
         )
 
     def _temporal_value(self, name: str, args: Sequence[Json]) -> _Value:
-        column = self.value(args[0]).sql
+        value = self.value(args[0])
+        column = value.sql
         if name == "Date":
-            return _Value(f"CAST({column} AS date)")
+            return _Value(f"CAST({column} AS date)", dtype=pl.Date())
         if name == "WeekDay":
             # Polars counts Monday as 1; `dow` counts Sunday as 0.
-            return _Value(f"((date_part('dow', {column}) + 6) % 7 + 1)")
+            return _Value(
+                f"((date_part('dow', {column}) + 6) % 7 + 1)", dtype=pl.Int8()
+            )
         if name == "Truncate" and len(args) == 2:
             every = _literal(args[1]).sql
             unit = _TRUNCATE_UNITS.get(every.strip("'"))
             if unit is None:
                 raise _Decline
-            return _Value(f"date_trunc('{unit}', {column})")
+            return _Value(f"date_trunc('{unit}', {column})", dtype=value.dtype)
         part = _DATE_PARTS.get(name)
         if part is None:
             raise _Decline
-        return _Value(f"date_part('{part}', {column})")
+        return _Value(f"date_part('{part}', {column})", dtype=pl.Int32())
 
 
 # ---------------------------------------------------------------------------
@@ -938,11 +965,7 @@ def _literal(node: Json) -> _Value:
         raise _Decline
     dtype = series.dtype
     return _Value(
-        _scalar(series.item(), dtype),
-        is_literal=True,
-        nan_free=True,
-        is_float_literal=isinstance(dtype, (pl.Float32, pl.Float64)),
-        is_string=isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)),
+        _scalar(series.item(), dtype), dtype=dtype, is_literal=True, nan_free=True
     )
 
 
@@ -1015,6 +1038,54 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
 
 
 _ZEROS = ["-0.0", "0.0"]
+
+
+def _numeric_supertype(
+    left: pl.DataType | None, right: pl.DataType | None
+) -> pl.DataType | None:
+    """The type Polars computes arithmetic on two values in, as far as it matters.
+
+    Only float-ness is ever read, so any float makes a `Float64` and two
+    integers an `Int64`; everything else is unknown.
+    """
+    floats = (pl.Float32, pl.Float64)
+    if isinstance(left, floats) or isinstance(right, floats):
+        return pl.Float64()
+    if left is None or right is None:
+        return None
+    if left.is_integer() and right.is_integer():
+        return pl.Int64()
+    return None
+
+
+def _inner(dtype: pl.DataType | None) -> pl.DataType | None:
+    """The element type of a list or array, if known."""
+    if isinstance(dtype, (pl.List, pl.Array)) and isinstance(dtype.inner, pl.DataType):
+        return dtype.inner
+    return None
+
+
+def _struct_field(dtype: pl.DataType | None, name: str) -> pl.DataType | None:
+    if not isinstance(dtype, pl.Struct):
+        return None
+    for field in dtype.fields:
+        if field.name == name and isinstance(field.dtype, pl.DataType):
+            return field.dtype
+    return None
+
+
+def _coerce_literal(value: _Value, other: _Value) -> _Value:
+    """`value`, as a float literal if Polars would compare it to `other` as one.
+
+    Polars' optimizer casts an integer literal compared to a float to that
+    float, so `score >= 0` reaches the scan as `score >= 0.0`. An expression
+    lowered without the optimizer (a prefilter, a direct call) does not get
+    that, so it is done here, and the float rules then apply.
+    """
+    is_integer = value.dtype is not None and value.dtype.is_integer()
+    if value.is_literal and is_integer and other.floating and not other.is_literal:
+        return value.as_float_literal()
+    return value
 
 
 _NAN = "CAST('NaN' AS double)"
