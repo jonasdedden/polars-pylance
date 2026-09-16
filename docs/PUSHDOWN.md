@@ -117,6 +117,8 @@ Rather than return wrong rows quickly, these decline and run in Polars:
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
 | `//` | Polars floors, SQL truncates |
+| `%` by zero or by a column | a zero divisor gives null in Polars and fails the scan in Lance |
+| `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
 | `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
 | narrowing integer cast | Polars raises on overflow, Lance wraps |
 | non-strict cast, unless widening | Polars yields null, Lance fails the scan |
@@ -124,8 +126,9 @@ Rather than return wrong rows quickly, these decline and run in Polars:
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length, `xor`,
-`eq_missing`, arithmetic, `abs`, `**`, `min_horizontal` / `max_horizontal` over
-integers, `fill_null`, the `is_nan` family, `cast`, the `dt` parts, `list.contains` /
+`eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `**`,
+`min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
+`cast`, the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
 
 Float comparisons translate with a correction. Lance orders floats by IEEE total
