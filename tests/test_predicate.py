@@ -9,6 +9,7 @@ differential tests that run both against a real dataset.
 from __future__ import annotations
 
 import datetime as dt
+import operator
 import random
 import threading
 from typing import TYPE_CHECKING
@@ -64,7 +65,20 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         ),
     ),
     ("is_in", pl.col("id").is_in([1, 2]), "(`id` IN (1, 2))"),
-    ("is_in empty", pl.col("id").is_in([]), "FALSE"),
+    # False, except null for a null input, so that negation still drops it.
+    ("is_in empty", pl.col("id").is_in([]), "(`id` IS NULL AND CAST(NULL AS boolean))"),
+    # Polars never matches a null element; SQL's `IN` would turn null instead.
+    (
+        "is_in with a null element",
+        pl.col("id").is_in(pl.Series([1, None])),
+        "(`id` IN (1))",
+    ),
+    # Polars matches `-0.0` and `0.0` to each other; Lance's total order does not.
+    (
+        "is_in with a zero",
+        pl.col("val").is_in([0.0, 0.5]),
+        "(CAST(`val` AS double) IN (0.5, -0.0, 0.0))",
+    ),
     ("is_between", pl.col("id").is_between(1, 2), "((`id` >= 1) AND (`id` <= 2))"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with(`cat`, 'b')"),
     ("ends_with", pl.col("cat").str.ends_with("a"), "ends_with(`cat`, 'a')"),
@@ -139,7 +153,20 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         "(concat_ws('-', `cat`, `text`) = 'x')",
     ),
     ("arithmetic", (pl.col("id") + 1) > 3, "((`id` + 1) > 3)"),
-    ("modulo", (pl.col("id") % 2) == 0, "((`id` % 2) = 0)"),
+    # Polars' remainder takes the divisor's sign, SQL's the dividend's.
+    ("modulo", (pl.col("id") % 2) == 0, "((((`id` % 2) + 2) % 2) = 0)"),
+    (
+        "float against zero",
+        pl.col("val") == 0.0,
+        "(CAST(`val` AS double) IN (-0.0, 0.0))",
+    ),
+    ("float below zero", pl.col("val") < 0.0, "(CAST(`val` AS double) < -0.0)"),
+    ("float above zero", pl.col("val") > 0.0, "(CAST(`val` AS double) > 0.0)"),
+    (
+        "zero on the left",
+        pl.lit(0.0) <= pl.col("val"),
+        "(CAST(`val` AS double) >= -0.0)",
+    ),
     ("negate", -pl.col("id") < 0, "((- `id`) < 0)"),
     ("power", (pl.col("id") ** 2) > 9, "(power(`id`, 2) > 9)"),
     ("abs", pl.col("id").abs() > 3, "(abs(`id`) > 3)"),
@@ -173,6 +200,11 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         "(CAST(`ts` AS date) = date '2024-01-02')",
     ),
     ("list contains", pl.col("tags").list.contains(3), "array_has(`tags`, 3)"),
+    (
+        "list contains a zero",
+        pl.col("tags").list.contains(0.0),
+        "(array_has(`tags`, -0.0) OR array_has(`tags`, 0.0))",
+    ),
     ("list length", pl.col("tags").list.len() == 2, "(array_length(`tags`) = 2)"),
     # Polars indexes lists from 0, SQL from 1.
     (
@@ -226,6 +258,8 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     ),
     ("binary literal", pl.col("bin") == b"abc", "(`bin` = X'616263')"),
     ("bool literal", pl.col("flag") == True, "(`flag` = TRUE)"),  # noqa: E712
+    # Not `FALSE`, which negation would turn true.
+    ("null literal", pl.lit(None, dtype=pl.Boolean), "CAST(NULL AS boolean)"),
 ]
 
 
@@ -273,6 +307,12 @@ DECLINED: list[tuple[str, pl.Expr]] = [
         pl.col("ts").dt.truncate("2d") == dt.datetime(2024, 1, 2),
     ),
     ("floor division", (pl.col("id") // 2) == 1),
+    # Polars yields null for a zero divisor where Lance fails the scan, and a
+    # column divisor could be zero or overflow the sign correction.
+    ("modulo by zero", (pl.col("id") % 0) == 1),
+    ("modulo by a column", (pl.col("id") % pl.col("opt")) == 1),
+    # The sign correction drifts for floats.
+    ("float modulo", (pl.col("val") % 0.5) == 0.25),
     # A narrowing integer cast raises in Polars and wraps in Lance.
     ("narrowing cast", pl.col("id").cast(pl.Int32) > 1),
     # `concat_ws` skips nulls, so it cannot spell a null-propagating join.
@@ -601,7 +641,13 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     predicate = pl.col("id").cast(pl.Float64, strict=False) > pl.col("val")
     assert to_lance_filter(predicate) is None
     assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.Int64})) == (
-        LanceFilter(sql="(CAST(`id` AS double) > `val`)", exact=True)
+        LanceFilter(
+            sql=(
+                "((CAST(`id` AS double) > `val`) AND NOT "
+                "(CAST(`id` AS double) IN (-0.0, 0.0) AND `val` IN (-0.0, 0.0)))"
+            ),
+            exact=True,
+        )
     )
     # A string source can produce null there, so it stays declined.
     assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.String})) is None
@@ -627,3 +673,90 @@ def test_the_schema_does_not_change_which_rows_survive(
         assert kept <= pushed
         if lowered.exact:
             assert pushed == kept
+
+
+# ---------------------------------------------------------------------------
+# Boolean composition: values where SQL and Polars part ways
+# ---------------------------------------------------------------------------
+
+EDGES = pl.DataFrame(
+    {
+        "i": [1, 2, 3, None, 5, 0, -7, 7],
+        "f": [1.0, float("nan"), None, -0.0, 2.5, 0.0, -1.5, 1.5],
+        "g": [0.0, 1.0, 2.0, 0.0, -0.0, -0.0, None, 2.0],
+        "b": [True, False, None, True, None, False, True, False],
+        "l": [[1.0], [-0.0], None, [], [0.0], [1.0, None], [7.0], [2.0]],
+    }
+)
+
+EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
+    ("is_in with a null", pl.col("i").is_in(pl.Series([1, None]))),
+    ("is_in only null", pl.col("i").is_in(pl.Series([None], dtype=pl.Int64))),
+    ("is_in empty", pl.col("i").is_in(pl.Series([], dtype=pl.Int64))),
+    ("is_in a zero", pl.col("f").is_in([0.0, 2.5])),
+    ("is_in a negative zero", pl.col("f").is_in([-0.0])),
+    ("float = 0", pl.col("f") == 0.0),
+    ("float = -0", pl.col("f") == -0.0),
+    ("float != 0", pl.col("f") != 0.0),
+    ("float < 0", pl.col("f") < 0.0),
+    ("float <= 0", pl.col("f") <= 0.0),
+    ("float > -0", pl.col("f") > -0.0),
+    ("float >= 0", pl.col("f") >= 0.0),
+    ("zero on the left", pl.lit(0.0) < pl.col("f")),
+    ("float = float", pl.col("f") == pl.col("g")),
+    ("float != float", pl.col("f") != pl.col("g")),
+    ("float < float", pl.col("f") < pl.col("g")),
+    ("float <= float", pl.col("f") <= pl.col("g")),
+    ("float > float", pl.col("f") > pl.col("g")),
+    ("float >= float", pl.col("f") >= pl.col("g")),
+    ("computed negative zero", (pl.col("f") * -1.0) == 0.0),
+    # Not negation: Lance orders a NaN with its sign bit set below everything.
+    ("computed float vs float", (pl.col("f") * 2.0) <= pl.col("g").abs()),
+    ("is_between zeros", pl.col("f").is_between(-0.0, 0.0)),
+    ("list contains a zero", pl.col("l").list.contains(0.0)),
+    ("null literal", pl.lit(None, dtype=pl.Boolean)),
+    ("modulo", (pl.col("i") % 2) == 1),
+    ("modulo of a negation", (-pl.col("i") % 2) == 1),
+    ("modulo by a negative", (pl.col("i") % -3) == -1),
+    ("nan comparison", pl.col("f") > 1.0),
+    ("kleene or", pl.col("b") | (pl.col("i") > 2)),
+]
+
+
+@pytest.fixture(scope="module")
+def edges_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
+    uri = str(tmp_path_factory.mktemp("edges") / "edges.lance")
+    lance.write_dataset(EDGES.with_row_index("row").to_arrow(), uri)
+    return uri
+
+
+def _same(predicate: pl.Expr) -> pl.Expr:
+    return predicate
+
+
+@pytest.mark.parametrize(
+    "negate",
+    [pytest.param(_same, id="plain"), pytest.param(operator.inv, id="negated")],
+)
+@pytest.mark.parametrize(
+    "predicate", [pytest.param(e, id=name) for name, e in EDGE_PREDICATES]
+)
+def test_exact_lowerings_survive_negation(
+    predicate: pl.Expr, negate: Callable[[pl.Expr], pl.Expr], edges_uri: str
+) -> None:
+    """An exact lowering must agree on every row, including under `NOT`.
+
+    Agreeing on which rows a filter keeps is not enough: SQL may say null where
+    Polars says false, which only shows once the result is negated. The truth
+    is the predicate evaluated per row: `filter` would let the optimizer fold
+    `~is_in([])` away first, keeping the null row the evaluation drops.
+    """
+    predicate = negate(predicate)
+    lowered = to_lance_filter(predicate, schema=EDGES.schema)
+    assert lowered is not None, "expected this predicate to lower"
+    assert lowered.exact
+    table = lance.dataset(edges_uri).to_table(columns=["row"], filter=lowered.sql)
+    pushed = set(table["row"].to_pylist())
+    evaluated = EDGES.with_row_index("row").with_columns(predicate.alias("keep"))
+    kept = set(evaluated.filter(pl.col("keep") == True)["row"].to_list())  # noqa: E712
+    assert pushed == kept, lowered.sql

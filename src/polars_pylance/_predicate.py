@@ -51,7 +51,16 @@ _COMPARISONS = {
 # non-null literal: the Boolean result must remain equivalent under NOT/XOR.
 _NULL_SAFE = {"EqValidity": "=", "NotEqValidity": "!="}
 
-_ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*", "Modulus": "%"}
+_ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*"}
+
+# The comparison seen from the other side, for a literal on the left.
+_MIRRORED = {"=": "=", "!=": "!=", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
+
+# Beyond this a divisor could overflow `(a % b) + b` in `_modulus`.
+_MAX_MODULUS = 2**62
+
+# SQL has no typed null keyword; a bare `NULL` is not a boolean to Lance.
+_NULL_BOOLEAN = "CAST(NULL AS boolean)"
 
 _CONJUNCTIONS = {"And": "AND", "LogicalAnd": "AND", "Or": "OR", "LogicalOr": "OR"}
 
@@ -150,6 +159,20 @@ class _Value:
     is_double: bool = False
     # Known to be text, which is how a `Plus` node is told from concatenation.
     is_string: bool = False
+    # Known to be floating point without being cast to double, such as the
+    # result of arithmetic on a float column.
+    is_float: bool = False
+    # A literal cannot become `-0.0` unless it already is a zero.
+    is_literal: bool = False
+
+    @property
+    def floating(self) -> bool:
+        """Whether this value is known to be floating point, so may be `-0.0`."""
+        return self.is_float or self.is_double or self.is_float_literal
+
+    @property
+    def is_zero_literal(self) -> bool:
+        return self.is_literal and self.sql in ("0", *_ZEROS)
 
     def as_double(self) -> _Value:
         if self.is_float_literal or self.is_double:
@@ -244,7 +267,8 @@ class _Lowering:
             if value.dtype == pl.Boolean and value.len() == 1:
                 item = value.item()
                 if item is None:
-                    return "FALSE", True
+                    # Not `FALSE`: that would turn true under negation.
+                    return _NULL_BOOLEAN, True
                 return ("TRUE" if item else "FALSE"), True
             return None, False
         # Ternary (when/then/otherwise) has no Lance spelling: CASE is rejected.
@@ -311,7 +335,7 @@ class _Lowering:
         if lhs.is_float_literal != rhs.is_float_literal:
             # Lance refuses the mixed comparison Polars promotes through.
             lhs, rhs = lhs.as_double(), rhs.as_double()
-        return f"({lhs.sql} {op} {rhs.sql})", True
+        return _signed_zero_comparison(op, lhs, rhs), True
 
     def _function_predicate(self, node: Json) -> tuple[str | None, bool]:
         body = _fields(node)
@@ -395,15 +419,22 @@ class _Lowering:
             return None, False
         if values.len() > self.max_in_list:
             return None, False
+        # Polars never matches a null element, where SQL's `IN` turns null on
+        # any non-match, which `NOT` cannot undo.
+        values = values.drop_nulls()
         if values.is_empty():
-            # `is_in([])` is false everywhere; `IN ()` is a syntax error.
-            return "FALSE", True
+            # `IN ()` is a syntax error. False, but null for a null input, so
+            # that it stays dropped under negation.
+            return f"({column.sql} IS NULL AND {_NULL_BOOLEAN})", True
         try:
             rendered = [_scalar(v, values.dtype) for v in values]
         except _Decline:
             return None, False
         if isinstance(values.dtype, (pl.Float32, pl.Float64)):
             column = column.as_double()
+            if any(r in _ZEROS for r in rendered):
+                # Polars matches `-0.0` and `0.0` to each other; Lance does not.
+                rendered = [r for r in rendered if r not in _ZEROS] + _ZEROS
         return f"({column.sql} IN ({', '.join(rendered)}))", True
 
     def _is_between(
@@ -477,6 +508,10 @@ class _Lowering:
             column, needle = self.value(args[0]), self.value(args[1])
         except _Decline:
             return None, False
+        if needle.is_float_literal and needle.sql in _ZEROS:
+            # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
+            either = " OR ".join(f"array_has({column.sql}, {z})" for z in _ZEROS)
+            return f"({either})", True
         return f"array_has({column.sql}, {needle.sql})", True
 
     def _is_floating(self, name: Json) -> bool:
@@ -566,7 +601,12 @@ class _Lowering:
                 # literal settles it on its own; two columns need the schema,
                 # without which this stays `+` and Lance declines to plan it.
                 return _Value(f"({left.sql} || {right.sql})", is_string=True)
-            return _Value(f"({left.sql} {_ARITHMETIC[op]} {right.sql})")
+            return _Value(
+                f"({left.sql} {_ARITHMETIC[op]} {right.sql})",
+                is_float=left.floating or right.floating,
+            )
+        if op == "Modulus":
+            return self._modulus(_field(body, "left"), _field(body, "right"))
         if op == "TrueDivide":
             # Polars' `/` is always float division; SQL's is integer division
             # between integers.
@@ -576,6 +616,27 @@ class _Lowering:
         # FloorDivide has no Lance spelling (`floor()` is rejected).
         raise _Decline
 
+    def _modulus(self, left: Json, right: Json) -> _Value:
+        """`a % b`, restricted to integers and a non-zero literal divisor.
+
+        Polars' `%` takes the sign of the divisor and SQL's the sign of the
+        dividend, which `((a % b) + b) % b` reconciles. A column divisor could be
+        zero, which Polars answers with null and Lance with an error, or large
+        enough to overflow the sum. Float remainders drift in that spelling.
+        """
+        dividend = self.value(left)
+        divisor = self.value(right)
+        kind, _ = _unpack(right)
+        if kind != "Literal" or dividend.floating or divisor.floating:
+            raise _Decline
+        try:
+            number = int(divisor.sql)
+        except ValueError as exc:
+            raise _Decline from exc
+        if number == 0 or abs(number) > _MAX_MODULUS:
+            raise _Decline
+        return _Value(f"((({dividend.sql} % {number}) + {number}) % {number})")
+
     def _function_value(self, node: Json) -> _Value:
         body = _fields(node)
         (name, payload), args = _function(body), body.get("input", [])
@@ -583,18 +644,24 @@ class _Lowering:
             raise _Decline
 
         if name == ("Abs",):
-            return _Value(f"abs({self.value(args[0]).sql})")
+            inner = self.value(args[0])
+            return _Value(f"abs({inner.sql})", is_float=inner.floating)
         if name == ("Negate",):
-            return _Value(f"(- {self.value(args[0]).sql})")
+            inner = self.value(args[0])
+            return _Value(f"(- {inner.sql})", is_float=inner.floating)
         if name == ("FillNull",) and len(args) == 2:
             left, right = self.value(args[0]), self.value(args[1])
-            return _Value(f"coalesce({left.sql}, {right.sql})")
+            return _Value(
+                f"coalesce({left.sql}, {right.sql})",
+                is_float=left.floating or right.floating,
+            )
         if name in (("MinHorizontal",), ("MaxHorizontal",)):
             # `least` / `greatest` skip nulls, which is what the Polars
             # horizontal reductions do too.
             fn = "least" if name[0] == "MinHorizontal" else "greatest"
-            rendered = ", ".join(self.value(a).sql for a in args)
-            return _Value(f"{fn}({rendered})")
+            values = [self.value(a) for a in args]
+            rendered = ", ".join(v.sql for v in values)
+            return _Value(f"{fn}({rendered})", is_float=any(v.floating for v in values))
         if name == ("Pow", "Generic") and len(args) == 2:
             return self._power(args)
         # `Round` is deliberately absent: Polars breaks ties to even, Lance
@@ -627,7 +694,8 @@ class _Lowering:
             raise _Decline from exc
         if whole < 0:
             raise _Decline
-        return _Value(f"power({self.value(args[0]).sql}, {whole})")
+        base = self.value(args[0])
+        return _Value(f"power({base.sql}, {whole})", is_float=base.floating)
 
     def _list_get(self, payload: Json, args: Sequence[Json]) -> _Value:
         """`list.get(i)`, only in its null-on-out-of-bounds spelling.
@@ -841,6 +909,7 @@ def _literal(node: Json) -> _Value:
     dtype = series.dtype
     return _Value(
         _scalar(series.item(), dtype),
+        is_literal=True,
         is_float_literal=isinstance(dtype, (pl.Float32, pl.Float64)),
         is_string=isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)),
     )
@@ -912,6 +981,43 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         return f"X'{bytes(value).hex()}'"
     # Time, Duration, Decimal, and every nested dtype: no dependable spelling.
     raise _Decline
+
+
+_ZEROS = ["-0.0", "0.0"]
+
+
+def _signed_zero_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
+    """`lhs op rhs`, with Polars' rule that `-0.0` and `0.0` are equal.
+
+    Lance compares floats by total order, where `-0.0 < 0.0`. Against a zero
+    literal, picking its sign per operator is enough. Between two float
+    values, the pair of zeros is decided explicitly; each zero test is null
+    whenever its operand is, so nulls propagate as the plain comparison would.
+    Without a schema, a float column is not known to be one and is compared
+    plainly.
+    """
+    if not (lhs.floating or rhs.floating):
+        return f"({lhs.sql} {op} {rhs.sql})"
+    if lhs.is_zero_literal and not rhs.is_zero_literal:
+        lhs, rhs, op = rhs, lhs, _MIRRORED[op]
+    if rhs.is_zero_literal:
+        value = lhs.sql
+        if op == "=":
+            return f"({value} IN ({', '.join(_ZEROS)}))"
+        if op == "!=":
+            return f"(NOT ({value} IN ({', '.join(_ZEROS)})))"
+        # Below `-0.0` or above `0.0` excludes both zeros; the rest include both.
+        bound = "-0.0" if op in ("<", ">=") else "0.0"
+        return f"({value} {op} {bound})"
+    plain = f"({lhs.sql} {op} {rhs.sql})"
+    if lhs.is_literal or rhs.is_literal:
+        # Any other literal is neither zero nor able to become one.
+        return plain
+    zeros = ", ".join(_ZEROS)
+    both_zero = f"({lhs.sql} IN ({zeros}) AND {rhs.sql} IN ({zeros}))"
+    if op in ("=", "<=", ">="):
+        return f"({plain} OR {both_zero})"
+    return f"({plain} AND NOT {both_zero})"
 
 
 def _string_literal(value: str) -> str:
