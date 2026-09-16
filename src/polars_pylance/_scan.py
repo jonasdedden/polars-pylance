@@ -20,6 +20,7 @@ finished per batch here.
 from __future__ import annotations
 
 import dataclasses
+import io
 import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -57,8 +58,8 @@ class LanceScanSpec:
     prerequisite for Polars Cloud.
 
     The fields are the arguments of [`scan_lance`][polars_pylance.scan_lance], which
-    documents them, with two differences: `prefilter` has already been lowered
-    to a Lance SQL string, and `fragment_ids` is the resolved list that
+    documents them, with two differences: a Polars-expression `prefilter` is held
+    serialized in `prefilter_expr`, and `fragment_ids` is the resolved list that
     `fragments` selected.
     """
 
@@ -68,9 +69,13 @@ class LanceScanSpec:
     options: LanceScanOptions = field(default_factory=LanceScanOptions)
     nearest: dict[str, Any] | None = None
     full_text_query: str | dict[str, Any] | None = None
-    # Already lowered to Lance SQL by `scan_lance`, so the spec stays a plain
-    # picklable record and an unsupported prefilter fails at the call site.
+    # A prefilter given as Lance SQL.
     prefilter: str | None = None
+    # A prefilter given as a Polars expression, serialized so the spec stays a
+    # plain picklable record that compares by value. It is lowered only once the
+    # dataset is open: whether a comparison needs Polars' float semantics spelled
+    # out depends on the column types, which `scan_lance` does not look up.
+    prefilter_expr: bytes | None = None
     with_row_id: bool = False
     with_row_address: bool = False
     fragment_ids: list[int] | None = None
@@ -254,7 +259,8 @@ def _frames(
             spec, options=spec.options.replace(batch_size=batch_size)
         )
 
-    schema = spec.polars_schema(dataset) if predicate is not None else None
+    needs_schema = predicate is not None or spec.prefilter_expr is not None
+    schema = spec.polars_schema(dataset) if needs_schema else None
     plan = _plan_scan(spec, predicate, schema=schema)
     yield from _execute_scan(plan, dataset, with_columns, n_rows)
 
@@ -280,12 +286,17 @@ def _plan_scan(
 ) -> _ScanPlan:
     """Translate a scan's filter without opening a scanner or consuming rows."""
     sql: str | None
-    if spec.prefilter is not None:
+    if spec.prefilter is not None or spec.prefilter_expr is not None:
         # Lance's one filter slot is spoken for. The prefilter decides which
         # rows the search ranks; the query's own `.filter()` therefore stays in
         # Polars, where it is a postfilter over that ranking. `predicate_pushdown`
         # governs the automatic lowering, not this explicit argument.
-        sql, residual, prefilter = spec.prefilter, predicate, True
+        sql = (
+            spec.prefilter
+            if spec.prefilter_expr is None
+            else _prefilter_sql(_deserialize(spec.prefilter_expr), schema=schema)
+        )
+        residual, prefilter = predicate, True
     else:
         lowered = (
             to_lance_filter(predicate, schema=schema)
@@ -396,17 +407,27 @@ def _with_predicate_columns(
 # ---------------------------------------------------------------------------
 
 
-def _prefilter_sql(prefilter: str | pl.Expr) -> str:
+def _serialize(expr: pl.Expr) -> bytes:
+    return expr.meta.serialize()
+
+
+def _deserialize(blob: bytes) -> pl.Expr:
+    return pl.Expr.deserialize(io.BytesIO(blob))
+
+
+def _prefilter_sql(prefilter: pl.Expr, *, schema: pl.Schema | None) -> str:
     """Lower an explicit prefilter, refusing whatever Lance cannot decide alone.
 
     A pushed-down predicate is allowed to be relaxed, because Polars still
     evaluates it afterwards. A prefilter chooses which rows the search ranks at
     all, and nothing downstream can repair that choice. A partial lowering is
     therefore an error here rather than a silent demotion to a postfilter.
+
+    `scan_lance` calls this without a schema, so that a prefilter with no Lance
+    spelling fails at the call site; the scan calls it again with the dataset's
+    schema, and that SQL is the one used.
     """
-    if isinstance(prefilter, str):
-        return prefilter
-    lowered = to_lance_filter(prefilter)
+    lowered = to_lance_filter(prefilter, schema=schema)
     if lowered is None:
         msg = (
             f"prefilter does not translate to a Lance filter: {prefilter}. "
@@ -474,7 +495,9 @@ def scan_lance(
             and so may return fewer than `k` rows; with a prefilter the search picks its
             `k` from the surviving rows only. A Polars expression that does not
             translate exactly is an error rather than a postfilter, since nothing
-            downstream can repair a candidate set the search has already used.
+            downstream can repair a candidate set the search has already used. The
+            expression is translated when the query runs, against the dataset's
+            schema, so float comparisons keep Polars' NaN and signed-zero rules.
         with_row_id: Include Lance's stable `_rowid` column.
         with_row_address: Include Lance's physical `_rowaddr` column.
         fragments: Restrict the scan to these fragment ids. See
@@ -496,6 +519,12 @@ def scan_lance(
     else:
         uri = str(source)
 
+    expr_prefilter = prefilter if isinstance(prefilter, pl.Expr) else None
+    if expr_prefilter is not None:
+        # Refuse an untranslatable prefilter here rather than mid-collect. The
+        # SQL is produced again, with the dataset's schema, when the scan runs.
+        _prefilter_sql(expr_prefilter, schema=None)
+
     spec = LanceScanSpec(
         uri=uri,
         version=version,
@@ -503,7 +532,8 @@ def scan_lance(
         options=options if options is not None else LanceScanOptions(),
         nearest=nearest,
         full_text_query=full_text_query,
-        prefilter=None if prefilter is None else _prefilter_sql(prefilter),
+        prefilter=prefilter if isinstance(prefilter, str) else None,
+        prefilter_expr=None if expr_prefilter is None else _serialize(expr_prefilter),
         with_row_id=with_row_id,
         with_row_address=with_row_address,
         fragment_ids=list(fragments) if fragments is not None else None,

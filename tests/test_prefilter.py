@@ -14,6 +14,7 @@ cannot take fails rather than quietly becoming a postfilter.
 from __future__ import annotations
 
 import io
+import math
 import pickle
 import warnings
 from typing import TYPE_CHECKING
@@ -374,4 +375,115 @@ def test_spec_with_prefilter_is_picklable(split_uri: tuple[str, list[float]]) ->
     """A lowered prefilter is a plain string, so the spec still compares equal."""
     uri, _ = split_uri
     spec = LanceScanSpec(uri=uri, prefilter="cat = 'far'")
+    assert pickle.loads(pickle.dumps(spec)) == spec
+
+
+# -- translated against the dataset's column types --------------------------
+
+
+@pytest.fixture(scope="session")
+def float_uri(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, pl.DataFrame]:
+    """Float columns holding what Lance and Polars order differently.
+
+    A NaN with its sign bit set (what `0 / 0` gives on x86) and `-0.0`. Every
+    vector is equal, so a search with `k` covering the table ranks all rows and
+    the prefilter alone decides which come back.
+    """
+    neg_nan = math.copysign(math.nan, -1.0)
+    frame = pl.DataFrame(
+        {
+            "id": list(range(8)),
+            "score": [1.0, neg_nan, math.nan, -0.0, 0.0, -2.0, None, 3.0],
+            "floor": [0.0, 1.0, neg_nan, 0.0, -0.0, math.nan, 1.0, None],
+        }
+    )
+    table = frame.to_arrow().append_column(
+        "vector",
+        pa.FixedSizeListArray.from_arrays(pa.array([0.0] * (8 * 2), pa.float32()), 2),
+    )
+    uri = str(tmp_path_factory.mktemp("floats") / "floats.lance")
+    lance.write_dataset(table, uri)
+    return uri, frame
+
+
+@pytest.mark.parametrize(
+    "prefilter",
+    [
+        pytest.param(pl.col("score") >= 0, id="int literal"),
+        pytest.param(pl.col("score") > 0.5, id="float literal"),
+        pytest.param(pl.col("score") < 1, id="below"),
+        pytest.param(pl.col("score") == 0, id="zero"),
+        pytest.param(pl.col("score") > pl.col("floor"), id="column against column"),
+        pytest.param(~(pl.col("score") <= pl.col("floor")), id="negated columns"),
+    ],
+)
+def test_expression_prefilter_keeps_polars_float_semantics(
+    float_uri: tuple[str, pl.DataFrame], prefilter: pl.Expr
+) -> None:
+    """Without the column types, `score >= 0` would drop the negative NaN and `-0.0`."""
+    uri, frame = float_uri
+    nearest = {
+        "column": "vector",
+        "q": [0.0, 0.0],
+        "k": frame.height,
+        "use_index": False,
+    }
+    got = (
+        scan_lance(uri, nearest=nearest, prefilter=prefilter)
+        .select("id")
+        .collect(engine="streaming")
+    )
+    evaluated = frame.with_columns(prefilter.alias("keep"))
+    kept = evaluated.filter(pl.col("keep") == True)["id"].to_list()  # noqa: E712
+    assert sorted(got["id"].to_list()) == sorted(kept)
+
+
+def test_expression_prefilter_is_lowered_with_the_schema(
+    float_uri: tuple[str, pl.DataFrame], scanner_calls: list[ScannerCall]
+) -> None:
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    lf = scan_lance(uri, nearest=nearest, prefilter=pl.col("score") > 1)
+    assert scanner_calls == [], "scan_lance itself must not read the dataset"
+
+    lf.select("id").collect(engine="streaming")
+    # The schema lookup opens a scanner too, without a filter.
+    searches = [c for c in scanner_calls if c.filter is not None]
+    assert searches
+    assert all(c.prefilter for c in searches)
+    assert all(
+        c.filter == "((`score` > 1) OR `score` < CAST('-inf' AS double))"
+        for c in searches
+    )
+
+
+def test_prefilter_refused_only_with_the_schema_fails_at_collect(
+    float_uri: tuple[str, pl.DataFrame],
+) -> None:
+    """`max_horizontal` over floats has no exact spelling, which only the types show."""
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    lf = scan_lance(
+        uri, nearest=nearest, prefilter=pl.max_horizontal("score", "floor") > 0
+    )
+    with pytest.raises(Exception, match="prefilter does not translate"):
+        lf.select("id").collect(engine="streaming")
+
+
+def test_expression_prefilter_survives_serialization(
+    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
+) -> None:
+    uri, query = split_uri
+    lf = _search(uri, query, prefilter=pl.col("cat") == "far").select("id")
+    restored = pl.LazyFrame.deserialize(io.BytesIO(lf.serialize()))
+    assert restored.collect(engine="streaming")["id"].to_list() == prefiltered_ids
+
+
+def test_spec_with_an_expression_prefilter_is_picklable(
+    split_uri: tuple[str, list[float]],
+) -> None:
+    """Held serialized, so the spec still pickles and compares by value."""
+    uri, _ = split_uri
+    blob = (pl.col("cat") == "far").meta.serialize()
+    spec = LanceScanSpec(uri=uri, prefilter_expr=blob)
     assert pickle.loads(pickle.dumps(spec)) == spec
