@@ -181,8 +181,7 @@ On Polars 1.44.2, none of these four reaches Lance through
 `pl.scan_pyarrow_dataset` either. Polars' PyArrow lowering, which also backs
 `scan_delta` and `scan_iceberg`, leaves arithmetic, temporal parts and string
 functions to be evaluated after the read, and lowers `is_in` only up to 100 values.
-`docs/PUSHDOWN.md` has the construct-by-construct table and the constructs this
-translation deliberately declines.
+`docs/PUSHDOWN.md` lists the constructs this translation deliberately declines.
 
 A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.

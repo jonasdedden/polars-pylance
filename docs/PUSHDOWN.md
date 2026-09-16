@@ -127,28 +127,6 @@ Everything else translates, including `is_in` of any length, `xor`,
 `fill_null`, the `is_nan` family, `cast`, the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
 
-## Compared with `scan_pyarrow_dataset`
-
-A Lance dataset also works with `pl.scan_pyarrow_dataset`. There Polars lowers the
-predicate to a PyArrow expression itself and evaluates whatever it did not lower
-after reading. The PyArrow expression language is not the limit; Polars' lowering
-is. On Polars 1.44.2, this is what reaches the dataset:
-
-| construct | `scan_pyarrow_dataset` | `scan_lance` |
-| --- | --- | --- |
-| comparisons, `&` / `\|` / `~`, `is_null`, `is_between`, `all_horizontal` | yes | yes |
-| `is_in`, up to 100 values | yes | yes |
-| `is_in`, more than 100 values | no | yes |
-| `xor`, `eq_missing` / `ne_missing` | no | yes |
-| string functions (`starts_with`, `contains`, `len_chars`, ...) | no | yes |
-| arithmetic, `abs`, `fill_null`, `min_horizontal` / `max_horizontal` | no | yes |
-| `is_nan` family, `cast` | no | yes |
-| `dt` parts, `list.contains`, `struct.field` | no | yes |
-
-`scan_pyarrow_dataset` does pass `head()`'s row count, but only to stop iterating
-batches; Lance's scanner is not told the limit. Newer Polars versions may lower more,
-so check against the version you run.
-
 ## Prefilters are stricter
 
 A prefilter for a vector search cannot lower loosely, because there is no

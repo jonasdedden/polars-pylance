@@ -70,10 +70,9 @@ open since 2024). Lance datasets do implement the PyArrow dataset protocol, so
 `pl.scan_pyarrow_dataset` works, but Polars only lowers comparisons, Boolean logic,
 null checks, `is_between` and `is_in` of up to 100 values into the PyArrow filter it
 hands over. String functions, arithmetic, temporal parts and the rest are evaluated
-after reading ([details](https://jonasdedden.github.io/polars-pylance/dev/PUSHDOWN/#compared-with-scan_pyarrow_dataset)).
-A `head()` stops pulling batches but never reaches Lance's scanner as a limit, vector
-and full-text search are out of reach, and Lance's read-ahead defaults stay untouched,
-where `io_buffer_size` alone defaults to 2 GiB.
+after reading. A `head()` stops pulling batches but never reaches Lance's scanner as a
+limit, vector and full-text search are out of reach, and Lance's read-ahead defaults
+stay untouched, where `io_buffer_size` alone defaults to 2 GiB.
 
 ## Reading
 
