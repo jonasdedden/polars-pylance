@@ -197,8 +197,17 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.any_horizontal(pl.col("flag"), pl.col("id") > 1),
         "(`flag` OR (`id` > 1))",
     ),
-    # `eq_missing` against a non-null literal cannot be null-sensitive.
-    ("eq_missing", pl.col("opt").eq_missing(3), "(`opt` = 3)"),
+    # Preserve Boolean values, including when composed beneath NOT or XOR.
+    (
+        "eq_missing",
+        pl.col("opt").eq_missing(3),
+        "((`opt` = 3) AND `opt` IS NOT NULL)",
+    ),
+    (
+        "ne_missing",
+        pl.col("opt").ne_missing(3),
+        "((`opt` != 3) OR `opt` IS NULL)",
+    ),
     ("alias is transparent", (pl.col("id") > 7).alias("x"), "(`id` > 7)"),
     ("quoted identifier", pl.col("odd name") > 1, "(`odd name` > 1)"),
     # Polars promotes to float to compare; Lance refuses the mixed comparison.

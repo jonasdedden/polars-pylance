@@ -47,8 +47,8 @@ _COMPARISONS = {
     "Gt": ">",
     "GtEq": ">=",
 }
-# `eq_missing` / `ne_missing`. Null-safe against a non-null literal is plain
-# equality; Lance has no spelling for the rest.
+# `eq_missing` / `ne_missing` need explicit null handling even against a
+# non-null literal: the Boolean result must remain equivalent under NOT/XOR.
 _NULL_SAFE = {"EqValidity": "=", "NotEqValidity": "!="}
 
 _ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*", "Modulus": "%"}
@@ -276,12 +276,17 @@ class _Lowering:
                 _COMPARISONS[op], _field(body, "left"), _field(body, "right")
             )
         if op in _NULL_SAFE:
-            # Collapses to plain equality only against a non-null operand.
             left_node, right_node = _field(body, "left"), _field(body, "right")
             pairs = ((right_node, left_node), (left_node, right_node))
             for value, other in pairs:
                 if _is_non_null_literal(value):
-                    return self._compare(_NULL_SAFE[op], other, value)
+                    comparison, exact = self._compare(_NULL_SAFE[op], other, value)
+                    if comparison is None:
+                        return None, False
+                    column = self.value(other).sql
+                    if op == "EqValidity":
+                        return f"({comparison} AND {column} IS NOT NULL)", exact
+                    return f"({comparison} OR {column} IS NULL)", exact
             return None, False
 
         if op == "Xor":

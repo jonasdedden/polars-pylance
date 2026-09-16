@@ -7,7 +7,7 @@ the other direction a filter pushed so far that rows go missing.
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import lance
 import polars as pl
@@ -394,3 +394,33 @@ def test_an_indexed_column_keeps_its_index(
 
     assert filters == ["(`val` > 0.999)"]
     assert got.item() == rich_frame.filter(pl.col("val") > 0.999).height
+
+
+@pytest.mark.parametrize("engine", ["streaming", "in-memory"])
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        pl.col("x").eq_missing(3),
+        pl.col("x").ne_missing(3),
+        ~pl.col("x").eq_missing(3),
+        ~pl.col("x").ne_missing(3),
+        pl.lit(3).ne_missing(pl.col("x")),
+        pl.col("x").eq_missing(3) ^ pl.col("flag"),
+        ~(pl.col("x").eq_missing(3) | pl.col("flag")),
+        pl.col("x").ne_missing(3) & pl.col("flag"),
+    ],
+)
+def test_null_safe_comparisons_preserve_null_rows(
+    tmp_path: Path, predicate: pl.Expr, engine: Literal["streaming", "in-memory"]
+) -> None:
+    frame = pl.DataFrame(
+        {
+            "id": range(6),
+            "x": [None, 3, 4, None, 3, 4],
+            "flag": [True] * 3 + [False] * 3,
+        }
+    )
+    uri = str(tmp_path / "nulls.lance")
+    lance.write_dataset(frame.to_arrow(), uri)
+    got = scan_lance(uri).filter(predicate).select("id").collect(engine=engine)
+    assert_frame_equal(got, frame.filter(predicate).select("id"))
