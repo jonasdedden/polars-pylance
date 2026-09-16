@@ -29,7 +29,7 @@ import lance
 import polars as pl
 
 from ._options import LanceScanOptions
-from ._predicate import VIRTUAL_COLUMNS, to_lance_filter
+from ._predicate import VIRTUAL_COLUMNS, lower_predicate, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -427,7 +427,9 @@ def _prefilter_sql(prefilter: pl.Expr, *, schema: pl.Schema | None) -> str:
     spelling fails at the call site; the scan calls it again with the dataset's
     schema, and that SQL is the one used.
     """
-    lowered = to_lance_filter(prefilter, schema=schema)
+    lowered = lower_predicate(
+        prefilter, schema=schema, types_known_later=schema is None
+    )
     if lowered is None:
         msg = (
             f"prefilter does not translate to a Lance filter: {prefilter}. "

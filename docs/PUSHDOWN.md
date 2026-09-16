@@ -85,8 +85,8 @@ original is re-applied to each batch in Polars:
 ```python
 >>> pll.to_lance_filter(pl.col("text").str.slice(0, 2) == "xy") is None
 True
->>> pll.to_lance_filter((pl.col("id") > 5) & (pl.col("text").str.slice(0, 2) == "xy"))
-LanceFilter(sql='(`id` > 5)', exact=False)
+>>> pll.to_lance_filter((pl.col("cat") == "b") & (pl.col("text").str.slice(0, 2) == "xy"))
+LanceFilter(sql="(`cat` = 'b')", exact=False)
 ```
 
 `exact=False` says the filter is a superset: Lance returns more rows than the
@@ -137,6 +137,12 @@ produces, sorts below every number. Polars treats the zeros as equal and every N
 as larger than any number. So `val > 0.5` is sent as
 `((val > 0.5) OR val < CAST('-inf' AS double))`, which still uses a scalar index on
 `val`.
+
+That needs the column types. `scan_lance` always has them. Called without
+`schema=`, `to_lance_filter` cannot tell an integer column from a float one, so it
+spells numeric comparisons to hold for both, `((id > 5) OR isnan(id))`, at the cost
+of the scalar index, and declines a comparison between two columns, which could as
+well be strings.
 
 ## Prefilters are stricter
 
