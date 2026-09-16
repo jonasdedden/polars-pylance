@@ -868,7 +868,8 @@ much of the expression Lance understood, only the speed does.</p>
 keeps, so those decline entirely rather than lower loosely.</p>
 <h2 id="what-declines-and-why">What declines, and why<a class="headerlink" href="#what-declines-and-why" title="Permanent link">&para;</a></h2>
 <p>Some constructs have a Lance spelling that means something subtly different.
-Rather than return wrong rows quickly, these decline and run in Polars:</p>
+Rather than return wrong rows quickly, these decline and run in Polars. Those marked
+"not translated yet" would be safe to push and are simply not spelled out yet:</p>
 <table>
 <thead>
 <tr>
@@ -883,11 +884,15 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 </tr>
 <tr>
 <td><code>sqrt</code>, <code>ln</code>, <code>log10</code>, <code>cbrt</code></td>
-<td>outside their domain Polars gives NaN, Lance NULL</td>
+<td>not translated yet; Polars and Lance agree, NaN outside the domain included</td>
 </tr>
 <tr>
-<td><code>a ** b</code>, fractional or negative exponent</td>
-<td>same</td>
+<td><code>a ** b</code>, fractional exponent</td>
+<td>not translated yet; both give NaN for a negative base</td>
+</tr>
+<tr>
+<td><code>a ** b</code>, negative exponent</td>
+<td><code>0 ** -1</code> is <code>inf</code> in Polars and fails the scan in Lance</td>
 </tr>
 <tr>
 <td><code>str.strip_chars()</code> with no argument</td>
@@ -943,7 +948,7 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 </tr>
 <tr>
 <td>narrowing integer cast</td>
-<td>Polars raises on overflow, Lance wraps</td>
+<td>not translated yet; Polars and Lance both raise on overflow</td>
 </tr>
 <tr>
 <td>non-strict cast, unless widening</td>
