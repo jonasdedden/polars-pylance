@@ -1,0 +1,32 @@
+# Layered over cluster.yaml when the action deploys its object store
+# (manifests/object-store.yaml), with credentials from the
+# "objectstore-credentials" secret the action creates.
+#
+# Results of `.execute()` (queries without an explicit sink) go to the
+# in-cluster object store. `external_endpoint` is the host used in the
+# presigned URLs handed back to the client; thanks to the /etc/hosts entry
+# on the runner it is the same name as the internal one.
+anonymousResults:
+  s3:
+    enabled: true
+    endpoint: "s3://polars/anonymous-results/"
+    presignDuration: "1h"
+    options:
+      - name: aws_endpoint_url
+        value: "http://objectstore:8333"
+      - name: external_endpoint
+        value: "http://objectstore:8333"
+      - name: aws_region
+        value: "us-east-1"
+      - name: aws_allow_http
+        value: "true"
+      - name: aws_access_key_id
+        valueFrom:
+          secretKeyRef:
+            name: objectstore-credentials
+            key: aws_access_key_id
+      - name: aws_secret_access_key
+        valueFrom:
+          secretKeyRef:
+            name: objectstore-credentials
+            key: aws_secret_access_key

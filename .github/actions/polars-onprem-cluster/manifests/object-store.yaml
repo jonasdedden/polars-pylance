@@ -1,0 +1,89 @@
+# Throwaway S3-compatible object store (SeaweedFS "mini" mode,
+# same image the Polars chart uses for its quick-start storage).
+#
+# Reachable as http://objectstore:8333 from BOTH sides:
+#   - inside the cluster via this Service (same namespace as Polars)
+#   - on the CI runner via NodePort 30833 -> hostPort 8333 plus an
+#     /etc/hosts entry "127.0.0.1 objectstore" (added by the action)
+# Using one hostname everywhere means storage_options and presigned URLs
+# work identically for the client and for the workers.
+#
+# Credentials come from the "objectstore-credentials" secret the action creates.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: objectstore
+  labels:
+    app: objectstore
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: objectstore
+  template:
+    metadata:
+      labels:
+        app: objectstore
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.23
+          args:
+            - mini
+            - -dir=/data
+            - -s3
+            - -s3.port=8333
+            - -webdav=false
+            - -admin.ui=false
+            - -filer.disableDirListing=true
+            - -bucket=polars
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: objectstore-credentials
+                  key: aws_access_key_id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: objectstore-credentials
+                  key: aws_secret_access_key
+          ports:
+            - name: s3
+              containerPort: 8333
+              protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: s3
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: objectstore
+  labels:
+    app: objectstore
+spec:
+  type: NodePort
+  selector:
+    app: objectstore
+  ports:
+    - name: s3
+      port: 8333
+      targetPort: s3
+      nodePort: 30833
+      protocol: TCP

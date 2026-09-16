@@ -29,12 +29,6 @@ therefore runs *on the workers*, so the workers write Lance data files directly,
 a single client-side commit publishes them. `polars_pylance._remote` documents the
 arrangement.
 
-The Parquet-staging route remains as the conservative fallback: sink the remote
-query to Parquet on object storage and convert it with
-[`convert_parquet_to_lance`][polars_pylance.cloud.convert_parquet_to_lance].
-polars-cloud 0.10's `DirectQuery.delete_result()` makes cleaning up the intermediate
-a single call, in direct mode with anonymous storage configured for `allow_delete`.
-
 ### The polars pin
 
 polars-cloud pins polars with `==` (0.11 tracks `polars==1.44.2`, 0.10 required
@@ -51,8 +45,6 @@ first usable release.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 import lance
 import polars as pl
 
@@ -62,14 +54,8 @@ from ._remote import (
     stage_lance_sink,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from ._sink import WriteMode
-
 __all__ = [
     "StagedLanceSink",
-    "convert_parquet_to_lance",
     "requirements_txt",
     "sink_lance_remote",
     "stage_lance_sink",
@@ -104,51 +90,3 @@ def requirements_txt(extra: list[str] | None = None) -> str:
     ]
     lines.extend(extra or [])
     return "\n".join(lines) + "\n"
-
-
-def convert_parquet_to_lance(
-    parquet_source: str | Path | list[str],
-    target: str | Path,
-    *,
-    mode: WriteMode = "create",
-    chunk_size: int = 25_000,
-    storage_options: dict[str, str] | None = None,
-    **lance_write_kwargs: Any,  # noqa: ANN401 - passed through to Lance as given
-) -> lance.LanceDataset:
-    """Stream Parquet output from a remote query into a Lance dataset.
-
-    The documented way to land Polars Cloud results in Lance: the remote query
-    sinks Parquet to object storage, then this converts it without materialising
-    the data.
-
-    Args:
-        parquet_source: The staged Parquet: a path, a URI, a glob, or a list of them.
-        target: Destination Lance URI or path.
-        mode: `"create"` (fail if it exists), `"append"`, `"overwrite"` (new version),
-            or `"merge"` for an upsert, whose join key goes through `lance_write_kwargs`
-            as `on`.
-        chunk_size: Rows buffered per batch handed to Lance.
-        storage_options: Object-store credentials and settings for reading the Parquet.
-            The Lance write takes its own; pass those in `lance_write_kwargs`.
-        **lance_write_kwargs: Passed through to
-            [`sink_lance`][polars_pylance.sink_lance], e.g. `max_rows_per_file`.
-
-    Returns:
-        lance.LanceDataset: The written dataset.
-
-    Examples:
-        >>> query.remote(ctx).distributed().sink_parquet(staging)  # doctest: +SKIP
-        >>> convert_parquet_to_lance(staging, "s3://bucket/out.lance")  # doctest: +SKIP
-    """
-    from ._sink import sink_lance
-
-    lf = pl.scan_parquet(parquet_source, storage_options=storage_options)
-    dataset = sink_lance(
-        lf,
-        target,
-        mode=mode,
-        chunk_size=chunk_size,
-        **lance_write_kwargs,
-    )
-    assert isinstance(dataset, lance.LanceDataset)
-    return dataset

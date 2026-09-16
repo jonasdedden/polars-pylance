@@ -1,0 +1,20 @@
+# Default kind cluster for the action.
+# Two worker nodes so the two Polars workers land on different "machines".
+# NodePorts are pinned by the action and mapped to the same ports on the host,
+# so the client on the CI runner talks to localhost without port-forwards.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30051 # polars scheduler (gRPC)
+        hostPort: 5051
+        protocol: TCP
+      - containerPort: 30001 # polars observatory (REST / dashboard)
+        hostPort: 3001
+        protocol: TCP
+      - containerPort: 30833 # S3-compatible object store
+        hostPort: 8333
+        protocol: TCP
+  - role: worker
+  - role: worker
