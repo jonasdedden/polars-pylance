@@ -2020,9 +2020,12 @@ dropping the generator early stops the scan.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>The scanned schema, when the caller has it. Used to drop a promotion the
-schema shows is a no-op, since a <code>CAST</code> around an indexed column costs its
-scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
+                <p>The scanned schema, when the caller has it. Column types, down to
+struct fields and list elements, decide how a float comparison is spelled
+(Lance and Polars order NaN and <code>-0.0</code> differently), whether an integer
+literal is compared as a float, whether a promotion is a no-op (a <code>CAST</code>
+around an indexed column costs its scalar index), and whether <code>+</code> is
+string concatenation.</p>
               </div>
             </td>
             <td>
@@ -2049,33 +2052,7 @@ scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_predicate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">195</span>
-<span class="normal">196</span>
-<span class="normal">197</span>
-<span class="normal">198</span>
-<span class="normal">199</span>
-<span class="normal">200</span>
-<span class="normal">201</span>
-<span class="normal">202</span>
-<span class="normal">203</span>
-<span class="normal">204</span>
-<span class="normal">205</span>
-<span class="normal">206</span>
-<span class="normal">207</span>
-<span class="normal">208</span>
-<span class="normal">209</span>
-<span class="normal">210</span>
-<span class="normal">211</span>
-<span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span>
-<span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span>
-<span class="normal">219</span>
-<span class="normal">220</span>
-<span class="normal">221</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">221</span>
 <span class="normal">222</span>
 <span class="normal">223</span>
 <span class="normal">224</span>
@@ -2095,7 +2072,36 @@ scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
 <span class="normal">238</span>
 <span class="normal">239</span>
 <span class="normal">240</span>
-<span class="normal">241</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span>
+<span class="normal">248</span>
+<span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
     <span class="n">predicate</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">max_in_list</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">MAX_IN_LIST</span><span class="p">,</span>
@@ -2106,9 +2112,12 @@ scalar index, and to tell a string <code>+</code> from an arithmetic one.</p>
 <span class="sd">    Args:</span>
 <span class="sd">        predicate: Any boolean Polars expression, however deeply nested.</span>
 <span class="sd">        max_in_list: Largest `is_in` membership list to spell out as SQL `IN`.</span>
-<span class="sd">        schema: The scanned schema, when the caller has it. Used to drop a promotion the</span>
-<span class="sd">            schema shows is a no-op, since a `CAST` around an indexed column costs its</span>
-<span class="sd">            scalar index, and to tell a string `+` from an arithmetic one.</span>
+<span class="sd">        schema: The scanned schema, when the caller has it. Column types, down to</span>
+<span class="sd">            struct fields and list elements, decide how a float comparison is spelled</span>
+<span class="sd">            (Lance and Polars order NaN and `-0.0` differently), whether an integer</span>
+<span class="sd">            literal is compared as a float, whether a promotion is a no-op (a `CAST`</span>
+<span class="sd">            around an indexed column costs its scalar index), and whether `+` is</span>
+<span class="sd">            string concatenation.</span>
 
 <span class="sd">    Examples:</span>
 <span class="sd">        &gt;&gt;&gt; import polars as pl</span>
