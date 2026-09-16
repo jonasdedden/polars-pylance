@@ -486,6 +486,11 @@ def scan_lance_fragments(
     with [`polars.concat`][polars.concat]. Also the manual parallelisation route if a
     distributed planner refuses a Python scan node.
 
+    Fragment ids only mean something within one version, so every shard is pinned to
+    the version the ids were read from, which is the latest (or `version`) at the time
+    of this call. A later write then cannot hand a shard another version's fragment
+    under the same id.
+
     Args:
         source: Dataset URI, path, or an open `lance.LanceDataset`, as
             [`scan_lance`][polars_pylance.scan_lance] takes it.
@@ -495,21 +500,23 @@ def scan_lance_fragments(
             yields one fragment per shard, not empty shards.
         **kwargs: Forwarded to [`scan_lance`][polars_pylance.scan_lance] for every
             shard, so `version`, `options`, `prefilter` and the rest apply to all of
-            them alike.
+            them alike. `version` reaches the shards resolved to a number.
 
     Examples:
         >>> shards = scan_lance_fragments("data.lance", n_shards=4)  # doctest: +SKIP
         >>> pl.concat(shards).collect(engine="streaming")  # doctest: +SKIP
     """
-    dataset = (
-        source
-        if isinstance(source, lance.LanceDataset)
-        else lance.dataset(
+    version = kwargs.pop("version", None)
+    if isinstance(source, lance.LanceDataset):
+        dataset = source if version is None else source.checkout_version(version)
+    else:
+        dataset = lance.dataset(
             str(source),
-            version=kwargs.get("version"),
+            version=version,
             storage_options=kwargs.get("storage_options"),
         )
-    )
+    # A number, not the tag or "latest" it was resolved from: both can move.
+    kwargs["version"] = dataset.version
     ids = [f.fragment_id for f in dataset.get_fragments()]
     if not ids:
         return [scan_lance(source, fragments=[], **kwargs)]
