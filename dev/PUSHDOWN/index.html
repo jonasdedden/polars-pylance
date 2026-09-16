@@ -857,8 +857,8 @@ predicate does not translate, the translatable part is still pushed and the
 original is re-applied to each batch in Polars:</p>
 <div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;text&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;xy&quot;</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 <span class="kc">True</span>
-<span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">((</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;text&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;xy&quot;</span><span class="p">))</span>
-<span class="n">LanceFilter</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="s1">&#39;(`id` &gt; 5)&#39;</span><span class="p">,</span> <span class="n">exact</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">((</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;b&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;text&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;xy&quot;</span><span class="p">))</span>
+<span class="n">LanceFilter</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="s2">&quot;(`cat` = &#39;b&#39;)&quot;</span><span class="p">,</span> <span class="n">exact</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 <p><code>exact=False</code> says the filter is a superset: Lance returns more rows than the
 predicate keeps, and Polars finishes the job. The answer never depends on how
@@ -970,6 +970,11 @@ produces, sorts below every number. Polars treats the zeros as equal and every N
 as larger than any number. So <code>val &gt; 0.5</code> is sent as
 <code>((val &gt; 0.5) OR val &lt; CAST('-inf' AS double))</code>, which still uses a scalar index on
 <code>val</code>.</p>
+<p>That needs the column types. <code>scan_lance</code> always has them. Called without
+<code>schema=</code>, <code>to_lance_filter</code> cannot tell an integer column from a float one, so it
+spells numeric comparisons to hold for both, <code>((id &gt; 5) OR isnan(id))</code>, at the cost
+of the scalar index, and declines a comparison between two columns, which could as
+well be strings.</p>
 <h2 id="prefilters-are-stricter">Prefilters are stricter<a class="headerlink" href="#prefilters-are-stricter" title="Permanent link">&para;</a></h2>
 <p>A prefilter for a vector search cannot lower loosely, because there is no
 second pass that could repair the candidate set the search already used. It

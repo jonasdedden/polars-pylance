@@ -2026,6 +2026,9 @@ struct fields and list elements, decide how a float comparison is spelled
 literal is compared as a float, whether a promotion is a no-op (a <code>CAST</code>
 around an indexed column costs its scalar index), and whether <code>+</code> is
 string concatenation.</p>
+<p>Without one, a column may be a float, so numeric comparisons are spelled
+to hold for integers and floats alike, which costs a scalar index, and a
+comparison between two columns declines.</p>
               </div>
             </td>
             <td>
@@ -2041,10 +2044,14 @@ string concatenation.</p>
 <span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">polars_pylance</span><span class="w"> </span><span class="kn">import</span> <span class="n">to_lance_filter</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">starts_with</span><span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">))</span>
 <span class="go">LanceFilter(sql=&quot;starts_with(`cat`, &#39;b&#39;)&quot;, exact=True)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">schema</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">Schema</span><span class="p">({</span><span class="s2">&quot;cat&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Int64</span><span class="p">})</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span>
-<span class="gp">... </span>    <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_null</span><span class="p">()</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span>
+<span class="gp">... </span>    <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\d+)&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_null</span><span class="p">()</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">),</span>
+<span class="gp">... </span>    <span class="n">schema</span><span class="o">=</span><span class="n">schema</span><span class="p">,</span>
 <span class="gp">... </span><span class="p">)</span>
 <span class="go">LanceFilter(sql=&#39;(`id` &gt; 3)&#39;, exact=False)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span>
+<span class="go">LanceFilter(sql=&#39;((`id` &gt; 3) OR isnan(`id`))&#39;, exact=True)</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">hash</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 <span class="go">True</span>
 </code></pre></div>
@@ -2052,12 +2059,7 @@ string concatenation.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_predicate.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">221</span>
-<span class="normal">222</span>
-<span class="normal">223</span>
-<span class="normal">224</span>
-<span class="normal">225</span>
-<span class="normal">226</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">226</span>
 <span class="normal">227</span>
 <span class="normal">228</span>
 <span class="normal">229</span>
@@ -2095,13 +2097,7 @@ string concatenation.</p>
 <span class="normal">261</span>
 <span class="normal">262</span>
 <span class="normal">263</span>
-<span class="normal">264</span>
-<span class="normal">265</span>
-<span class="normal">266</span>
-<span class="normal">267</span>
-<span class="normal">268</span>
-<span class="normal">269</span>
-<span class="normal">270</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
+<span class="normal">264</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
     <span class="n">predicate</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">max_in_list</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">MAX_IN_LIST</span><span class="p">,</span>
@@ -2119,38 +2115,27 @@ string concatenation.</p>
 <span class="sd">            around an indexed column costs its scalar index), and whether `+` is</span>
 <span class="sd">            string concatenation.</span>
 
+<span class="sd">            Without one, a column may be a float, so numeric comparisons are spelled</span>
+<span class="sd">            to hold for integers and floats alike, which costs a scalar index, and a</span>
+<span class="sd">            comparison between two columns declines.</span>
+
 <span class="sd">    Examples:</span>
 <span class="sd">        &gt;&gt;&gt; import polars as pl</span>
 <span class="sd">        &gt;&gt;&gt; from polars_pylance import to_lance_filter</span>
 <span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;cat&quot;).str.starts_with(&quot;b&quot;))</span>
 <span class="sd">        LanceFilter(sql=&quot;starts_with(`cat`, &#39;b&#39;)&quot;, exact=True)</span>
+<span class="sd">        &gt;&gt;&gt; schema = pl.Schema({&quot;cat&quot;: pl.String, &quot;id&quot;: pl.Int64})</span>
 <span class="sd">        &gt;&gt;&gt; to_lance_filter(</span>
-<span class="sd">        ...     pl.col(&quot;cat&quot;).str.extract(r&quot;(\d+)&quot;).is_null() &amp; (pl.col(&quot;id&quot;) &gt; 3)</span>
+<span class="sd">        ...     pl.col(&quot;cat&quot;).str.extract(r&quot;(\d+)&quot;).is_null() &amp; (pl.col(&quot;id&quot;) &gt; 3),</span>
+<span class="sd">        ...     schema=schema,</span>
 <span class="sd">        ... )</span>
 <span class="sd">        LanceFilter(sql=&#39;(`id` &gt; 3)&#39;, exact=False)</span>
+<span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;id&quot;) &gt; 3)</span>
+<span class="sd">        LanceFilter(sql=&#39;((`id` &gt; 3) OR isnan(`id`))&#39;, exact=True)</span>
 <span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;id&quot;).hash() &gt; 3) is None</span>
 <span class="sd">        True</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">tree</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">predicate</span><span class="o">.</span><span class="n">meta</span><span class="o">.</span><span class="n">serialize</span><span class="p">(</span><span class="nb">format</span><span class="o">=</span><span class="s2">&quot;json&quot;</span><span class="p">))</span>
-    <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>  <span class="c1"># noqa: BLE001 - see below</span>
-        <span class="c1"># No tree means nothing to lower, and pushdown is optional, so this</span>
-        <span class="c1"># declines rather than reaching the caller. The failure this is known to</span>
-        <span class="c1"># catch is a `ComputeError` from a UDF closing over something</span>
-        <span class="c1"># unpicklable; the family polars raises here is not documented, and a</span>
-        <span class="c1"># wrong guess would turn a missed optimization into a failed query. A</span>
-        <span class="c1"># plain UDF does serialize: it is declined by the walk, as an</span>
-        <span class="c1"># `AnonymousFunction` node it has no spelling for.</span>
-        <span class="k">return</span> <span class="kc">None</span>
-
-    <span class="n">lowering</span> <span class="o">=</span> <span class="n">_Lowering</span><span class="p">(</span><span class="n">max_in_list</span><span class="o">=</span><span class="n">max_in_list</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="n">schema</span><span class="p">)</span>
-    <span class="k">try</span><span class="p">:</span>
-        <span class="n">sql</span><span class="p">,</span> <span class="n">exact</span> <span class="o">=</span> <span class="n">lowering</span><span class="o">.</span><span class="n">predicate</span><span class="p">(</span><span class="n">tree</span><span class="p">)</span>
-    <span class="k">except</span> <span class="p">(</span><span class="n">_Decline</span><span class="p">,</span> <span class="ne">RecursionError</span><span class="p">):</span>
-        <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">if</span> <span class="n">sql</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">return</span> <span class="n">LanceFilter</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="n">sql</span><span class="p">,</span> <span class="n">exact</span><span class="o">=</span><span class="n">exact</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">lower_predicate</span><span class="p">(</span><span class="n">predicate</span><span class="p">,</span> <span class="n">max_in_list</span><span class="o">=</span><span class="n">max_in_list</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="n">schema</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2417,9 +2402,7 @@ SQL's.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">451</span>
-<span class="normal">452</span>
-<span class="normal">453</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">453</span>
 <span class="normal">454</span>
 <span class="normal">455</span>
 <span class="normal">456</span>
@@ -2509,7 +2492,9 @@ SQL's.</p>
 <span class="normal">540</span>
 <span class="normal">541</span>
 <span class="normal">542</span>
-<span class="normal">543</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2709,9 +2694,7 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">546</span>
-<span class="normal">547</span>
-<span class="normal">548</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">548</span>
 <span class="normal">549</span>
 <span class="normal">550</span>
 <span class="normal">551</span>
@@ -2765,7 +2748,9 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 <span class="normal">599</span>
 <span class="normal">600</span>
 <span class="normal">601</span>
-<span class="normal">602</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
+<span class="normal">602</span>
+<span class="normal">603</span>
+<span class="normal">604</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">n_shards</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
