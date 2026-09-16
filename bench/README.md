@@ -146,8 +146,9 @@ worth something:
 | `r_arith` | `val * 2 > 1.999` |
 | `r_temporal` | `ts.dt.hour() < 1` |
 
-None of them can be expressed as a PyArrow expression, which is the limit of
-what `scan_pyarrow_dataset` and `scan_delta` can offer Lance. polars-pylance
+On Polars 1.44.2 none of them reaches Lance through `scan_pyarrow_dataset` or
+`scan_delta` either: Polars' PyArrow lowering skips arithmetic, temporal parts and
+string functions, and lowers `is_in` only up to 100 values. polars-pylance
 translates the Polars expression into a Lance SQL filter instead, so the
 scanner does the work.
 

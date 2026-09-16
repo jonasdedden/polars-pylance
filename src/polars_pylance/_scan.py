@@ -8,8 +8,9 @@ which is the widest filter language Lance accepts.
 
 That is why this is a plugin rather than the private
 `PyLazyFrame.new_from_dataset_object` hook behind `scan_delta`. The hook
-offers a predicate Polars has already lowered for PyArrow, and drops everything
-that language cannot say, which is most of it.
+offers a predicate Polars has already lowered for PyArrow, and that lowering
+drops most of the expression language: string functions, arithmetic, temporal
+parts, long `is_in` lists.
 
 Polars considers the predicate handled once a plugin has been given it, so this
 module makes that true: an exact lowering is left to Lance, and a relaxed one is
@@ -448,11 +449,11 @@ def scan_lance(
     collecting: the in-memory engine materialises the whole result and gives up
     the memory advantage.
 
-    The filter becomes a Lance SQL filter, so `is_in`, string functions, arithmetic,
-    temporal parts and list or struct access reach the scanner, none of which a PyArrow
-    expression can carry. A predicate that only partly translates is pushed as far as it
-    goes and finished in Polars. [`to_lance_filter`][polars_pylance.to_lance_filter]
-    shows what a given one lowers to.
+    The filter becomes a Lance SQL filter, so string functions, arithmetic, temporal
+    parts, long `is_in` lists and list or struct access reach the scanner, none of which
+    Polars' own PyArrow lowering passes on. A predicate that only partly translates is
+    pushed as far as it goes and finished in Polars.
+    [`to_lance_filter`][polars_pylance.to_lance_filter] shows what one lowers to.
 
     Args:
         source: Dataset URI, path, or an open `lance.LanceDataset`. Passing a dataset

@@ -130,10 +130,11 @@ def test_predicate_reaches_lance_as_sql(
     assert all("`cat` = 'b'" in f and "`val` > 0.9" in f for f in pushed_filters)
 
 
-# Every one of these is silently dropped by Polars' own PyArrow lowering, which
-# is the whole argument for translating the predicate here instead.
+# Every one of these is silently dropped by Polars' own PyArrow lowering (as of
+# 1.44.2), which is the whole argument for translating the predicate here instead.
 BEYOND_PYARROW: list[tuple[str, pl.Expr, str]] = [
-    ("is_in", pl.col("id").is_in([3, 5, 8]), "IN"),
+    # Polars lowers `is_in` to PyArrow only up to 100 values.
+    ("long is_in", pl.col("id").is_in(list(range(0, 1_000, 5))), "IN"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with"),
     ("contains", pl.col("cat").str.contains("b", literal=True), "contains"),
     ("contains_any", pl.col("cat").str.contains_any(["b", "c"]), "contains"),

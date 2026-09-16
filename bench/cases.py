@@ -97,8 +97,8 @@ READS = {
     ),
     # string equality predicate
     "r_cat": lambda lf: lf.filter(pl.col("cat") == "a").select(pl.len()),
-    # set membership in front of the payload. PyArrow has no `is_in`, so this is
-    # the first shape polars-pylance pushes and nothing else can.
+    # set membership in front of the payload. Polars lowers `is_in` to PyArrow
+    # only up to 100 values, so 200 ids is a shape only polars-pylance pushes.
     "r_is_in": lambda lf: lf.filter(pl.col("id").is_in(IS_IN_IDS)).select(
         pl.col("payload").is_not_null().sum()
     ),
@@ -110,7 +110,7 @@ READS = {
     "r_arith": lambda lf: lf.filter((pl.col("val") * 2) > 1.999).select(
         pl.col("payload").is_not_null().sum()
     ),
-    # a temporal part, which no PyArrow expression can carry either
+    # a temporal part, which Polars' PyArrow lowering skips as well
     "r_temporal": lambda lf: lf.filter(pl.col("ts").dt.hour() < 1).select(
         pl.col("payload").is_not_null().sum()
     ),

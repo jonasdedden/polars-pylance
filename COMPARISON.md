@@ -177,11 +177,11 @@ the `polars-lance` side, because its scan node refuses the expression outright
 
 ![computed predicate: the gap widens with the data](bench/plots/static/computed-predicate-scaling.svg)
 
-None of these four can be expressed as a PyArrow expression, which is the
-ceiling for `pl.scan_pyarrow_dataset` and for Polars' own `scan_delta` and
-`scan_iceberg` hook. Of 55 predicate shapes run through a real scan, that route
-gets 11 to Lance and this one gets 52. `docs/PUSHDOWN.md` has the table and the
-three deliberate exceptions.
+On Polars 1.44.2, none of these four reaches Lance through
+`pl.scan_pyarrow_dataset` either. Polars' PyArrow lowering, which also backs
+`scan_delta` and `scan_iceberg`, leaves arithmetic, temporal parts and string
+functions to be evaluated after the read, and lowers `is_in` only up to 100 values.
+`docs/PUSHDOWN.md` lists the constructs this translation deliberately declines.
 
 A predicate that only partly translates is pushed as far as it goes and finished
 in Polars, so the answer never depends on how much of it Lance understood.
