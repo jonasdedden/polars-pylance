@@ -92,8 +92,8 @@ _TRUNCATE_UNITS = {
     "1y": "year",
 }
 
-# Narrower integers are absent on purpose: Polars raises on a value that does
-# not fit and Lance wraps.
+# Narrower integers are not translated yet. Polars and Lance both raise on a
+# value that does not fit, so they could be.
 _CAST_TYPES: dict[str, tuple[str, pl.DataType]] = {
     "Int64": ("bigint", pl.Int64()),
     "Float32": ("float", pl.Float32()),
@@ -394,8 +394,10 @@ class _Lowering:
             return None, False
 
         if op == "Xor":
-            # Lance rejects boolean operands to `!=`, so expand it. Both halves
-            # must be exact, since the expansion negates each of them.
+            # Not `left != right`: with a boolean column on the left, Lance
+            # converts every literal on the right to Boolean and fails to plan
+            # `flag != (id > 0)`. Both halves of the expansion must be exact,
+            # since it negates each of them.
             left, left_exact = self.predicate(_field(body, "left"))
             right, right_exact = self.predicate(_field(body, "right"))
             if left is None or right is None or not (left_exact and right_exact):
@@ -765,8 +767,8 @@ class _Lowering:
             return self._power(args)
         # `Round` is deliberately absent: Polars breaks ties to even, Lance
         # away from zero, and nothing in the IR lets us ask for the other one.
-        # So are `sqrt` / `ln` / `log10` / `cbrt`: outside their domain Polars
-        # produces NaN and Lance produces NULL, which sort differently.
+        # `sqrt` / `ln` / `log10` / `cbrt` are not translated yet, though Polars
+        # and Lance agree on them, NaN outside the domain included.
         if name[0] == "StringExpr":
             return self._string_value(name[1] if len(name) > 1 else "", payload, args)
         if name[0] == "TemporalExpr":
@@ -788,7 +790,9 @@ class _Lowering:
     def _power(self, args: Sequence[Json]) -> _Value:
         """`a ** b`, restricted to a whole non-negative exponent.
 
-        Outside `power`'s domain Polars yields NaN and Lance yields NULL.
+        A negative exponent declines: `0 ** -1` is `inf` in Polars, where Lance
+        fails the scan. A fractional one is not translated yet; both give NaN for
+        a negative base.
         """
         exponent = _literal(args[1])
         try:

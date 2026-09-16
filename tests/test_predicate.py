@@ -408,7 +408,7 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("list.get, strict", pl.col("tags").list.get(0) == 3),
     # Polars breaks ties to even, Lance away from zero.
     ("round", pl.col("val").round(2) == 0.5),
-    # Outside the domain Polars yields NaN and Lance NULL, which sort apart.
+    # Not translated yet, though Polars and Lance agree, NaN included.
     ("sqrt", pl.col("val").sqrt() > 0.5),
     ("fractional power", (pl.col("val") ** 0.5) > 0.5),
     # `date_part('epoch', ...)` keeps the fraction; `dt.epoch` truncates.
@@ -425,7 +425,7 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("modulo by a column", (pl.col("id") % pl.col("opt")) == 1),
     # The sign correction drifts for floats.
     ("float modulo", (pl.col("val") % 0.5) == 0.25),
-    # A narrowing integer cast raises in Polars and wraps in Lance.
+    # Not translated yet, though Polars and Lance both raise on overflow.
     ("narrowing cast", pl.col("id").cast(pl.Int32) > 1),
     # `concat_ws` skips nulls, so it cannot spell a null-propagating join.
     (
