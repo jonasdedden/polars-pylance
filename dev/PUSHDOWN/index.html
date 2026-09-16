@@ -930,6 +930,14 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 <td>Polars floors, SQL truncates</td>
 </tr>
 <tr>
+<td><code>%</code> by zero or by a column</td>
+<td>a zero divisor gives null in Polars and fails the scan in Lance</td>
+</tr>
+<tr>
+<td><code>%</code> on floats</td>
+<td>the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats</td>
+</tr>
+<tr>
 <td><code>min_horizontal</code> / <code>max_horizontal</code> over floats</td>
 <td>Polars skips NaN, <code>least</code> / <code>greatest</code> do not</td>
 </tr>
@@ -952,8 +960,9 @@ Rather than return wrong rows quickly, these decline and run in Polars:</p>
 </tbody>
 </table>
 <p>Everything else translates, including <code>is_in</code> of any length, <code>xor</code>,
-<code>eq_missing</code>, arithmetic, <code>abs</code>, <code>**</code>, <code>min_horizontal</code> / <code>max_horizontal</code> over
-integers, <code>fill_null</code>, the <code>is_nan</code> family, <code>cast</code>, the <code>dt</code> parts, <code>list.contains</code> /
+<code>eq_missing</code>, arithmetic (<code>%</code> by a non-zero integer literal), <code>abs</code>, <code>**</code>,
+<code>min_horizontal</code> / <code>max_horizontal</code> over integers, <code>fill_null</code>, the <code>is_nan</code> family,
+<code>cast</code>, the <code>dt</code> parts, <code>list.contains</code> /
 <code>len</code> / <code>get</code>, <code>struct.field</code> and <code>concat_str</code>.</p>
 <p>Float comparisons translate with a correction. Lance orders floats by IEEE total
 order, so <code>-0.0 &lt; 0.0</code> and a NaN with its sign bit set, which is what <code>0 / 0</code>
