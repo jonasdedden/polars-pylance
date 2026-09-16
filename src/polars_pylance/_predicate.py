@@ -2,9 +2,9 @@
 
 An IO plugin is handed the whole predicate as a `polars.Expr`. Polars'
 own lowering, behind `scan_pyarrow_dataset` and `scan_delta`, produces a
-PyArrow expression instead and drops what will not fit, which is most of the
-language. This module walks the serialized expression tree and emits the Lance
-equivalent.
+PyArrow expression instead and drops most of the language on the way: string
+functions, arithmetic, temporal parts and long `is_in` lists among it. This
+module walks the serialized expression tree and emits the Lance equivalent.
 
 A lowering may be a superset: an untranslatable conjunct of an `AND` is dropped, so `a >
 5 & b.str.contains("x")` still pushes `a > 5`. That is only sound in positive position,
