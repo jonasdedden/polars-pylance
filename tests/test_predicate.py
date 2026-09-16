@@ -19,6 +19,7 @@ import lance
 import polars as pl
 import pytest
 
+from conftest import RICH_SCHEMA
 from polars_pylance._predicate import (
     Json,
     LanceFilter,
@@ -29,6 +30,19 @@ from polars_pylance._predicate import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    import pyarrow as pa
+
+
+# The `rich` fixture's columns as `scan_lance` sees them. The scan always lowers
+# with the schema, so the shapes below are pinned with it.
+def _polars_schema(schema: pa.Schema) -> pl.Schema:
+    frame = pl.from_arrow(schema.empty_table())
+    assert isinstance(frame, pl.DataFrame)
+    return frame.schema
+
+
+RICH = _polars_schema(RICH_SCHEMA)
 
 # ---------------------------------------------------------------------------
 # shape: one construct at a time
@@ -78,7 +92,7 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "is_in with a zero",
         pl.col("val").is_in([0.0, 0.5]),
-        "(CAST(`val` AS double) IN (0.5, -0.0, 0.0))",
+        "(`val` IN (0.5, -0.0, 0.0))",
     ),
     ("is_between", pl.col("id").is_between(1, 2), "((`id` >= 1) AND (`id` <= 2))"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with(`cat`, 'b')"),
@@ -159,33 +173,24 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "float against zero",
         pl.col("val") == 0.0,
-        "(CAST(`val` AS double) IN (-0.0, 0.0))",
+        "(`val` IN (-0.0, 0.0))",
     ),
     # `x < -inf` holds for exactly a NaN with its sign bit set, which Lance
     # orders below every number and Polars above.
     (
         "float below zero",
         pl.col("val") < 0.0,
-        (
-            "((CAST(`val` AS double) < -0.0)"
-            " AND CAST(`val` AS double) >= CAST('-inf' AS double))"
-        ),
+        "((`val` < -0.0) AND `val` >= CAST('-inf' AS double))",
     ),
     (
         "float above zero",
         pl.col("val") > 0.0,
-        (
-            "((CAST(`val` AS double) > 0.0)"
-            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
-        ),
+        "((`val` > 0.0) OR `val` < CAST('-inf' AS double))",
     ),
     (
         "zero on the left",
         pl.lit(0.0) <= pl.col("val"),
-        (
-            "((CAST(`val` AS double) >= -0.0)"
-            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
-        ),
+        "((`val` >= -0.0) OR `val` < CAST('-inf' AS double))",
     ),
     ("negate", -pl.col("id") < 0, "((- `id`) < 0)"),
     ("power", (pl.col("id") ** 2) > 9, "(power(`id`, 2) > 9)"),
@@ -201,15 +206,8 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         "(greatest(`id`, `opt`) > 3)",
     ),
     ("column vs column", pl.col("id") > pl.col("opt"), "(`id` > `opt`)"),
-    # Without a schema `id` may be a float column, and so may hold a NaN.
-    (
-        "cast",
-        pl.col("id").cast(pl.Float64) > 1,
-        (
-            "((CAST(`id` AS double) > 1.0) "
-            "OR CAST(`id` AS double) < CAST('-inf' AS double))"
-        ),
-    ),
+    # An integer column cast to a float holds no NaN.
+    ("cast", pl.col("id").cast(pl.Float64) > 1, "(CAST(`id` AS double) > 1.0)"),
     ("date part", pl.col("ts").dt.year() == 2024, "(date_part('year', `ts`) = 2024)"),
     # Polars counts Monday as 1; SQL's `dow` counts Sunday as 0.
     (
@@ -274,10 +272,7 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "int against float",
         pl.col("id") > 1.5,
-        (
-            "((CAST(`id` AS double) > 1.5)"
-            " OR CAST(`id` AS double) < CAST('-inf' AS double))"
-        ),
+        "(CAST(`id` AS double) > 1.5)",
     ),
     (
         "true division",
@@ -310,10 +305,85 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     [pytest.param(e, s, id=name) for name, e, s in TRANSLATIONS],
 )
 def test_lowering_shape(predicate: pl.Expr, expected: str) -> None:
-    lowered = to_lance_filter(predicate)
+    lowered = to_lance_filter(predicate, schema=RICH)
     assert lowered is not None
     assert lowered.sql == expected
     assert lowered.exact
+
+
+# Without a schema a column may be a float, which Lance orders differently (NaN
+# below every number when its sign bit is set, `-0.0` below `0.0`). `isnan` and
+# `abs` take integers too, so these hold whichever the column turns out to be.
+UNTYPED_TRANSLATIONS: list[tuple[str, pl.Expr, str | None]] = [
+    ("above", pl.col("id") > 7, "((`id` > 7) OR isnan(`id`))"),
+    ("at least", pl.col("id") >= 7, "((`id` >= 7) OR isnan(`id`))"),
+    ("below", pl.col("id") < 7, "((`id` < 7) AND NOT isnan(`id`))"),
+    ("at most", pl.col("id") <= 7, "((`id` <= 7) AND NOT isnan(`id`))"),
+    ("equal", pl.col("id") == 7, "(`id` = 7)"),
+    ("not equal", pl.col("id") != 7, "(`id` != 7)"),
+    ("equal to zero", pl.col("id") == 0, "(abs(`id`) = 0)"),
+    ("not zero", pl.col("id") != 0, "(abs(`id`) != 0)"),
+    (
+        "below zero",
+        pl.col("id") < 0,
+        "((`id` < 0) AND abs(`id`) != 0 AND NOT isnan(`id`))",
+    ),
+    (
+        "at least zero",
+        pl.col("id") >= 0,
+        "((`id` >= 0) OR isnan(`id`) OR abs(`id`) = 0)",
+    ),
+    ("zero on the left", pl.lit(0) < pl.col("id"), "((`id` > 0) OR isnan(`id`))"),
+    (
+        "computed",
+        (pl.col("id") + 1) > 3,
+        "(((`id` + 1) > 3) OR isnan((`id` + 1)))",
+    ),
+    (
+        "is_in with a zero",
+        pl.col("id").is_in([0, 2]),
+        "((`id` IN (0, 2)) OR abs(`id`) = 0)",
+    ),
+    (
+        "list contains a zero",
+        pl.col("tags").list.contains(0),
+        "(array_has(`tags`, -0.0) OR array_has(`tags`, 0.0))",
+    ),
+    # A float literal casts the column, and a cast to double is typed.
+    (
+        "float literal",
+        pl.col("val") > 0.5,
+        (
+            "((CAST(`val` AS double) > 0.5) "
+            "OR CAST(`val` AS double) < CAST('-inf' AS double))"
+        ),
+    ),
+    # Nothing about text or dates needs guarding.
+    ("string literal", pl.col("cat") == "beta", "(`cat` = 'beta')"),
+    (
+        "datetime literal",
+        pl.col("ts") > dt.datetime(2024, 1, 2),
+        "(`ts` > timestamp '2024-01-02 00:00:00')",
+    ),
+    # Two untyped columns may as well be strings, which have no such spelling.
+    ("column against column", pl.col("id") > pl.col("opt"), None),
+    ("min_horizontal", pl.min_horizontal("id", "opt") > 3, None),
+    ("max_horizontal", pl.max_horizontal("id", "opt") > 3, None),
+]
+
+
+@pytest.mark.parametrize(
+    ("predicate", "expected"),
+    [pytest.param(e, s, id=name) for name, e, s in UNTYPED_TRANSLATIONS],
+)
+def test_lowering_shape_without_a_schema(
+    predicate: pl.Expr, expected: str | None
+) -> None:
+    lowered = to_lance_filter(predicate)
+    if expected is None:
+        assert lowered is None
+        return
+    assert lowered == LanceFilter(sql=expected, exact=True)
 
 
 DECLINED: list[tuple[str, pl.Expr]] = [
@@ -395,7 +465,7 @@ UNTRANSLATABLE = pl.col("cat").str.slice(0, 2) == "beta"
 
 def test_conjunct_is_dropped() -> None:
     """An AND keeps whatever lowered; the engine filters the rest."""
-    lowered = to_lance_filter((pl.col("id") > 5) & UNTRANSLATABLE)
+    lowered = to_lance_filter((pl.col("id") > 5) & UNTRANSLATABLE, schema=RICH)
     assert lowered == LanceFilter(sql="(`id` > 5)", exact=False)
 
 
@@ -433,12 +503,11 @@ def test_relaxed_xor_is_declined() -> None:
 
 def test_relaxation_survives_nesting_in_a_conjunction() -> None:
     predicate = ((pl.col("id") > 5) | (pl.col("val") < 0.1)) & UNTRANSLATABLE
-    lowered = to_lance_filter(predicate)
+    lowered = to_lance_filter(predicate, schema=RICH)
     assert lowered is not None
     assert not lowered.exact
     assert lowered.sql == (
-        "((`id` > 5) OR ((CAST(`val` AS double) < 0.1) "
-        "AND CAST(`val` AS double) >= CAST('-inf' AS double)))"
+        "((`id` > 5) OR ((`val` < 0.1) AND `val` >= CAST('-inf' AS double)))"
     )
 
 
@@ -473,13 +542,20 @@ DIFFERENTIAL: list[pl.Expr] = [
 ]
 
 
+@pytest.mark.parametrize("schema", [RICH, None], ids=["schema", "no schema"])
 @pytest.mark.parametrize(
     "predicate", [pytest.param(p, id=str(p)[:60]) for p in DIFFERENTIAL]
 )
 def test_lance_keeps_every_row_polars_keeps(
-    predicate: pl.Expr, rich_uri: str, rich_frame: pl.DataFrame
+    predicate: pl.Expr,
+    schema: pl.Schema | None,
+    rich_uri: str,
+    rich_frame: pl.DataFrame,
 ) -> None:
-    lowered = to_lance_filter(predicate)
+    lowered = to_lance_filter(predicate, schema=schema)
+    if lowered is None and schema is None:
+        # Two untyped columns decline; the schema'd run holds the lowering to it.
+        return
     assert lowered is not None, "expected this predicate to lower"
     dataset = lance.dataset(rich_uri)
     kept = set(rich_frame.filter(predicate)["id"].to_list())
@@ -535,8 +611,9 @@ def _random_predicate(rng: random.Random, depth: int) -> pl.Expr:
     return rng.choice(horizontal)(left, right)
 
 
+@pytest.mark.parametrize("schema", [RICH, None], ids=["schema", "no schema"])
 def test_random_nested_predicates_are_sound(
-    rich_uri: str, rich_frame: pl.DataFrame
+    schema: pl.Schema | None, rich_uri: str, rich_frame: pl.DataFrame
 ) -> None:
     """No lowering of a randomly nested predicate may lose a row.
 
@@ -548,7 +625,7 @@ def test_random_nested_predicates_are_sound(
     lowered_count = 0
     for _ in range(150):
         predicate = _random_predicate(rng, rng.randrange(1, 4))
-        lowered = to_lance_filter(predicate)
+        lowered = to_lance_filter(predicate, schema=schema)
         if lowered is None:
             continue
         lowered_count += 1
@@ -676,8 +753,7 @@ def test_float_columns_are_compared_with_nan_made_positive() -> None:
     left, right = f"nanvl(`f`, {nan})", f"nanvl(`g`, {nan})"
     assert lowered == LanceFilter(
         sql=(
-            f"(({left} < {right}) AND NOT "
-            f"({left} IN (-0.0, 0.0) AND {right} IN (-0.0, 0.0)))"
+            f"(({left} < {right}) AND NOT (`f` IN (-0.0, 0.0) AND `g` IN (-0.0, 0.0)))"
         ),
         exact=True,
     )
@@ -732,11 +808,22 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     """
     predicate = pl.col("id").cast(pl.Float64, strict=False) > pl.col("val")
     assert to_lance_filter(predicate) is None
+    schema = pl.Schema({"id": pl.Int64, "val": pl.Float64})
+    assert to_lance_filter(predicate, schema=schema) == (
+        LanceFilter(
+            sql=(
+                "((CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double))) AND NOT "
+                "(CAST(`id` AS double) IN (-0.0, 0.0) AND `val` IN (-0.0, 0.0)))"
+            ),
+            exact=True,
+        )
+    )
+    # With `val` untyped, its zero test is spelled for an integer or a float.
     assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.Int64})) == (
         LanceFilter(
             sql=(
-                "((CAST(`id` AS double) > `val`) AND NOT "
-                "(CAST(`id` AS double) IN (-0.0, 0.0) AND `val` IN (-0.0, 0.0)))"
+                "((CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double))) AND NOT "
+                "(CAST(`id` AS double) IN (-0.0, 0.0) AND abs(`val`) = 0))"
             ),
             exact=True,
         )
@@ -873,8 +960,12 @@ def _same(predicate: pl.Expr) -> pl.Expr:
 @pytest.mark.parametrize(
     "predicate", [pytest.param(e, id=name) for name, e in EDGE_PREDICATES]
 )
+@pytest.mark.parametrize("typed", [True, False], ids=["schema", "no schema"])
 def test_exact_lowerings_survive_negation(
-    predicate: pl.Expr, negate: Callable[[pl.Expr], pl.Expr], edges_uri: str
+    predicate: pl.Expr,
+    negate: Callable[[pl.Expr], pl.Expr],
+    typed: bool,  # noqa: FBT001 - a pytest parameter
+    edges_uri: str,
 ) -> None:
     """An exact lowering must agree on every row, including under `NOT`.
 
@@ -884,7 +975,10 @@ def test_exact_lowerings_survive_negation(
     `~is_in([])` away first, keeping the null row the evaluation drops.
     """
     predicate = negate(predicate)
-    lowered = to_lance_filter(predicate, schema=EDGES.schema)
+    lowered = to_lance_filter(predicate, schema=EDGES.schema if typed else None)
+    if lowered is None and not typed:
+        # Two untyped columns decline; the schema'd run holds the lowering to it.
+        return
     assert lowered is not None, "expected this predicate to lower"
     assert lowered.exact
     table = lance.dataset(edges_uri).to_table(columns=["row"], filter=lowered.sql)

@@ -195,6 +195,11 @@ class _Value:
         return self.floating and not self.nan_free
 
     @property
+    def untyped(self) -> bool:
+        """A non-literal value of unknown type: without a schema, maybe a float."""
+        return self.dtype is None and not self.is_literal
+
+    @property
     def cannot_be_nan(self) -> bool:
         """Known to hold no NaN: a non-float type, or a `nan_free` float."""
         return self.nan_free or (self.dtype is not None and not self.floating)
@@ -236,17 +241,42 @@ def to_lance_filter(
             around an indexed column costs its scalar index), and whether `+` is
             string concatenation.
 
+            Without one, a column may be a float, so numeric comparisons are spelled
+            to hold for integers and floats alike, which costs a scalar index, and a
+            comparison between two columns declines.
+
     Examples:
         >>> import polars as pl
         >>> from polars_pylance import to_lance_filter
         >>> to_lance_filter(pl.col("cat").str.starts_with("b"))
         LanceFilter(sql="starts_with(`cat`, 'b')", exact=True)
+        >>> schema = pl.Schema({"cat": pl.String, "id": pl.Int64})
         >>> to_lance_filter(
-        ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3)
+        ...     pl.col("cat").str.extract(r"(\d+)").is_null() & (pl.col("id") > 3),
+        ...     schema=schema,
         ... )
         LanceFilter(sql='(`id` > 3)', exact=False)
+        >>> to_lance_filter(pl.col("id") > 3)
+        LanceFilter(sql='((`id` > 3) OR isnan(`id`))', exact=True)
         >>> to_lance_filter(pl.col("id").hash() > 3) is None
         True
+    """
+    return lower_predicate(predicate, max_in_list=max_in_list, schema=schema)
+
+
+def lower_predicate(
+    predicate: pl.Expr,
+    *,
+    max_in_list: int = MAX_IN_LIST,
+    schema: pl.Schema | None = None,
+    types_known_later: bool = False,
+) -> LanceFilter | None:
+    """`to_lance_filter`, with a mode for checking what the SQL can be.
+
+    With `types_known_later`, a value of unknown type is assumed to be one the
+    schema will settle, so it never declines for that reason alone. That is for
+    checking whether an expression can be lowered before the schema is at hand;
+    its SQL is not meant to be run.
     """
     try:
         tree = json.loads(predicate.meta.serialize(format="json"))
@@ -260,7 +290,9 @@ def to_lance_filter(
         # `AnonymousFunction` node it has no spelling for.
         return None
 
-    lowering = _Lowering(max_in_list=max_in_list, schema=schema)
+    lowering = _Lowering(
+        max_in_list=max_in_list, schema=schema, types_known_later=types_known_later
+    )
     try:
         sql, exact = lowering.predicate(tree)
     except (_Decline, RecursionError):
@@ -273,9 +305,16 @@ def to_lance_filter(
 class _Lowering:
     """One translation pass. Holds the knobs; carries no state between nodes."""
 
-    def __init__(self, *, max_in_list: int, schema: pl.Schema | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        max_in_list: int,
+        schema: pl.Schema | None = None,
+        types_known_later: bool = False,
+    ) -> None:
         self.max_in_list = max_in_list
         self.schema = schema
+        self.types_known_later = types_known_later
 
     # -- boolean position --------------------------------------------------
 
@@ -377,7 +416,12 @@ class _Lowering:
         if lhs.is_float_literal != rhs.is_float_literal:
             # Lance refuses the mixed comparison Polars promotes through.
             lhs, rhs = lhs.as_double(), rhs.as_double()
-        return _float_comparison(op, lhs, rhs), True
+        sql = _float_comparison(op, lhs, rhs)
+        if sql is None and self.types_known_later:
+            sql = f"({lhs.sql} {op} {rhs.sql})"
+        if sql is None:
+            return None, False
+        return sql, True
 
     def _function_predicate(self, node: Json) -> tuple[str | None, bool]:
         body = _fields(node)
@@ -480,7 +524,12 @@ class _Lowering:
             if any(r in _ZEROS for r in rendered):
                 # Polars matches `-0.0` and `0.0` to each other; Lance does not.
                 rendered = [r for r in rendered if r not in _ZEROS] + _ZEROS
-        return f"({column.sql} IN ({', '.join(rendered)}))", True
+        membership = f"({column.sql} IN ({', '.join(rendered)}))"
+        if column.dtype is None and "0" in rendered:
+            # Possibly a float column holding `-0.0`, which `IN (0)` misses.
+            # `abs` takes integers and floats alike.
+            return f"({membership} OR abs({column.sql}) = 0)", True
+        return membership, True
 
     def _is_between(
         self, options: dict[str, Json], args: Sequence[Json]
@@ -553,8 +602,10 @@ class _Lowering:
             column, needle = self.value(args[0]), self.value(args[1])
         except _Decline:
             return None, False
-        needle = _coerce_literal(needle, _Value("", dtype=_inner(column.dtype)))
-        if needle.is_float_literal and needle.sql in _ZEROS:
+        inner = _inner(column.dtype)
+        needle = _coerce_literal(needle, _Value("", dtype=inner))
+        untyped_zero = inner is None and needle.is_literal and needle.sql == "0"
+        if untyped_zero or (needle.is_float_literal and needle.sql in _ZEROS):
             # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
             either = " OR ".join(f"array_has({column.sql}, {z})" for z in _ZEROS)
             return f"({either})", True
@@ -701,7 +752,9 @@ class _Lowering:
             # orders it above (or, negative, below) every number.
             fn = "least" if name[0] == "MinHorizontal" else "greatest"
             values = [self.value(a) for a in args]
-            if any(v.floating for v in values):
+            untyped = not self.types_known_later and any(v.untyped for v in values)
+            if untyped or any(v.floating for v in values):
+                # An untyped value may be a float.
                 raise _Decline
             rendered = ", ".join(v.sql for v in values)
             dtype = values[0].dtype
@@ -1091,14 +1144,14 @@ def _coerce_literal(value: _Value, other: _Value) -> _Value:
 _NAN = "CAST('NaN' AS double)"
 
 
-def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
-    """`lhs op rhs`, with Polars' rules for signed zeros and NaN.
+def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str | None:
+    """`lhs op rhs`, with Polars' rules for signed zeros and NaN, or None.
 
     Lance compares floats by IEEE total order, from a negative NaN through
     `-inf`, `-0.0`, `0.0` and `inf` up to a positive NaN. Polars treats `-0.0`
     and `0.0` as equal, and every NaN as equal to every other and above every
-    number. A NaN with its sign bit set is
-    no oddity: it is what `0 / 0` and `inf - inf` produce on x86.
+    number. A NaN with its sign bit set is no oddity: it is what `0 / 0` and
+    `inf - inf` produce on x86.
 
     Against a literal, which is never NaN, the comparison stays on the column so
     that a scalar index still applies: the zero's sign is picked per operator,
@@ -1107,14 +1160,35 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
     `x` is, so nulls propagate as the plain comparison would.
 
     Between two float values, `nanvl` gives every NaN the positive sign and the
-    pair of zeros is decided explicitly. Without a schema, a float column is
-    not known to be one and is compared plainly.
+    pair of zeros is decided explicitly.
+
+    A value whose type is unknown, for want of a schema, may be a float too. It
+    is compared with spellings that hold for integers and floats alike (see
+    `_untyped_literal_comparison`); two of them could as well be strings, for
+    which no such spelling exists, so that declines.
     """
     plain = f"({lhs.sql} {op} {rhs.sql})"
-    if not (lhs.floating or rhs.floating) or "NULL" in (lhs.sql, rhs.sql):
+    if "NULL" in (lhs.sql, rhs.sql):
         return plain
     if lhs.is_literal and not rhs.is_literal:
         lhs, rhs, op = rhs, lhs, _MIRRORED[op]
+    if rhs.is_literal and lhs.untyped:
+        if rhs.dtype is not None and rhs.dtype.is_integer():
+            return _untyped_literal_comparison(op, lhs.sql, rhs.sql)
+        # A float literal has already cast `lhs` to double; anything else (a
+        # string, a date) says `lhs` is not a number.
+        return plain
+    if lhs.untyped and rhs.untyped:
+        return None
+    if not (lhs.floating or rhs.floating or lhs.untyped or rhs.untyped):
+        return plain
+    if lhs.untyped or rhs.untyped:
+        known = rhs if lhs.untyped else lhs
+        if not (
+            known.floating or (known.dtype is not None and known.dtype.is_numeric())
+        ):
+            # Compared to a string or a date, the other side is one too.
+            return plain
     zeros = ", ".join(_ZEROS)
     if rhs.is_literal:
         value = lhs.sql
@@ -1135,13 +1209,50 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
         if op in (">", ">="):
             return f"({compared} OR {value} < {neg_inf})"
         return f"({compared} AND {value} >= {neg_inf})"
-    left = f"nanvl({lhs.sql}, {_NAN})" if lhs.may_be_nan else lhs.sql
-    right = f"nanvl({rhs.sql}, {_NAN})" if rhs.may_be_nan else rhs.sql
-    compared = f"({left} {op} {right})"
-    both_zero = f"({left} IN ({zeros}) AND {right} IN ({zeros}))"
+
+    def positive_nan(value: _Value) -> str:
+        if value.may_be_nan or value.untyped:
+            return f"nanvl({value.sql}, {_NAN})"
+        return value.sql
+
+    def is_zero(value: _Value) -> str:
+        # `IN (-0.0, 0.0)` only plans against a float; `abs` takes either.
+        if value.floating:
+            return f"{value.sql} IN ({zeros})"
+        return f"abs({value.sql}) = 0"
+
+    compared = f"({positive_nan(lhs)} {op} {positive_nan(rhs)})"
+    both_zero = f"({is_zero(lhs)} AND {is_zero(rhs)})"
     if op in ("=", "<=", ">="):
         return f"({compared} OR {both_zero})"
     return f"({compared} AND NOT {both_zero})"
+
+
+def _untyped_literal_comparison(op: str, value: str, literal: str) -> str:
+    """`value op literal` for a value of unknown type against an integer literal.
+
+    `isnan` and `abs` accept integers as well as floats, so these hold whichever
+    the value turns out to be, at the cost of a scalar index: pass a schema to
+    keep it. NaN sorts above every number in Polars, and `abs(x) = 0` matches
+    both zeros.
+    """
+    zero = literal == "0"
+    compared = f"({value} {op} {literal})"
+    nan = f"isnan({value})"
+    if op == "=":
+        return f"(abs({value}) = 0)" if zero else compared
+    if op == "!=":
+        return f"(abs({value}) != 0)" if zero else compared
+    if op == ">":
+        return f"({compared} OR {nan})"
+    if op == ">=":
+        if zero:
+            # `-0.0 >= 0` is false in Lance's total order.
+            return f"({compared} OR {nan} OR abs({value}) = 0)"
+        return f"({compared} OR {nan})"
+    if op == "<" and zero:
+        return f"({compared} AND abs({value}) != 0 AND NOT {nan})"
+    return f"({compared} AND NOT {nan})"
 
 
 def _string_literal(value: str) -> str:
