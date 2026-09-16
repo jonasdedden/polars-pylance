@@ -100,13 +100,15 @@ keeps, so those decline entirely rather than lower loosely.
 ## What declines, and why
 
 Some constructs have a Lance spelling that means something subtly different.
-Rather than return wrong rows quickly, these decline and run in Polars:
+Rather than return wrong rows quickly, these decline and run in Polars. Those marked
+"not translated yet" would be safe to push and are simply not spelled out yet:
 
 | construct | why it declines |
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
-| `sqrt`, `ln`, `log10`, `cbrt` | outside their domain Polars gives NaN, Lance NULL |
-| `a ** b`, fractional or negative exponent | same |
+| `sqrt`, `ln`, `log10`, `cbrt` | not translated yet; Polars and Lance agree, NaN outside the domain included |
+| `a ** b`, fractional exponent | not translated yet; both give NaN for a negative base |
+| `a ** b`, negative exponent | `0 ** -1` is `inf` in Polars and fails the scan in Lance |
 | `str.strip_chars()` with no argument | Polars strips Unicode whitespace, `btrim` strips spaces |
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
@@ -120,7 +122,7 @@ Rather than return wrong rows quickly, these decline and run in Polars:
 | `%` by zero or by a column | a zero divisor gives null in Polars and fails the scan in Lance |
 | `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
 | `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
-| narrowing integer cast | Polars raises on overflow, Lance wraps |
+| narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast, unless widening | Polars yields null, Lance fails the scan |
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
