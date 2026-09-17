@@ -487,3 +487,129 @@ def test_spec_with_an_expression_prefilter_is_picklable(
     blob = (pl.col("cat") == "far").meta.serialize()
     spec = LanceScanSpec(uri=uri, prefilter_expr=blob)
     assert pickle.loads(pickle.dumps(spec)) == spec
+
+
+# -- two-stage validation without provisional SQL ---------------------------
+#
+# `scan_lance` checks the expression structurally (no I/O, no SQL kept) and
+# the scan lowers it again with the dataset's schema. The first stage must
+# refuse whatever can never translate; the second decides whatever depends
+# on the column types. The provisional schema-less spelling is never used
+# as the final filter: for column/column comparisons and horizontal extrema
+# it is wrong (see `scripts/probe_lance_prefilter.py`).
+
+
+@pytest.mark.parametrize(
+    "prefilter",
+    [
+        pytest.param(pl.col("id").hash() % 2 == 0, id="hash-mod"),
+        pytest.param(pl.col("cat").str.slice(0, 1) == "f", id="str-slice"),
+        pytest.param(pl.col("score").round(0) == 1.0, id="round"),
+        pytest.param(
+            pl.when(pl.col("id") > 0).then(True).otherwise(False),
+            id="when-then",
+        ),
+    ],
+)
+def test_structurally_unsupported_prefilter_fails_at_the_call_site(
+    float_uri: tuple[str, pl.DataFrame],
+    scanner_calls: list[ScannerCall],
+    prefilter: pl.Expr,
+) -> None:
+    """No column type could make these translatable, so no read happens."""
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    with pytest.raises(ValueError, match="does not translate"):
+        scan_lance(uri, nearest=nearest, prefilter=prefilter)
+    assert scanner_calls == []
+
+
+@pytest.mark.parametrize(
+    "prefilter",
+    [
+        pytest.param(pl.col("score") > pl.col("floor"), id="column-column"),
+        pytest.param(pl.max_horizontal("score", "floor") > 0, id="horizontal-float"),
+        pytest.param(pl.col("score") >= 0, id="float-literal"),
+    ],
+)
+def test_type_dependent_prefilter_passes_the_call_site_without_io(
+    float_uri: tuple[str, pl.DataFrame],
+    scanner_calls: list[ScannerCall],
+    prefilter: pl.Expr,
+) -> None:
+    """Whether these translate depends on the column types, decided later."""
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    scan_lance(uri, nearest=nearest, prefilter=prefilter)
+    assert scanner_calls == [], "the call-site check must not read the dataset"
+
+
+def test_column_column_prefilter_uses_schema_aware_sql_not_provisional(
+    float_uri: tuple[str, pl.DataFrame], scanner_calls: list[ScannerCall]
+) -> None:
+    """The provisional `(`a` > `b`) misses NaN/signed-zero rows; final must not."""
+    uri, frame = float_uri
+    nearest = {
+        "column": "vector",
+        "q": [0.0, 0.0],
+        "k": frame.height,
+        "use_index": False,
+    }
+    got = (
+        scan_lance(uri, nearest=nearest, prefilter=pl.col("score") > pl.col("floor"))
+        .select("id")
+        .collect(engine="streaming")
+    )
+    evaluated = frame.with_columns((pl.col("score") > pl.col("floor")).alias("keep"))
+    kept = evaluated.filter(pl.col("keep") == True)["id"].to_list()  # noqa: E712
+    assert sorted(got["id"].to_list()) == sorted(kept)
+    searches = [c for c in scanner_calls if c.filter is not None]
+    assert searches
+    assert all("nanvl" in (c.filter or "") for c in searches)
+
+
+def test_integer_prefilter_keeps_index_friendly_sql(
+    float_uri: tuple[str, pl.DataFrame], scanner_calls: list[ScannerCall]
+) -> None:
+    """With the schema, `id > 0` needs no float `isnan` guard."""
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    scan_lance(uri, nearest=nearest, prefilter=pl.col("id") > 0).select("id").collect(
+        engine="streaming"
+    )
+    searches = [c for c in scanner_calls if c.filter is not None]
+    assert searches
+    assert all(c.filter == "(`id` > 0)" for c in searches)
+
+
+def test_deferred_horizontal_refusal_still_does_no_io_at_the_call_site(
+    float_uri: tuple[str, pl.DataFrame], scanner_calls: list[ScannerCall]
+) -> None:
+    """`max_horizontal` over floats passes structurally, fails with the schema."""
+    uri, _ = float_uri
+    nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
+    lf = scan_lance(
+        uri, nearest=nearest, prefilter=pl.max_horizontal("score", "floor") > 0
+    )
+    assert scanner_calls == []
+    with pytest.raises(Exception, match="does not translate"):
+        lf.select("id").collect(engine="streaming")
+
+
+def test_float_prefilter_with_nan_and_zero_survives_serialization(
+    float_uri: tuple[str, pl.DataFrame],
+) -> None:
+    """Remote/cloud round-trip must keep the expression, not a provisional SQL."""
+    uri, frame = float_uri
+    nearest = {
+        "column": "vector",
+        "q": [0.0, 0.0],
+        "k": frame.height,
+        "use_index": False,
+    }
+    prefilter = pl.col("score") > pl.col("floor")
+    lf = scan_lance(uri, nearest=nearest, prefilter=prefilter).select("id")
+    restored = pl.LazyFrame.deserialize(io.BytesIO(lf.serialize()))
+    evaluated = frame.with_columns(prefilter.alias("keep"))
+    kept = evaluated.filter(pl.col("keep") == True)["id"].to_list()  # noqa: E712
+    assert sorted(restored.collect(engine="streaming")["id"].to_list()) == sorted(kept)
