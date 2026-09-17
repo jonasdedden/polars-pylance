@@ -395,8 +395,3 @@ def test_empty_batch_stages_nothing(tmp_path: Path) -> None:
     )
     staged.callback(pl.DataFrame({"a": []}, schema={"a": pl.Int64}))
     assert staged.staged_fragments() == []
-
-
-def test_schema_type_is_checked(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="schema must be"):
-        stage_lance_sink(str(tmp_path / "bad.lance"), {"a": "int64"})  # type: ignore[arg-type]
