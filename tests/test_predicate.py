@@ -771,16 +771,6 @@ def test_float_columns_are_compared_with_nan_made_positive() -> None:
     )
 
 
-def test_min_and_max_horizontal_over_floats_decline() -> None:
-    """Polars skips NaN there; `least` and `greatest` do not."""
-    schema = pl.Schema({"id": pl.Int64, "val": pl.Float64})
-    assert to_lance_filter(pl.min_horizontal("id", "val") > 1, schema=schema) is None
-    assert to_lance_filter(pl.max_horizontal("id", "val") > 1, schema=schema) is None
-    assert to_lance_filter(pl.max_horizontal("id", "id") > 1, schema=schema) == (
-        LanceFilter(sql="(greatest(`id`, `id`) > 1)", exact=True)
-    )
-
-
 def test_an_integer_column_is_still_cast_against_a_float_literal() -> None:
     """The promotion is load-bearing there: Lance refuses the mixed comparison."""
     schema = pl.Schema({"id": pl.Int64})
@@ -989,6 +979,10 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("nan at least", pl.col("f") >= -1.5),
     ("nan between", pl.col("f").is_between(-10.0, 10.0)),
     ("nan against a computed value", (pl.col("f") * 2.0) > 1.0),
+    ("min_horizontal skips nan", pl.min_horizontal("f", "g") < 1.0),
+    ("max_horizontal skips nan", pl.max_horizontal("f", "g", "i") > 1.0),
+    ("max_horizontal of nans", pl.max_horizontal("f", "g").is_nan()),
+    ("min_horizontal with a null", pl.min_horizontal(pl.col("f"), None) >= 0.0),
     ("sqrt", pl.col("f").sqrt() >= 1.0),
     ("sqrt of an integer", pl.col("i").sqrt() < 2.0),
     ("cbrt", pl.col("f").cbrt() < 1.0),

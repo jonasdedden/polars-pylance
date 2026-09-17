@@ -175,7 +175,7 @@ The SQL itself is produced when the query runs, against the dataset's schema.
 Column types decide how a float comparison is spelled: Lance and Polars disagree
 on where NaN and `-0.0` sort, so `pl.col("score") >= 0` needs extra terms on a
 float column and none on an integer one. A few constructs are refused only once
-the types are known, such as `max_horizontal` over floats, and those raise when
+the types are known, such as a cast from a float to a string, and those raise when
 the query is collected.
 
 ## Indices
