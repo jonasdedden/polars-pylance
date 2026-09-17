@@ -195,6 +195,13 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     ("negate", -pl.col("id") < 0, "((- `id`) < 0)"),
     ("power", (pl.col("id") ** 2) > 9, "(power(`id`, 2) > 9)"),
     ("abs", pl.col("id").abs() > 3, "(abs(`id`) > 3)"),
+    # `cbrt` is defined everywhere, so of an integer it cannot be NaN.
+    ("cbrt", pl.col("id").cbrt() > 0.5, "(cbrt(`id`) > 0.5)"),
+    (
+        "ln",
+        pl.col("val").log() > 0.5,
+        "((ln(`val`) > 0.5) OR ln(`val`) < CAST('-inf' AS double))",
+    ),
     (
         "min_horizontal",
         pl.min_horizontal(pl.col("id"), pl.col("opt")) > 3,
@@ -396,6 +403,8 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("aggregate in predicate", pl.col("val") > pl.col("val").mean()),
     ("when/then", pl.when(pl.col("id") > 1).then(True).otherwise(False)),
     ("str.slice", pl.col("cat").str.slice(0, 2) == "be"),
+    # Lance's `ln` of a Float32 is an ulp off, and the column may be one.
+    ("ln, untyped", pl.col("val").log() > 0.5),
     # Polars strips every Unicode whitespace; `btrim` strips spaces.
     ("str.strip_chars, no argument", pl.col("cat").str.strip_chars() == "b"),
     # SQL's `replace` is literal but replaces every occurrence, so the one
@@ -412,7 +421,6 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     # Polars breaks ties to even, Lance away from zero.
     ("round", pl.col("val").round(2) == 0.5),
     # Not translated yet, though Polars and Lance agree, NaN included.
-    ("sqrt", pl.col("val").sqrt() > 0.5),
     ("fractional power", (pl.col("val") ** 0.5) > 0.5),
     # `date_part('epoch', ...)` keeps the fraction; `dt.epoch` truncates.
     ("dt.epoch", pl.col("ts").dt.epoch("s") > 0),
@@ -832,6 +840,12 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     )
 
 
+def test_logarithms_decline_where_lance_is_an_ulp_off() -> None:
+    schema = pl.Schema({"f32": pl.Float32, "f64": pl.Float64})
+    for predicate in (pl.col("f32").log() > 0, pl.col("f64").log10() > 0):
+        assert to_lance_filter(predicate, schema=schema) is None
+
+
 def test_non_strict_casts_without_an_exact_try_cast_spelling_decline() -> None:
     schema = pl.Schema({"id": pl.Int64, "cat": pl.String, "val": pl.Float64})
     for predicate in (
@@ -968,6 +982,10 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("nan at least", pl.col("f") >= -1.5),
     ("nan between", pl.col("f").is_between(-10.0, 10.0)),
     ("nan against a computed value", (pl.col("f") * 2.0) > 1.0),
+    ("sqrt", pl.col("f").sqrt() >= 1.0),
+    ("sqrt of an integer", pl.col("i").sqrt() < 2.0),
+    ("cbrt", pl.col("f").cbrt() < 1.0),
+    ("ln", pl.col("f").log() <= 0.0),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
     ("try_cast string to int", pl.col("t").cast(pl.Int64, strict=False) == 7),
     ("try_cast string to null", pl.col("t").cast(pl.Int64, strict=False).is_null()),

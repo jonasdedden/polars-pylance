@@ -106,7 +106,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | construct | why it declines |
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
-| `sqrt`, `ln`, `log10`, `cbrt` | not translated yet; Polars and Lance agree, NaN outside the domain included |
+| `log` to a base other than e, `ln` of a Float32 | Lance is an ulp off |
 | `a ** b`, fractional exponent | not translated yet; both give NaN for a negative base |
 | `a ** b`, negative exponent | `0 ** -1` is `inf` in Polars and fails the scan in Lance |
 | `str.strip_chars()` with no argument | Polars strips Unicode whitespace, `btrim` strips spaces |
@@ -127,7 +127,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
-`eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `**`,
+`eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
 `min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
