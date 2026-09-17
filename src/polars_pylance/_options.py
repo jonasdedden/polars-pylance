@@ -59,15 +59,6 @@ class LanceScanOptions:
             **overrides,
         )
 
-    def replace(self, **overrides: Any) -> LanceScanOptions:  # noqa: ANN401
-        """Return a copy with `overrides` applied."""
-        current = {f.name: getattr(self, f.name) for f in fields(self)}
-        unknown = set(overrides) - set(current)
-        if unknown:
-            msg = f"unknown LanceScanOptions fields: {sorted(unknown)}"
-            raise TypeError(msg)
-        return type(self)(**{**current, **overrides})
-
     def to_scan_kwargs(self) -> dict[str, Any]:
         """Render as `scanner()` keyword arguments, omitting unset fields."""
         return {

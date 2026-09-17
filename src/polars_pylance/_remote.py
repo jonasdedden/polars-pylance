@@ -46,7 +46,7 @@ import pyarrow as pa
 import pyarrow.fs as pafs
 
 from ._sink import (
-    _dataset_exists,  # pyright: ignore[reportPrivateUsage]
+    _refuse_existing,  # pyright: ignore[reportPrivateUsage]
     commit_lance_fragments,
     fragment_write_mode,
 )
@@ -88,14 +88,6 @@ _S3_OPTION_ALIASES = {
     "aws_endpoint": "endpoint_override",
     "aws_endpoint_url": "endpoint_override",
 }
-_S3_TRUTHY = {"true", "1", "yes", "on"}
-
-
-def _normalise_uri(uri: str) -> str:
-    """Absolutise a bare filesystem path; leave anything with a scheme alone."""
-    if "://" in uri:
-        return uri
-    return Path(uri).expanduser().resolve().as_uri()
 
 
 def _fs_path(uri: str) -> str:
@@ -120,7 +112,7 @@ def _s3_filesystem(storage_options: dict[str, str]) -> pafs.S3FileSystem | None:
     allow_http = storage_options.get(
         "allow_http", storage_options.get("aws_allow_http")
     )
-    if str(allow_http).lower() in _S3_TRUTHY:
+    if str(allow_http).lower() in {"true", "1", "yes", "on"}:
         kwargs["scheme"] = "http"
     return pafs.S3FileSystem(**kwargs) if kwargs else None
 
@@ -137,7 +129,7 @@ def _resolve_filesystem(
         fs = _s3_filesystem(storage_options)
         if fs is not None:
             return fs, _fs_path(uri)
-    return pafs.FileSystem.from_uri(_normalise_uri(uri))
+    return pafs.FileSystem.from_uri(uri if "://" in uri else _fs_path(uri))
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +222,6 @@ class _FragmentWriter:
         fs.create_dir(prefix, recursive=True)
         with fs.open_output_stream(posixpath.join(prefix, f"{key}.json")) as sink:
             sink.write(payload)
-        return
 
 
 # ---------------------------------------------------------------------------
@@ -389,26 +380,20 @@ def stage_lance_sink(
     base = staging_uri if staging_uri is not None else uri.rstrip("/") + STAGING_SUFFIX
     run_staging = f"{base.rstrip('/')}/{run_id}"
 
-    if staging_storage_options is None and storage_options is not None:
+    if staging_storage_options is None:
         staging_storage_options = storage_options
 
     # Checked again at commit time, which is authoritative. Doing it here too
     # means `mode="create"` over an existing dataset costs nothing rather than a
     # whole cluster run that is discarded.
-    if mode == "create" and _dataset_exists(uri, storage_options):
-        msg = (
-            f"dataset already exists at {uri!r}; use mode='overwrite' to replace "
-            "its contents or mode='append' to add to it"
-        )
-        raise FileExistsError(msg)
-
-    fragment_mode = fragment_write_mode(mode)
+    if mode == "create":
+        _refuse_existing(uri, storage_options)
 
     callback = _FragmentWriter(
         uri=uri,
         schema_ipc=arrow_schema.serialize().to_pybytes(),
         staging_uri=run_staging,
-        fragment_mode=fragment_mode,
+        fragment_mode=fragment_write_mode(mode),
         storage_options=storage_options,
         staging_storage_options=staging_storage_options,
         write_kwargs=dict(lance_write_kwargs),
@@ -429,19 +414,9 @@ def stage_lance_sink(
 
 
 def _as_arrow_schema(schema: pa.Schema | pl.Schema | pl.LazyFrame) -> pa.Schema:
-    if isinstance(schema, pa.Schema):
-        return schema
     if isinstance(schema, pl.LazyFrame):
-        return schema.collect_schema().to_arrow()
-    # The last branch is unreachable for a caller who obeys the signature, and
-    # is the whole point for one who does not.
-    if isinstance(schema, pl.Schema):  # pyright: ignore[reportUnnecessaryIsInstance]
-        return schema.to_arrow()
-    msg = (
-        "schema must be a pyarrow.Schema, polars.Schema or LazyFrame, "
-        f"got {type(schema).__name__}"
-    )
-    raise TypeError(msg)
+        schema = schema.collect_schema()
+    return schema if isinstance(schema, pa.Schema) else schema.to_arrow()
 
 
 def sink_lance_remote(  # noqa: D417 - the staging parameters are documented once, on `stage_lance_sink`

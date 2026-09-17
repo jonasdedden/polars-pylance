@@ -15,6 +15,7 @@ slower than the producer. `collect_batches` is marked unstable by Polars.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Literal
 
 import lance
@@ -34,9 +35,7 @@ EngineType = Literal["auto", "in-memory", "streaming", "gpu"]
 
 DEFAULT_CHUNK_SIZE = 25_000
 
-
-def _target_uri(target: str | Path | lance.LanceDataset) -> str:
-    return target.uri if isinstance(target, lance.LanceDataset) else str(target)
+SINK_SUMMARY_SCHEMA = {"uri": pl.String, "version": pl.UInt64, "rows": pl.UInt32}
 
 
 def _reader_from_lazyframe(
@@ -99,7 +98,7 @@ def sink_lance(
     if isinstance(lf, pl.DataFrame):
         lf = lf.lazy()
 
-    uri = _target_uri(target)
+    uri = target.uri if isinstance(target, lance.LanceDataset) else str(target)
 
     if mode == "merge":
         if on is None:
@@ -129,44 +128,18 @@ def sink_lance(
         msg = f"`on` is only meaningful for mode='merge', not {mode!r}"
         raise ValueError(msg)
 
-    if not lazy:
+    def write() -> lance.LanceDataset:
         reader = _reader_from_lazyframe(lf, chunk_size=chunk_size, engine=engine)
         return lance.write_dataset(reader, uri, mode=mode, **lance_write_kwargs)
 
-    return _lazy_sink(
-        lf,
-        uri,
-        mode=mode,
-        chunk_size=chunk_size,
-        engine=engine,
-        lance_write_kwargs=lance_write_kwargs,
-    )
+    if not lazy:
+        return write()
 
-
-SINK_SUMMARY_SCHEMA = {"uri": pl.String, "version": pl.UInt64, "rows": pl.UInt32}
-
-
-def _lazy_sink(
-    lf: pl.LazyFrame,
-    uri: str,
-    *,
-    mode: WriteMode,
-    chunk_size: int,
-    engine: EngineType,
-    lance_write_kwargs: dict[str, Any],
-) -> pl.LazyFrame:
-    """Defer the write until the returned LazyFrame is collected.
-
-    Polars gives `sink_batches` callbacks no end-of-stream signal, so a
-    queue-and-writer-thread arrangement cannot tell when to close the Lance
-    writer. Deferring the whole streaming write instead composes cleanly and
-    keeps the same bounded-memory behaviour: collecting the result yields a
-    one-row summary of what was written.
-    """
-
-    def run() -> pl.DataFrame:
-        reader = _reader_from_lazyframe(lf, chunk_size=chunk_size, engine=engine)
-        dataset = lance.write_dataset(reader, uri, mode=mode, **lance_write_kwargs)
+    # Polars gives `sink_batches` callbacks no end-of-stream signal, so a
+    # queue-and-writer-thread arrangement cannot tell when to close the Lance
+    # writer. Deferring the whole streaming write composes cleanly instead.
+    def summary() -> pl.DataFrame:
+        dataset = write()
         return pl.DataFrame(
             {
                 "uri": [dataset.uri],
@@ -176,7 +149,7 @@ def _lazy_sink(
             schema=SINK_SUMMARY_SCHEMA,
         )
 
-    return pl.defer(run, schema=SINK_SUMMARY_SCHEMA, validate_schema=False)
+    return pl.defer(summary, schema=SINK_SUMMARY_SCHEMA, validate_schema=False)
 
 
 def write_lance_shard(
@@ -228,18 +201,15 @@ def write_lance_shard(
         ...     shards[0].filter(pl.col("ok")), "out.lance"
         ... )  # doctest: +SKIP
     """
-    uri = str(target)
-    schema = arrow_schema or shard.collect_schema().to_arrow()
-    fragment_mode = fragment_write_mode(mode)
     reader = _reader_from_lazyframe(shard, chunk_size=chunk_size, engine=engine)
     # `return_transaction=False` is the default; naming it picks the
     # overload that returns fragments rather than a transaction, which
     # `**lance_write_kwargs` would otherwise leave unresolved.
     return lance.fragment.write_fragments(
         reader,
-        uri,
-        schema=schema,
-        mode=fragment_mode,
+        str(target),
+        schema=arrow_schema or shard.collect_schema().to_arrow(),
+        mode=fragment_write_mode(mode),
         return_transaction=False,
         **lance_write_kwargs,
     )
@@ -281,8 +251,6 @@ def write_lance_fragments(
         ...     [s.filter(pl.col("ok")) for s in shards], "out.lance"
         ... )  # doctest: +SKIP
     """
-    from concurrent.futures import ThreadPoolExecutor
-
     shards = list(lazyframes)
     if not shards:
         msg = "write_lance_fragments() needs at least one LazyFrame"
@@ -362,21 +330,16 @@ def commit_lance_fragments(
             uri, operation, read_version=read_version, storage_options=storage_options
         )
 
-    if mode == "create" and _dataset_exists(uri, storage_options):
-        msg = (
-            f"dataset already exists at {uri!r}; use mode='overwrite' to replace "
-            "its contents or mode='append' to add to it"
-        )
-        raise FileExistsError(msg)
-
+    if mode == "create":
+        _refuse_existing(uri, storage_options)
     operation = lance.LanceOperation.Overwrite(schema, fragments)
     return lance.LanceDataset.commit(uri, operation, storage_options=storage_options)
 
 
-def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
-    """Advisory: whether there is already a dataset here.
+def _refuse_existing(uri: str, storage_options: dict[str, str] | None) -> None:
+    """Raise `FileExistsError` if there is already a dataset at `uri`.
 
-    Lance reports "not found" and "could not reach the store" as the same
+    Advisory: Lance reports "not found" and "could not reach the store" as the same
     ValueError, so an unreachable store reads as absent. That only ever costs a
     clearer error message (the commit that follows fails on its own), and
     `Overwrite` adds a version rather than destroying the old one.
@@ -384,5 +347,9 @@ def _dataset_exists(uri: str, storage_options: dict[str, str] | None) -> bool:
     try:
         lance.dataset(uri, storage_options=storage_options)
     except (ValueError, OSError):
-        return False
-    return True
+        return
+    msg = (
+        f"dataset already exists at {uri!r}; use mode='overwrite' to replace "
+        "its contents or mode='append' to add to it"
+    )
+    raise FileExistsError(msg)

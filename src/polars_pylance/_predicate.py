@@ -20,6 +20,7 @@ pinned by a test.
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import io
 import json
 import math
@@ -117,6 +118,9 @@ _NAMESPACES = frozenset(
 # No literal syntax for these, but a cast of the spelled-out name parses.
 _POS_INF = "CAST('inf' AS double)"
 _NEG_INF = "CAST('-inf' AS double)"
+_NAN = "CAST('NaN' AS double)"
+
+_ZEROS = ["-0.0", "0.0"]
 
 
 # One node of Polars' serialized expression IR, as `json.loads` hands it over.
@@ -150,11 +154,8 @@ class _Value:
 
     sql: str
     # The Polars type, where the schema or the expression settles it. Unknown
-    # (`None`) is a column the caller gave no schema for, or anything built on
-    # one; such a value is spelled as if it were not a float.
+    # (`None`) is a column the caller gave no schema for, or anything built on one.
     dtype: pl.DataType | None = None
-    # A literal cannot become `-0.0` unless it already is a zero, and is never
-    # NaN: NaN literals decline.
     is_literal: bool = False
     # Cannot be NaN even as a float: a literal, or a cast of a value that is
     # known not to be a float.
@@ -298,19 +299,13 @@ def lower_predicate(
     return LanceFilter(sql=sql, exact=exact)
 
 
+@dataclass(frozen=True)
 class _Lowering:
     """One translation pass. Holds the knobs; carries no state between nodes."""
 
-    def __init__(
-        self,
-        *,
-        max_in_list: int,
-        schema: pl.Schema | None = None,
-        types_known_later: bool = False,
-    ) -> None:
-        self.max_in_list = max_in_list
-        self.schema = schema
-        self.types_known_later = types_known_later
+    max_in_list: int
+    schema: pl.Schema | None = None
+    types_known_later: bool = False
 
     # -- boolean position --------------------------------------------------
 
@@ -380,8 +375,6 @@ class _Lowering:
             for value, other in ((rhs, lhs), (lhs, rhs)):
                 if _is_non_null_literal(value):
                     comparison, exact = self._compare("=", other, value)
-                    if comparison is None:
-                        return None, False
                     return f"({comparison} {_NULL_SAFE[op]})", exact
             return None, False
 
@@ -400,17 +393,14 @@ class _Lowering:
             )
         return None, False
 
-    def _compare(self, op: str, left: Json, right: Json) -> tuple[str | None, bool]:
-        try:
-            lhs, rhs = self.value(left), self.value(right)
-        except _Decline:
-            return None, False
+    def _compare(self, op: str, left: Json, right: Json) -> tuple[str, bool]:
+        lhs, rhs = self.value(left), self.value(right)
         untyped = (lhs.untyped and _maybe_number(rhs)) or (
             rhs.untyped and _maybe_number(lhs)
         )
         if untyped and not self.types_known_later:
             # Without a schema a number may be a float of either width.
-            return None, False
+            raise _Decline
         lhs, rhs = (
             self._coerce_literal(lhs, rhs, left),
             self._coerce_literal(rhs, lhs, right),
@@ -420,12 +410,7 @@ class _Lowering:
             # would narrow a Float64 literal to a Float32 column.
             widen = lhs.is_float32 != rhs.is_float32
             lhs, rhs = lhs.as_double(float32=widen), rhs.as_double(float32=widen)
-        sql = _float_comparison(op, lhs, rhs)
-        if sql is None and self.types_known_later:
-            sql = f"({lhs.sql} {op} {rhs.sql})"
-        if sql is None:
-            return None, False
-        return sql, True
+        return _float_comparison(op, lhs, rhs), True
 
     def _coerce_literal(self, value: _Value, other: _Value, node: Json) -> _Value:
         """`value`, as a float literal if Polars would compare it to `other` as one.
@@ -447,10 +432,7 @@ class _Lowering:
         return value
 
     def _function_predicate(self, node: Json) -> tuple[str | None, bool]:
-        body = _fields(node)
-        (name, payload), args = _function(body), body.get("input", [])
-        if not name or not isinstance(args, list) or not args:
-            return None, False
+        name, payload, args = _function(node)
 
         if name == ("Boolean", "Not"):
             inner, exact = self.predicate(args[0])
@@ -487,12 +469,8 @@ class _Lowering:
             return self._contains(args)
         return None, False
 
-    def _unary(self, arg: Json, template: str) -> tuple[str | None, bool]:
-        try:
-            value = self.value(arg)
-        except _Decline:
-            return None, False
-        return f"({template.format(value.sql)})", True
+    def _unary(self, arg: Json, template: str) -> tuple[str, bool]:
+        return f"({template.format(self.value(arg).sql)})", True
 
     def _horizontal(
         self, args: Sequence[Json], *, all_: bool
@@ -518,11 +496,7 @@ class _Lowering:
     ) -> tuple[str | None, bool]:
         if len(args) != 2:
             return None, False
-        try:
-            column = self.value(args[0])
-            values = _literal_elements(args[1])
-        except _Decline:
-            return None, False
+        column, values = self.value(args[0]), _literal_elements(args[1])
         if values.len() > self.max_in_list:
             return None, False
         if column.untyped and values.dtype.is_numeric() and not self.types_known_later:
@@ -541,11 +515,8 @@ class _Lowering:
             # `IN ()` is a syntax error. False, but null for a null input, so
             # that it stays dropped under negation.
             return f"({column.sql} IS NULL AND {_NULL_BOOLEAN})", True
-        try:
-            rendered = [_scalar(v, values.dtype) for v in values]
-        except _Decline:
-            return None, False
-        if isinstance(values.dtype, (pl.Float32, pl.Float64)):
+        rendered = [_scalar(v, values.dtype) for v in values]
+        if values.dtype.is_float():
             column = column.as_double(float32=True)
             if any(r in _ZEROS for r in rendered):
                 # Polars matches `-0.0` and `0.0` to each other; Lance does not.
@@ -567,34 +538,26 @@ class _Lowering:
         upper = "<=" if closed in ("Both", "Right") else "<"
         low, low_exact = self._compare(lower, args[0], args[1])
         high, high_exact = self._compare(upper, args[0], args[2])
-        if low is None or high is None:
-            return None, False
         return f"({low} AND {high})", low_exact and high_exact
 
     def _string_predicate(
         self, path: tuple[str, ...], options: dict[str, Json], args: Sequence[Json]
     ) -> tuple[str | None, bool]:
         name = path[1] if len(path) > 1 else ""
-        if name in ("StartsWith", "EndsWith") and len(args) == 2:
-            try:
-                column, needle = self.value(args[0]), self.value(args[1])
-            except _Decline:
-                return None, False
-            fn = "starts_with" if name == "StartsWith" else "ends_with"
-            return f"{fn}({column.sql}, {needle.sql})", True
-        if name == "Contains" and len(args) == 2:
-            try:
-                column, needle = self.value(args[0]), self.value(args[1])
-            except _Decline:
-                return None, False
-            if options.get("literal"):
-                # Substring search, not the token search the name suggests.
-                return f"contains({column.sql}, {needle.sql})", True
-            # Polars and Lance both match with the Rust `regex` crate.
-            return f"regexp_like({column.sql}, {needle.sql})", True
-        if name == "ContainsAny" and len(args) == 2:
+        if len(args) != 2:
+            return None, False
+        if name == "ContainsAny":
             return self._contains_any(options, args)
-        return None, False
+        functions = {"StartsWith": "starts_with", "EndsWith": "ends_with"}
+        if name == "Contains":
+            # `contains` is a substring search, not the token search the name
+            # suggests. Polars and Lance both match regexes with the Rust `regex`
+            # crate.
+            functions[name] = "contains" if options.get("literal") else "regexp_like"
+        if name not in functions:
+            return None, False
+        column, needle = self.value(args[0]), self.value(args[1])
+        return f"{functions[name]}({column.sql}, {needle.sql})", True
 
     def _contains_any(
         self, options: dict[str, Json], args: Sequence[Json]
@@ -603,20 +566,13 @@ class _Lowering:
 
         The case-insensitive form declines: Polars folds ASCII only.
         """
-        if options.get("ascii_case_insensitive"):
+        column, patterns = self.value(args[0]), _literal_elements(args[1])
+        if options.get("ascii_case_insensitive") or not (
+            0 < patterns.len() <= self.max_in_list
+        ):
             return None, False
-        try:
-            column = self.value(args[0])
-            patterns = _literal_elements(args[1])
-        except _Decline:
-            return None, False
-        if patterns.is_empty() or patterns.len() > self.max_in_list:
-            return None, False
-        try:
-            rendered = [_scalar(v, patterns.dtype) for v in patterns]
-        except _Decline:
-            return None, False
-        if any(r == "NULL" for r in rendered):
+        rendered = [_scalar(v, patterns.dtype) for v in patterns]
+        if "NULL" in rendered:
             return None, False
         joined = " OR ".join(f"contains({column.sql}, {r})" for r in rendered)
         return f"({joined})", True
@@ -624,10 +580,7 @@ class _Lowering:
     def _contains(self, args: Sequence[Json]) -> tuple[str | None, bool]:
         if len(args) != 2:
             return None, False
-        try:
-            column, needle = self.value(args[0]), self.value(args[1])
-        except _Decline:
-            return None, False
+        column, needle = self.value(args[0]), self.value(args[1])
         inner = _inner(column.dtype)
         if inner is None and _maybe_number(needle) and not self.types_known_later:
             return None, False
@@ -770,10 +723,7 @@ class _Lowering:
         return _Value(f"(({a.sql} - {b.sql} * {floor}) + 0.0)", dtype=dtype)
 
     def _function_value(self, node: Json) -> _Value:
-        body = _fields(node)
-        (name, payload), args = _function(body), body.get("input", [])
-        if not name or not isinstance(args, list) or not args:
-            raise _Decline
+        name, payload, args = _function(node)
 
         if name == ("Abs",):
             inner = self.value(args[0])
@@ -803,9 +753,7 @@ class _Lowering:
             sql = f"{fn}({rendered})"
             if nans:
                 sql = f"coalesce({sql}, {', '.join(nans)})"
-            dtype = values[0].dtype
-            for v in values[1:]:
-                dtype = _numeric_supertype(dtype, v.dtype)
+            dtype = functools.reduce(_numeric_supertype, (v.dtype for v in values))
             return _Value(sql, dtype=dtype, nan_free=not nans)
         if name == ("Pow", "Generic") and len(args) == 2:
             return self._power(args)
@@ -1033,8 +981,8 @@ def _unpack(node: Json) -> tuple[str, Json]:
     return next(iter(node.items()))
 
 
-def _function(node: Json) -> tuple[tuple[str, ...], Json]:
-    """Split a `function` field into its name path and its payload.
+def _function(node: Json) -> tuple[tuple[str, ...], Json, list[Json]]:
+    """Split a `Function` node into its name path, its payload and its inputs.
 
     The IR spells a function four ways::
 
@@ -1044,19 +992,20 @@ def _function(node: Json) -> tuple[tuple[str, ...], Json]:
         {"Round": {"decimals": 2, ...}}  -> ("Round",),             {...}
 
     """
-    function = node.get("function") if isinstance(node, dict) else None
+    body = _fields(node)
+    function, args = body.get("function"), _inputs(body.get("input"))
     if isinstance(function, str):
-        return (function,), None
+        return (function,), None, args
     if not isinstance(function, dict) or len(function) != 1:
-        return (), None
+        raise _Decline
     namespace, inner = next(iter(function.items()))
     if isinstance(inner, str):
-        return (namespace, inner), None
+        return (namespace, inner), None, args
     if isinstance(inner, dict) and len(inner) == 1:
         name, payload = next(iter(inner.items()))
         if namespace in _NAMESPACES or isinstance(payload, (dict, str)):
-            return (namespace, name), payload
-    return (namespace,), inner
+            return (namespace, name), payload, args
+    return (namespace,), inner, args
 
 
 def _options(payload: Json) -> dict[str, Json]:
@@ -1124,34 +1073,15 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         return "TRUE" if value else "FALSE"
     if isinstance(dtype, (pl.String, pl.Categorical, pl.Enum)):
         return _string_literal(str(value))
-    if isinstance(
-        dtype,
-        (
-            pl.Int8,
-            pl.Int16,
-            pl.Int32,
-            pl.Int64,
-            pl.UInt8,
-            pl.UInt16,
-            pl.UInt32,
-            pl.UInt64,
-        ),
-    ):
-        if not isinstance(value, (int, float)):
-            raise _Decline
+    if dtype.is_integer() and isinstance(value, (int, float)):
         return str(int(value))
-    if isinstance(dtype, (pl.Float32, pl.Float64)):
-        if not isinstance(value, (int, float)):
-            raise _Decline
-        number = float(value)
-        if math.isnan(number) or math.isinf(number):
-            raise _Decline
-        return repr(number)
+    if dtype.is_float() and isinstance(value, (int, float)) and math.isfinite(value):
+        return repr(float(value))
     if dtype == pl.Date:
         if not isinstance(value, dt.date):
             raise _Decline
         return f"date '{value.isoformat()}'"
-    if isinstance(dtype, pl.Datetime) or dtype == pl.Datetime:
+    if isinstance(dtype, pl.Datetime):
         if not isinstance(value, dt.datetime):
             raise _Decline
         # Lance parses a bare timestamp literal against the column's own time
@@ -1164,11 +1094,9 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         if not isinstance(value, (bytes, bytearray)):
             raise _Decline
         return f"X'{bytes(value).hex()}'"
-    # Time, Duration, Decimal, and every nested dtype: no dependable spelling.
+    # Time, Duration, Decimal, every nested dtype, and NaN or infinite floats: no
+    # dependable spelling.
     raise _Decline
-
-
-_ZEROS = ["-0.0", "0.0"]
 
 
 def _numeric_supertype(
@@ -1228,11 +1156,8 @@ def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
     return scalar or source.is_numeric() or source == pl.String
 
 
-_NAN = "CAST('NaN' AS double)"
-
-
-def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str | None:
-    """`lhs op rhs`, with Polars' rules for signed zeros and NaN, or None.
+def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
+    """`lhs op rhs`, with Polars' rules for signed zeros and NaN.
 
     Lance compares floats by IEEE total order, from a negative NaN through
     `-inf`, `-0.0`, `0.0` and `inf` up to a positive NaN. Polars treats `-0.0`
@@ -1307,14 +1232,7 @@ def _string_literal(value: str) -> str:
 
 
 def _is_non_null_literal(node: Json) -> bool:
-    try:
-        kind, _ = _unpack(node)
-    except _Decline:
+    if not (isinstance(node, dict) and list(node) == ["Literal"]):
         return False
-    if kind != "Literal":
-        return False
-    try:
-        series = _literal_series(node)
-    except _Decline:
-        return False
+    series = _literal_series(node)
     return series.len() == 1 and series.item() is not None

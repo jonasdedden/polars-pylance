@@ -37,9 +37,6 @@ if TYPE_CHECKING:
 
     import pyarrow as pa
 
-# `VIRTUAL_COLUMNS` is imported rather than defined here because the predicate
-# lowering has to refuse the same columns.
-
 
 class _FilterRejected(RuntimeError):
     """Lance refused to plan a scan with the filter we pushed.
@@ -97,41 +94,33 @@ class LanceScanSpec:
         limit: int | None = None,
         prefilter: bool = False,
     ) -> lance.LanceScanner:
-        kwargs: dict[str, Any] = {
-            **self.options.to_scan_kwargs(),
-            "columns": columns,
-            "filter": filter,
-            "limit": limit,
-        }
-        if prefilter:
-            # Lance has one filter slot; this says it restricts the rows the
-            # search runs over instead of filtering the search's result.
-            kwargs["prefilter"] = True
-        if self.nearest is not None:
-            kwargs["nearest"] = self.nearest
-        if self.full_text_query is not None:
-            kwargs["full_text_query"] = self.full_text_query
-        if self.with_row_id:
-            kwargs["with_row_id"] = True
-        if self.with_row_address:
-            kwargs["with_row_address"] = True
+        fragments = None
         if self.fragment_ids is not None:
             by_id = {f.fragment_id: f for f in dataset.get_fragments()}
             missing = [i for i in self.fragment_ids if i not in by_id]
             if missing:
                 msg = f"no such fragment(s) in {self.uri}: {missing}"
                 raise ValueError(msg)
-            kwargs["fragments"] = [by_id[i] for i in self.fragment_ids]
-        return dataset.scanner(**kwargs)
-
-    def arrow_schema(self, dataset: lance.LanceDataset | None = None) -> pa.Schema:
-        """Full output schema, including any Lance-generated columns."""
-        dataset = dataset if dataset is not None else self.open()
-        return self.scanner(dataset).projected_schema
+            fragments = [by_id[i] for i in self.fragment_ids]
+        return dataset.scanner(
+            **self.options.to_scan_kwargs(),
+            columns=columns,
+            filter=filter,
+            limit=limit,
+            # Lance has one filter slot; this says it restricts the rows the
+            # search runs over instead of filtering the search's result.
+            prefilter=prefilter,
+            nearest=self.nearest,
+            full_text_query=self.full_text_query,
+            with_row_id=self.with_row_id,
+            with_row_address=self.with_row_address,
+            fragments=fragments,
+        )
 
     def polars_schema(self, dataset: lance.LanceDataset | None = None) -> pl.Schema:
-        arrow = self.arrow_schema(dataset)
-        empty = pl.from_arrow(arrow.empty_table())
+        """Full output schema, including any Lance-generated columns."""
+        scanner = self.scanner(dataset if dataset is not None else self.open())
+        empty = pl.from_arrow(scanner.projected_schema.empty_table())
         assert isinstance(empty, pl.DataFrame)
         return empty.schema
 
@@ -151,7 +140,13 @@ class LanceScanSpec:
         Lazy by construction: nothing is read until the consumer pulls, and
         dropping the generator early stops the scan.
         """
-        columns = None if projection is None else self._physical_columns(projection)
+        # Generated columns are added by the scanner itself and must not appear
+        # in `columns=`; an empty list is legal and means "generated only".
+        columns = (
+            None
+            if projection is None
+            else [c for c in projection if c not in VIRTUAL_COLUMNS]
+        )
         scanner = self.scanner(
             dataset, columns=columns, filter=filter, limit=limit, prefilter=prefilter
         )
@@ -210,34 +205,10 @@ class LanceScanSpec:
         yield first
         yield from iterator
 
-    def _physical_columns(self, projection: Sequence[str]) -> list[str]:
-        # Generated columns are added by the scanner itself and must not appear
-        # in `columns=`; an empty result is legal and means "generated only".
-        return [c for c in projection if c not in VIRTUAL_COLUMNS]
-
 
 # ---------------------------------------------------------------------------
 # the IO plugin
 # ---------------------------------------------------------------------------
-
-
-def _io_plugin_lazyframe(spec: LanceScanSpec) -> pl.LazyFrame:
-    # Imported by path: `polars` does not re-export its `io` subpackage.
-    from polars.io.plugins import register_io_source
-
-    def source(
-        with_columns: list[str] | None,
-        predicate: pl.Expr | None,
-        n_rows: int | None,
-        batch_size: int | None,
-    ) -> Iterator[pl.DataFrame]:
-        return _frames(spec, with_columns, predicate, n_rows, batch_size)
-
-    # `schema` as a callable keeps `scan_lance()` from touching the dataset:
-    # Polars asks for it when the query is resolved, not when it is built.
-    return register_io_source(
-        source, schema=spec.polars_schema, validate_schema=False, is_pure=True
-    )
 
 
 def _frames(
@@ -255,47 +226,21 @@ def _frames(
     # The engine's batch-size hint is sized in rows with no idea how wide they
     # are; it is used only where the option asked for Lance's own choice.
     if batch_size is not None and spec.options.batch_size is None:
-        spec = dataclasses.replace(
-            spec, options=spec.options.replace(batch_size=batch_size)
-        )
+        options = dataclasses.replace(spec.options, batch_size=batch_size)
+        spec = dataclasses.replace(spec, options=options)
 
     needs_schema = predicate is not None or spec.prefilter_expr is not None
     schema = spec.polars_schema(dataset) if needs_schema else None
-    plan = _plan_scan(spec, predicate, schema=schema)
-    yield from _execute_scan(plan, dataset, with_columns, n_rows)
-
-
-@dataclass(frozen=True)
-class _ScanPlan:
-    """Serializable filter decisions, independent of an open dataset or iterator.
-
-    `predicate` is retained even for exact SQL: execution must be able to
-    recover if Lance rejects it. Projection and limits remain execution inputs
-    so an optimizer can narrow them after the plan has been constructed.
-    """
-
-    spec: LanceScanSpec
-    sql: str | None
-    residual: pl.Expr | None
-    predicate: pl.Expr | None
-    prefilter: bool
-
-
-def _plan_scan(
-    spec: LanceScanSpec, predicate: pl.Expr | None, *, schema: pl.Schema | None
-) -> _ScanPlan:
-    """Translate a scan's filter without opening a scanner or consuming rows."""
-    sql: str | None
-    if spec.prefilter is not None or spec.prefilter_expr is not None:
+    prefilter = spec.prefilter is not None or spec.prefilter_expr is not None
+    if prefilter:
         # Lance's one filter slot is spoken for. The prefilter decides which
         # rows the search ranks; the query's own `.filter()` therefore stays in
         # Polars, where it is a postfilter over that ranking. `predicate_pushdown`
         # governs the automatic lowering, not this explicit argument.
-        sql = spec.prefilter
+        sql, residual = spec.prefilter, predicate
         if spec.prefilter_expr is not None:
-            expr = _deserialize(spec.prefilter_expr)
+            expr = pl.Expr.deserialize(io.BytesIO(spec.prefilter_expr))
             sql = _prefilter_sql(expr, to_lance_filter(expr, schema=schema))
-        residual, prefilter = predicate, True
     else:
         lowered = (
             to_lance_filter(predicate, schema=schema)
@@ -306,26 +251,9 @@ def _plan_scan(
         # relaxed one keeps more, and nothing downstream will filter again.
         residual = None if lowered is not None and lowered.exact else predicate
         sql = lowered.sql if lowered is not None else None
-        prefilter = False
 
-    return _ScanPlan(spec, sql, residual, predicate, prefilter)
-
-
-def _execute_scan(
-    plan: _ScanPlan,
-    dataset: lance.LanceDataset,
-    projection: list[str] | None,
-    n_rows: int | None,
-) -> Iterator[pl.DataFrame]:
-    """Execute a planned scan, retaining equivalent fallback semantics."""
     batches = _apply(
-        plan.spec,
-        dataset,
-        projection,
-        plan.sql,
-        plan.residual,
-        n_rows,
-        prefilter=plan.prefilter,
+        spec, dataset, with_columns, sql, residual, n_rows, prefilter=prefilter
     )
     try:
         first = next(batches)
@@ -338,7 +266,7 @@ def _execute_scan(
             RuntimeWarning,
             stacklevel=2,
         )
-        yield from _apply(plan.spec, dataset, projection, None, plan.predicate, n_rows)
+        yield from _apply(spec, dataset, with_columns, None, predicate, n_rows)
         return
     yield first
     yield from batches
@@ -404,14 +332,6 @@ def _with_predicate_columns(
 # ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
-
-
-def _serialize(expr: pl.Expr) -> bytes:
-    return expr.meta.serialize()
-
-
-def _deserialize(blob: bytes) -> pl.Expr:
-    return pl.Expr.deserialize(io.BytesIO(blob))
 
 
 def _prefilter_sql(prefilter: pl.Expr, lowered: LanceFilter | None) -> str:
@@ -528,14 +448,31 @@ def scan_lance(
         nearest=nearest,
         full_text_query=full_text_query,
         prefilter=prefilter if isinstance(prefilter, str) else None,
-        prefilter_expr=None if expr_prefilter is None else _serialize(expr_prefilter),
+        prefilter_expr=None
+        if expr_prefilter is None
+        else expr_prefilter.meta.serialize(),
         with_row_id=with_row_id,
         with_row_address=with_row_address,
         fragment_ids=list(fragments) if fragments is not None else None,
         predicate_pushdown=predicate_pushdown,
     )
 
-    return _io_plugin_lazyframe(spec)
+    # Imported by path: `polars` does not re-export its `io` subpackage.
+    from polars.io.plugins import register_io_source
+
+    def frames(
+        with_columns: list[str] | None,
+        predicate: pl.Expr | None,
+        n_rows: int | None,
+        batch_size: int | None,
+    ) -> Iterator[pl.DataFrame]:
+        return _frames(spec, with_columns, predicate, n_rows, batch_size)
+
+    # `schema` as a callable keeps `scan_lance()` from touching the dataset:
+    # Polars asks for it when the query is resolved, not when it is built.
+    return register_io_source(
+        frames, schema=spec.polars_schema, validate_schema=False, is_pure=True
+    )
 
 
 def scan_lance_fragments(
