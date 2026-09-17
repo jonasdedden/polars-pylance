@@ -460,12 +460,11 @@ def test_expression_prefilter_is_lowered_with_the_schema(
 def test_prefilter_refused_only_with_the_schema_fails_at_collect(
     float_uri: tuple[str, pl.DataFrame],
 ) -> None:
-    """`max_horizontal` over floats has no exact spelling, which only the types show."""
+    """A float-to-string cast has no exact spelling, which only the types show."""
     uri, _ = float_uri
     nearest = {"column": "vector", "q": [0.0, 0.0], "k": 3}
-    lf = scan_lance(
-        uri, nearest=nearest, prefilter=pl.max_horizontal("score", "floor") > 0
-    )
+    prefilter = pl.col("score").cast(pl.String, strict=False) == "1.0"
+    lf = scan_lance(uri, nearest=nearest, prefilter=prefilter)
     with pytest.raises(Exception, match="prefilter does not translate"):
         lf.select("id").collect(engine="streaming")
 

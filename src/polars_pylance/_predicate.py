@@ -735,20 +735,25 @@ class _Lowering:
                 dtype=_numeric_supertype(left.dtype, right.dtype),
             )
         if name in (("MinHorizontal",), ("MaxHorizontal",)):
-            # `least` / `greatest` skip nulls, which is what the Polars
-            # horizontal reductions do too. Polars also skips NaN, where Lance
-            # orders it above (or, negative, below) every number.
+            # `least` / `greatest` skip nulls, as Polars does. Polars also skips
+            # NaN unless nothing else remains, so a NaN is nulled out and comes
+            # back through `coalesce` when every argument was one.
             fn = "least" if name[0] == "MinHorizontal" else "greatest"
             values = [self.value(a) for a in args]
-            untyped = not self.types_known_later and any(v.untyped for v in values)
-            if untyped or any(v.floating for v in values):
+            if not self.types_known_later and any(v.untyped for v in values):
                 # An untyped value may be a float.
                 raise _Decline
-            rendered = ", ".join(v.sql for v in values)
+            nans = [v.sql for v in values if v.may_be_nan]
+            rendered = ", ".join(
+                f"nanvl({v.sql}, NULL)" if v.may_be_nan else v.sql for v in values
+            )
+            sql = f"{fn}({rendered})"
+            if nans:
+                sql = f"coalesce({sql}, {', '.join(nans)})"
             dtype = values[0].dtype
             for v in values[1:]:
                 dtype = _numeric_supertype(dtype, v.dtype)
-            return _Value(f"{fn}({rendered})", dtype=dtype)
+            return _Value(sql, dtype=dtype, nan_free=not nans)
         if name == ("Pow", "Generic") and len(args) == 2:
             return self._power(args)
         if name in (("Pow", "Sqrt"), ("Pow", "Cbrt"), ("Log",)):

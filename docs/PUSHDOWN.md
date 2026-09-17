@@ -120,7 +120,6 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `//` | Polars floors, SQL truncates |
 | `%` by zero or by a column | a zero divisor gives null in Polars and fails the scan in Lance |
 | `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
-| `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
 | `Time` and `Duration` literals | Lance has no matching type |
@@ -128,7 +127,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
 `eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
-`min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
+`min_horizontal` / `max_horizontal`, `fill_null`, the `is_nan` family,
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
 
