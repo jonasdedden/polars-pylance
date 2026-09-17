@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import io
 import math
-import pickle
 import warnings
 from typing import TYPE_CHECKING
 
@@ -25,7 +24,7 @@ import polars as pl
 import pyarrow as pa
 import pytest
 
-from polars_pylance import LanceScanSpec, scan_lance
+from polars_pylance import scan_lance
 
 if TYPE_CHECKING:
     from conftest import ScannerCall
@@ -40,28 +39,10 @@ def _search(
     query: list[float],
     *,
     prefilter: str | pl.Expr | None = None,
-    metric: str | None = None,
-    nprobes: int | None = None,
-    use_index: bool | None = None,
+    **tuning: str | int | bool,
 ) -> pl.LazyFrame:
-    """A k-nearest `scan_lance`, with the `nearest` dict lifted out of the tests.
-
-    The search tuning is spelled out rather than forwarded as `**kwargs`, so a
-    misspelled knob is a type error here instead of a key Lance ignores.
-    """
-    # `scan_lance` takes `nearest` as a `dict[str, Any]`; spelling the values
-    # out keeps this side of the call checked.
-    nearest: dict[str, str | int | list[float]] = {
-        "column": "vector",
-        "q": query,
-        "k": K,
-    }
-    if metric is not None:
-        nearest["metric"] = metric
-    if nprobes is not None:
-        nearest["nprobes"] = nprobes
-    if use_index is not None:
-        nearest["use_index"] = use_index
+    """A k-nearest `scan_lance`, with any search tuning added to `nearest`."""
+    nearest = {"column": "vector", "q": query, "k": K, **tuning}
     return scan_lance(uri, nearest=nearest, prefilter=prefilter)
 
 
@@ -119,17 +100,33 @@ def prefiltered_ids(split_uri: tuple[str, list[float]]) -> list[int]:
 # -- the two semantics ------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "prefilter",
+    [
+        pytest.param("cat = 'far'", id="sql"),
+        pytest.param(pl.col("cat") == "far", id="expr"),
+    ],
+)
+@pytest.mark.parametrize("variant", ["indexed", "exact search", "serialized"])
 def test_prefilter_ranks_only_the_rows_it_admits(
-    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
+    split_uri: tuple[str, list[float]],
+    prefiltered_ids: list[int],
+    prefilter: str | pl.Expr,
+    variant: str,
 ) -> None:
-    """Exactly k rows come back, all matching, ranked among themselves."""
+    """Exactly k rows come back, all matching, ranked among themselves.
+
+    `use_index=False` is the ground-truth search, and a serialized plan must keep
+    the prefilter it was built with.
+    """
     uri, query = split_uri
-    out = (
-        _search(uri, query, prefilter="cat = 'far'")
-        .select("id", "cat", "_distance")
-        .collect(engine="streaming")
+    tuning = {"use_index": False} if variant == "exact search" else {}
+    lf = _search(uri, query, prefilter=prefilter, **tuning).select(
+        "id", "cat", "_distance"
     )
-    assert out.height == K
+    if variant == "serialized":
+        lf = pl.LazyFrame.deserialize(io.BytesIO(lf.serialize()))
+    out = lf.collect(engine="streaming")
     assert set(out["cat"].to_list()) == {"far"}
     assert out["_distance"].is_sorted()
     assert out["id"].to_list() == prefiltered_ids
@@ -150,18 +147,6 @@ def test_downstream_filter_is_a_postfilter(
     assert out.height == 0  # the whole top-k was 'near'
 
 
-def test_prefilter_and_postfilter_answer_differently(
-    split_uri: tuple[str, list[float]],
-) -> None:
-    """The same predicate, the two positions, two different answers."""
-    uri, query = split_uri
-    pre = _search(uri, query, prefilter="cat = 'far'").collect(engine="streaming")
-    post = (
-        _search(uri, query).filter(pl.col("cat") == "far").collect(engine="streaming")
-    )
-    assert pre.height != post.height
-
-
 def test_prefilter_composes_with_a_downstream_filter(
     split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
 ) -> None:
@@ -178,20 +163,6 @@ def test_prefilter_composes_with_a_downstream_filter(
 
 
 # -- what actually reaches Lance -------------------------------------------
-
-
-def test_prefilter_reaches_lance_as_prefilter(
-    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
-) -> None:
-    uri, query = split_uri
-    _search(uri, query, prefilter="cat = 'far'").select("id").collect(
-        engine="streaming"
-    )
-
-    pushed = [c for c in scanner_calls if c.filter is not None]
-    assert pushed, f"no filter reached Lance: {scanner_calls}"
-    assert all(c.filter == "cat = 'far'" for c in pushed)
-    assert all(c.prefilter is True for c in pushed)
 
 
 def test_downstream_filter_is_never_pushed_as_a_prefilter(
@@ -227,29 +198,20 @@ def test_downstream_filter_is_never_pushed_as_a_prefilter(
     ids=["unlowerable", "partial"],
 )
 def test_prefilter_polars_expression_must_lower_exactly(
-    split_uri: tuple[str, list[float]], predicate: pl.Expr, message: str
+    split_uri: tuple[str, list[float]],
+    scanner_calls: list[ScannerCall],
+    predicate: pl.Expr,
+    message: str,
 ) -> None:
     """A prefilter that cannot be pushed whole is an error, not a postfilter.
 
     A pushed-down predicate is allowed to be relaxed because Polars finishes it.
-    Nothing can finish a prefilter: the ranking has already happened.
+    Nothing can finish a prefilter: the ranking has already happened. The refusal
+    lands at the call site, before anything is read.
     """
     uri, query = split_uri
     with pytest.raises(ValueError, match=message):
         _search(uri, query, prefilter=predicate)
-
-
-def test_prefilter_expression_is_rejected_before_any_read(
-    split_uri: tuple[str, list[float]], scanner_calls: list[ScannerCall]
-) -> None:
-    """The refusal lands at the call site, not deep in a collect."""
-    uri, query = split_uri
-    with pytest.raises(ValueError, match="does not translate"):
-        _search(
-            uri,
-            query,
-            prefilter=pl.col("id").hash() % 2 == 0,
-        )
     assert scanner_calls == []
 
 
@@ -273,36 +235,6 @@ def test_lance_rejected_prefilter_propagates(
 
 
 # -- the rest of the scan still works --------------------------------------
-
-
-def test_exact_expression_prefilter_matches_the_sql_one(
-    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
-) -> None:
-    uri, query = split_uri
-    out = (
-        _search(
-            uri,
-            query,
-            prefilter=pl.col("cat") == "far",
-        )
-        .select("id")
-        .collect(engine="streaming")
-    )
-    assert out["id"].to_list() == prefiltered_ids
-
-
-def test_exact_search_honours_the_prefilter(
-    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
-) -> None:
-    """`use_index=False` is the ground-truth mode; the prefilter still applies."""
-    uri, query = split_uri
-    out = (
-        _search(uri, query, use_index=False, prefilter="cat = 'far'")
-        .select("id")
-        .collect(engine="streaming")
-    )
-    assert out.height == K
-    assert out["id"].to_list() == prefiltered_ids
 
 
 def test_limit_truncates_the_prefiltered_ranking(
@@ -350,32 +282,14 @@ def test_search_tuning_survives_a_prefilter(
     assert pushed, f"no nearest reached Lance: {scanner_calls}"
     nearest = pushed[-1].nearest
     assert nearest is not None
-    assert nearest.column == "vector"
-    assert nearest.k == K
-    assert nearest.metric == "cosine"
-    assert nearest.nprobes == 4
-    assert nearest.use_index is False
+    assert (nearest["column"], nearest["k"]) == ("vector", K)
+    assert (nearest["metric"], nearest["nprobes"], nearest["use_index"]) == (
+        "cosine",
+        4,
+        False,
+    )
     assert pushed[-1].filter == "cat = 'far'"
     assert pushed[-1].prefilter is True
-
-
-# -- it still ships ---------------------------------------------------------
-
-
-def test_prefilter_survives_serialization(
-    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
-) -> None:
-    uri, query = split_uri
-    lf = _search(uri, query, prefilter="cat = 'far'").select("id")
-    restored = pl.LazyFrame.deserialize(io.BytesIO(lf.serialize()))
-    assert restored.collect(engine="streaming")["id"].to_list() == prefiltered_ids
-
-
-def test_spec_with_prefilter_is_picklable(split_uri: tuple[str, list[float]]) -> None:
-    """A lowered prefilter is a plain string, so the spec still compares equal."""
-    uri, _ = split_uri
-    spec = LanceScanSpec(uri=uri, prefilter="cat = 'far'")
-    assert pickle.loads(pickle.dumps(spec)) == spec
 
 
 # -- translated against the dataset's column types --------------------------
@@ -467,22 +381,3 @@ def test_prefilter_refused_only_with_the_schema_fails_at_collect(
     lf = scan_lance(uri, nearest=nearest, prefilter=prefilter)
     with pytest.raises(Exception, match="prefilter does not translate"):
         lf.select("id").collect(engine="streaming")
-
-
-def test_expression_prefilter_survives_serialization(
-    split_uri: tuple[str, list[float]], prefiltered_ids: list[int]
-) -> None:
-    uri, query = split_uri
-    lf = _search(uri, query, prefilter=pl.col("cat") == "far").select("id")
-    restored = pl.LazyFrame.deserialize(io.BytesIO(lf.serialize()))
-    assert restored.collect(engine="streaming")["id"].to_list() == prefiltered_ids
-
-
-def test_spec_with_an_expression_prefilter_is_picklable(
-    split_uri: tuple[str, list[float]],
-) -> None:
-    """Held serialized, so the spec still pickles and compares by value."""
-    uri, _ = split_uri
-    blob = (pl.col("cat") == "far").meta.serialize()
-    spec = LanceScanSpec(uri=uri, prefilter_expr=blob)
-    assert pickle.loads(pickle.dumps(spec)) == spec

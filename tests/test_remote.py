@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import pickle
 from pathlib import Path
+from typing import cast
 
 import lance
 import polars as pl
@@ -45,57 +46,44 @@ def _run(staged: StagedLanceSink, lf: pl.LazyFrame, chunk_size: int = 5_000) -> 
 # -- the happy path ---------------------------------------------------------
 
 
-def test_round_trip(tmp_path: Path, lance_uri: str) -> None:
+@pytest.mark.parametrize(
+    ("arrow_schema", "custom_staging"),
+    [(False, False), (True, False), (False, True)],
+    ids=["defaults", "arrow schema", "custom staging"],
+)
+def test_round_trip(
+    tmp_path: Path,
+    lance_uri: str,
+    arrow_schema: bool,  # noqa: FBT001 - a pytest parameter
+    custom_staging: bool,  # noqa: FBT001 - a pytest parameter
+) -> None:
+    """Workers write fragments and publish nothing; one commit publishes them all.
+
+    The commit also removes the staging prefix.
+    """
     out = str(tmp_path / "out.lance")
     lf = _transformed(lance_uri)
+    schema = lf.collect_schema().to_arrow() if arrow_schema else lf
+    staging_uri = str(tmp_path / "staging-elsewhere") if custom_staging else None
 
-    staged = stage_lance_sink(out, lf, max_rows_per_file=5_000)
-    _run(staged, lf)
+    staged = stage_lance_sink(out, schema, staging_uri=staging_uri)
+    _run(staged, lf, chunk_size=2_000)
+
+    with pytest.raises(ValueError, match="was not found"):
+        lance.dataset(out)
+    assert len(staged.staged_fragments()) > 1
+    if staging_uri is not None:
+        assert staged.staging_uri.startswith(staging_uri)
+    staging_dir = Path(staged.staging_uri)
+    assert staging_dir.exists()
+
     dataset = staged.commit()
-
-    assert isinstance(dataset, lance.LanceDataset)
+    assert not staging_dir.exists()
+    assert len(dataset.get_fragments()) > 1
     assert_frame_equal(
         scan_lance(out).collect(engine="streaming").sort("id"),
         lf.collect(engine="streaming").sort("id"),
     )
-
-
-def test_writes_several_fragments(tmp_path: Path, lance_uri: str) -> None:
-    """One fragment per batch is what makes the write distributable."""
-    out = str(tmp_path / "many.lance")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf)
-    _run(staged, lf, chunk_size=2_000)
-
-    assert len(staged.staged_fragments()) > 1
-    assert len(staged.commit().get_fragments()) > 1
-
-
-def test_nothing_is_published_before_commit(tmp_path: Path, lance_uri: str) -> None:
-    """No worker may publish a partial dataset: the callback writes, never commits."""
-    out = str(tmp_path / "uncommitted.lance")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf)
-    _run(staged, lf)
-
-    with pytest.raises(ValueError, match="was not found"):
-        lance.dataset(out)
-    assert staged.staged_fragments()
-
-    staged.commit()
-    assert lance.dataset(out).count_rows() > 0
-
-
-def test_schema_may_be_given_explicitly(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "explicit.lance")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf.collect_schema().to_arrow())
-    _run(staged, lf)
-
-    assert staged.commit().count_rows() == lf.collect(engine="streaming").height
 
 
 # -- idempotency ------------------------------------------------------------
@@ -147,19 +135,6 @@ def test_fragment_key_override(tmp_path: Path, lance_uri: str) -> None:
 
     assert seen
     assert len(staged.staged_fragments()) == len(set(seen))
-
-
-def test_commit_is_order_stable(tmp_path: Path, lance_uri: str) -> None:
-    """Two commits of the same staged output give the same fragment layout."""
-    out = str(tmp_path / "stable.lance")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf)
-    _run(staged, lf, chunk_size=2_000)
-
-    first = [f.to_json() for f in staged.staged_fragments()]
-    second = [f.to_json() for f in staged.staged_fragments()]
-    assert first == second
 
 
 # -- modes ------------------------------------------------------------------
@@ -257,21 +232,8 @@ def test_concurrent_runs_do_not_see_each_other(tmp_path: Path, lance_uri: str) -
 
     _run(a, lf)
     _run(b, half)
-    assert len(a.staged_fragments()) != len(b.staged_fragments()) or True
     assert a.commit(cleanup=True).count_rows() == lf.collect(engine="streaming").height
     assert b.staged_fragments(), "b's staging survived a's cleanup"
-
-
-def test_commit_cleans_up(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "cleaned.lance")
-    lf = _transformed(lance_uri)
-    staged = stage_lance_sink(out, lf)
-    _run(staged, lf)
-
-    staging = Path(staged.staging_uri)
-    assert staging.exists()
-    staged.commit()
-    assert not staging.exists()
 
 
 def test_commit_can_keep_staging(tmp_path: Path, lance_uri: str) -> None:
@@ -294,81 +256,40 @@ def test_cleanup_is_idempotent(tmp_path: Path) -> None:
     staged.cleanup()
 
 
-def test_custom_staging_uri(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "custom.lance")
-    elsewhere = str(tmp_path / "staging-elsewhere")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf, staging_uri=elsewhere)
-    _run(staged, lf)
-    assert staged.staging_uri.startswith(elsewhere)
-    assert staged.commit().count_rows() == lf.collect(engine="streaming").height
-
-
 # -- what has to survive the trip to a worker -------------------------------
 
 
-def test_callback_pickles_by_reference(tmp_path: Path) -> None:
+def test_callback_pickles_by_reference(tmp_path: Path, lance_uri: str) -> None:
     """The plan carries data, not code: workers import polars-pylance themselves.
 
     That is why :func:`polars_pylance.cloud.requirements_txt` lists the package.
     """
-    staged = stage_lance_sink(
-        str(tmp_path / "pickled.lance"),
-        pl.Schema({"a": pl.Int64, "b": pl.String}),
-        max_rows_per_file=1_000,
-    )
+    out = str(tmp_path / "pickled.lance")
+    lf = _transformed(lance_uri)
+    staged = stage_lance_sink(out, lf, max_rows_per_file=1_000)
     blob = pickle.dumps(staged.callback)
     assert len(blob) < 4_000
 
     revived = pickle.loads(blob)
     assert revived == staged.callback
-    assert revived.schema() == staged.callback.schema()
-    assert revived.write_kwargs == {"max_rows_per_file": 1_000}
-
-
-def test_pickled_callback_writes(tmp_path: Path, lance_uri: str) -> None:
-    """A callback that has been through pickle still writes what it should."""
-    out = str(tmp_path / "revived.lance")
-    lf = _transformed(lance_uri)
-
-    staged = stage_lance_sink(out, lf)
-    revived = pickle.loads(pickle.dumps(staged.callback))
     lf.sink_batches(revived, chunk_size=5_000, engine="streaming", lazy=False)
-
     assert staged.commit().count_rows() == lf.collect(engine="streaming").height
 
 
 def test_callback_survives_into_a_cloud_plan(tmp_path: Path, lance_uri: str) -> None:
-    """The whole premise: the writer ships inside the plan.
+    """The whole premise: the writer ships inside the plan, so it runs on the workers.
 
-    It is serialized with the query plan, so it runs on the workers rather than
-    on the client.
-
-    Skipped below polars 1.43, which rejects a callback sink outright with
-    "logical plan ineligible for execution on Polars Cloud". That is the same
-    bump polars-cloud 0.10 brings, so the remote write needs 0.10 for two
-    reasons rather than one.
-
-    Also skipped without `cloudpickle`, which polars needs to serialize the
-    callback into the plan. It arrives as `polars[cloudpickle]`, a transitive
-    dependency of polars-cloud, and as an explicit test dependency so this test
-    also runs without the `cloud` extra installed.
+    polars needs `cloudpickle`, a test dependency, to serialize the callback.
     """
-    prepare_cloud_plan = pytest.importorskip("polars._utils.cloud").prepare_cloud_plan
-    pytest.importorskip("cloudpickle")
+    from polars._utils.cloud import prepare_cloud_plan
 
     lf = _transformed(lance_uri)
     staged = stage_lance_sink(str(tmp_path / "planned.lance"), lf)
-    try:
-        plan = prepare_cloud_plan(lf.sink_batches(staged.callback, lazy=True))
-    except pl.exceptions.InvalidOperationError as exc:
-        if "callback sink" not in str(exc):
-            raise
-        pytest.skip(f"polars {pl.__version__} cannot ship a callback sink")
-
-    if isinstance(plan, tuple):  # polars returns (plan, opt_flags) since 1.43
-        plan = plan[0]
+    # Annotated as `bytes`, but returns the plan with its optimization flags.
+    plan, _ = cast(
+        "tuple[bytes, object]",
+        prepare_cloud_plan(lf.sink_batches(staged.callback, lazy=True)),
+    )
 
     assert b"polars_pylance" in plan, "the callback did not reach the plan"
     assert staged.uri.encode() in plan

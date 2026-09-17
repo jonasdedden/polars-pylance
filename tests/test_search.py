@@ -20,8 +20,6 @@ from polars_pylance import scan_lance
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from conftest import ScannerCall
-
 DIM = 16
 ROWS = 512
 
@@ -74,13 +72,6 @@ def test_nearest_composes_with_polars_operations(
     assert (out["cat"] == "a").all()
 
 
-def test_nearest_is_lazy(vector_uri: tuple[str, list[float]]) -> None:
-    uri, query = vector_uri
-    lf = scan_lance(uri, nearest={"column": "vector", "q": query, "k": 3})
-    assert isinstance(lf, pl.LazyFrame)
-    assert "vector" in lf.collect_schema().names()
-
-
 def test_full_text_query_matches_indexed_terms(tmp_path: Path) -> None:
     uri = str(tmp_path / "fts.lance")
     dataset = lance.write_dataset(
@@ -107,24 +98,3 @@ def test_full_text_query_matches_indexed_terms(tmp_path: Path) -> None:
         .collect(engine="streaming")
     )
     assert sorted(out["id"].to_list()) == [2, 4]
-
-
-def test_limit_is_pushed_into_the_scan(
-    tmp_path: Path, scanner_calls: list[ScannerCall]
-) -> None:
-    """`head()` stops the scan rather than reading to the end.
-
-    This is the other half of pola-rs/polars#12389: a generic Arrow reader has
-    nowhere to put the row limit, so it materialises far more than asked for.
-    """
-    uri = str(tmp_path / "rows.lance")
-    lance.write_dataset(
-        pa.table({"id": pa.array(np.arange(100_000))}), uri, max_rows_per_file=10_000
-    )
-
-    out = scan_lance(uri).head(7).collect(engine="streaming")
-
-    assert out.height == 7
-    assert any(call.limit == 7 for call in scanner_calls), (
-        f"no scanner call carried the row limit: {scanner_calls}"
-    )

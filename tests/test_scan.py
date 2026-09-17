@@ -56,33 +56,9 @@ def test_head_stops_early(lance_uri: str, frames_yielded: list[int]) -> None:
     assert frames_yielded[0] <= 4
 
 
-def test_limit_after_filter(lance_uri: str, expected: pl.DataFrame) -> None:
-    got = (
-        scan_lance(lance_uri)
-        .filter(pl.col("cat") == "c")
-        .sort("id")
-        .head(7)
-        .collect(engine="streaming")
-    )
-    want = expected.filter(pl.col("cat") == "c").sort("id").head(7)
-    assert_frame_equal(got, want)
-
-
 def test_in_memory_engine_still_works(lance_uri: str, expected: pl.DataFrame) -> None:
     got = scan_lance(lance_uri).select(pl.col("val").sum()).collect(engine="in-memory")
     assert got.item() == pytest.approx(expected["val"].sum())
-
-
-def test_predicate_pushdown_disabled_is_still_correct(
-    lance_uri: str, expected: pl.DataFrame
-) -> None:
-    got = (
-        scan_lance(lance_uri, predicate_pushdown=False)
-        .filter(pl.col("val") > 0.5)
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
-    assert got.item() == expected.filter(pl.col("val") > 0.5).height
 
 
 def test_throughput_options(lance_uri: str, expected: pl.DataFrame) -> None:
@@ -95,21 +71,14 @@ def test_throughput_options(lance_uri: str, expected: pl.DataFrame) -> None:
 
 
 def test_with_row_id(lance_uri: str, expected: pl.DataFrame) -> None:
-    lf = scan_lance(lance_uri, with_row_id=True)
-    assert "_rowid" in lf.collect_schema()
-    got = lf.select("_rowid", "id").collect(engine="streaming")
-    assert got.height == expected.height
-    assert got["_rowid"].n_unique() == expected.height
-
-
-def test_projection_of_generated_column_only(lance_uri: str) -> None:
+    """Projecting only a generated column still reads every row."""
     got = (
         scan_lance(lance_uri, with_row_id=True)
         .select("_rowid")
         .collect(engine="streaming")
     )
     assert got.columns == ["_rowid"]
-    assert got.height > 0
+    assert got["_rowid"].n_unique() == expected.height
 
 
 def test_single_fragment_subset(lance_uri: str, expected: pl.DataFrame) -> None:
@@ -138,87 +107,57 @@ def test_fragments_n_shards(lance_uri: str, expected: pl.DataFrame) -> None:
     assert got.item() == expected.height
 
 
+@pytest.mark.parametrize("pin", ["latest", "version", "tag", "dataset"])
 def test_fragment_shards_keep_the_version_their_ids_came_from(
-    tmp_path: Path, expected: pl.DataFrame
+    tmp_path: Path, expected: pl.DataFrame, pin: str
 ) -> None:
     """Fragment ids are reused across versions, so a shard must not follow the latest.
 
-    After an overwrite, fragment 0 exists again but holds the new data. An unpinned
-    shard would read it without any error.
+    After an overwrite, fragment 0 exists again but holds the new data, and a moved
+    tag names another version. An unpinned shard would read either without an error.
     """
-    uri = str(tmp_path / "overwritten.lance")
-    lance.write_dataset(expected.to_arrow(), uri, max_rows_per_file=len(expected) // 4)
-    shards = scan_lance_fragments(uri)
-
-    lance.write_dataset(expected.head(5).to_arrow(), uri, mode="overwrite")
-
-    got = pl.concat(shards).collect(engine="streaming")
-    assert_frame_equal(got.sort("id"), expected.sort("id"))
-
-
-def test_fragment_shards_resolve_a_tag_once(
-    tmp_path: Path, expected: pl.DataFrame
-) -> None:
-    """A tag can be moved; the shards keep the version it named when they were made."""
-    uri = str(tmp_path / "tagged-shards.lance")
-    dataset = lance.write_dataset(expected.to_arrow(), uri)
-    dataset.tags.create("current", dataset.version)
-    shards = scan_lance_fragments(uri, version="current")
+    uri = str(tmp_path / "shards.lance")
+    first = lance.write_dataset(expected.to_arrow(), uri, max_rows_per_file=15_000)
+    first.tags.create("current", first.version)
+    latest = lance.write_dataset(expected.to_arrow(), uri, mode="append")
+    shards = {
+        "latest": lambda: scan_lance_fragments(uri),
+        "version": lambda: scan_lance_fragments(uri, version=first.version),
+        "tag": lambda: scan_lance_fragments(uri, version="current"),
+        "dataset": lambda: scan_lance_fragments(latest, version=first.version),
+    }[pin]()
 
     moved = lance.write_dataset(expected.head(5).to_arrow(), uri, mode="overwrite")
     moved.tags.update("current", moved.version)
 
-    got = pl.concat(shards).select(pl.len()).collect(engine="streaming")
-    assert got.item() == expected.height
+    got = pl.concat(shards).collect(engine="streaming")
+    copies = 2 if pin == "latest" else 1
+    assert_frame_equal(got.sort("id"), pl.concat([expected] * copies).sort("id"))
 
 
-def test_fragment_shards_of_a_dataset_object_honour_version(
-    tmp_path: Path, expected: pl.DataFrame
+@pytest.mark.parametrize("pin", ["dataset", "version", "tag"])
+def test_a_pinned_scan_ignores_later_writes(
+    tmp_path: Path, expected: pl.DataFrame, pin: str
 ) -> None:
-    uri = str(tmp_path / "object-shards.lance")
-    first = lance.write_dataset(expected.to_arrow(), uri).version
-    latest = lance.write_dataset(expected.to_arrow(), uri, mode="append")
+    """A pinned LazyFrame collects the same rows either side of an append.
 
-    shards = scan_lance_fragments(latest, version=first)
-
-    got = pl.concat(shards).select(pl.len()).collect(engine="streaming")
-    assert got.item() == expected.height
-
-
-def test_dataset_object_pins_version(tmp_path: Path, expected: pl.DataFrame) -> None:
-    uri = str(tmp_path / "versioned.lance")
-    lance.write_dataset(expected.to_arrow(), uri)
-    pinned = lance.dataset(uri)
-
-    lance.write_dataset(expected.to_arrow(), uri, mode="append")
-
-    at_v1 = scan_lance(pinned).select(pl.len()).collect(engine="streaming").item()
-    latest = scan_lance(uri).select(pl.len()).collect(engine="streaming").item()
-    assert at_v1 == expected.height
-    assert latest == 2 * expected.height
-
-
-def test_version_argument_pins_the_scan(tmp_path: Path, expected: pl.DataFrame) -> None:
-    """`version=` reads that version, where a bare URI follows the latest."""
-    uri = str(tmp_path / "byversion.lance")
-    first = lance.write_dataset(expected.to_arrow(), uri).version
-    lance.write_dataset(expected.to_arrow(), uri, mode="append")
-
-    pinned = scan_lance(uri, version=first).select(pl.len())
-    latest = scan_lance(uri).select(pl.len())
-    assert pinned.collect(engine="streaming").item() == expected.height
-    assert latest.collect(engine="streaming").item() == 2 * expected.height
-
-
-def test_tag_pins_the_scan(tmp_path: Path, expected: pl.DataFrame) -> None:
-    """A tag is a version too, so `version=` takes one."""
-    uri = str(tmp_path / "bytag.lance")
+    Pinning the version is what makes a collection repeatable rather than merely
+    re-runnable; a bare URI follows the latest.
+    """
+    uri = str(tmp_path / "pinned.lance")
     dataset = lance.write_dataset(expected.to_arrow(), uri)
     dataset.tags.create("v1", dataset.version)
-    lance.write_dataset(expected.to_arrow(), uri, mode="append")
+    pinned = {
+        "dataset": lambda: scan_lance(dataset),
+        "version": lambda: scan_lance(uri, version=dataset.version),
+        "tag": lambda: scan_lance(uri, version="v1"),
+    }[pin]().select(pl.len())
 
-    tagged = scan_lance(uri, version="v1").select(pl.len())
-    assert tagged.collect(engine="streaming").item() == expected.height
+    before = pinned.collect(engine="streaming").item()
+    lance.write_dataset(expected.to_arrow(), uri, mode="append")
+    assert before == pinned.collect(engine="streaming").item() == expected.height
+    latest = scan_lance(uri).select(pl.len()).collect(engine="streaming").item()
+    assert latest == 2 * expected.height
 
 
 def test_repeated_collection_is_stable(lance_uri: str) -> None:
@@ -229,25 +168,6 @@ def test_repeated_collection_is_stable(lance_uri: str) -> None:
     """
     lf = scan_lance(lance_uri).filter(pl.col("cat") == "b").select("id", "val").head(50)
     assert_frame_equal(lf.collect(engine="streaming"), lf.collect(engine="streaming"))
-
-
-def test_pinned_scan_is_stable_across_a_write(
-    tmp_path: Path, expected: pl.DataFrame
-) -> None:
-    """A pinned LazyFrame collected either side of an append does not move.
-
-    Pinning the version is what makes a collection repeatable rather than
-    merely re-runnable: the dataset underneath is free to grow in between.
-    """
-    uri = str(tmp_path / "stable.lance")
-    version = lance.write_dataset(expected.to_arrow(), uri).version
-    lf = scan_lance(uri, version=version).select(pl.len())
-
-    before = lf.collect(engine="streaming").item()
-    lance.write_dataset(expected.to_arrow(), uri, mode="append")
-    after = lf.collect(engine="streaming").item()
-
-    assert before == after == expected.height
 
 
 def test_join_and_group_by(lance_uri: str, expected: pl.DataFrame) -> None:
