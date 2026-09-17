@@ -2402,7 +2402,15 @@ SQL's.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">453</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">445</span>
+<span class="normal">446</span>
+<span class="normal">447</span>
+<span class="normal">448</span>
+<span class="normal">449</span>
+<span class="normal">450</span>
+<span class="normal">451</span>
+<span class="normal">452</span>
+<span class="normal">453</span>
 <span class="normal">454</span>
 <span class="normal">455</span>
 <span class="normal">456</span>
@@ -2487,14 +2495,7 @@ SQL's.</p>
 <span class="normal">535</span>
 <span class="normal">536</span>
 <span class="normal">537</span>
-<span class="normal">538</span>
-<span class="normal">539</span>
-<span class="normal">540</span>
-<span class="normal">541</span>
-<span class="normal">542</span>
-<span class="normal">543</span>
-<span class="normal">544</span>
-<span class="normal">545</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
+<span class="normal">538</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">version</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -2569,7 +2570,8 @@ SQL's.</p>
     <span class="k">if</span> <span class="n">expr_prefilter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="c1"># Refuse an untranslatable prefilter here rather than mid-collect. The</span>
         <span class="c1"># SQL is produced again, with the dataset&#39;s schema, when the scan runs.</span>
-        <span class="n">_prefilter_sql</span><span class="p">(</span><span class="n">expr_prefilter</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+        <span class="n">provisional</span> <span class="o">=</span> <span class="n">lower_predicate</span><span class="p">(</span><span class="n">expr_prefilter</span><span class="p">,</span> <span class="n">types_known_later</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">_prefilter_sql</span><span class="p">(</span><span class="n">expr_prefilter</span><span class="p">,</span> <span class="n">provisional</span><span class="p">)</span>
 
     <span class="n">spec</span> <span class="o">=</span> <span class="n">LanceScanSpec</span><span class="p">(</span>
         <span class="n">uri</span><span class="o">=</span><span class="n">uri</span><span class="p">,</span>
@@ -2694,7 +2696,14 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_scan.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">548</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span>
+<span class="normal">545</span>
+<span class="normal">546</span>
+<span class="normal">547</span>
+<span class="normal">548</span>
 <span class="normal">549</span>
 <span class="normal">550</span>
 <span class="normal">551</span>
@@ -2743,14 +2752,7 @@ them alike. <code>version</code> reaches the shards resolved to a number.</p>
 <span class="normal">594</span>
 <span class="normal">595</span>
 <span class="normal">596</span>
-<span class="normal">597</span>
-<span class="normal">598</span>
-<span class="normal">599</span>
-<span class="normal">600</span>
-<span class="normal">601</span>
-<span class="normal">602</span>
-<span class="normal">603</span>
-<span class="normal">604</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
+<span class="normal">597</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scan_lance_fragments</span><span class="p">(</span>
     <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">n_shards</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
