@@ -915,10 +915,6 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <td>Lance has no <code>substr</code></td>
 </tr>
 <tr>
-<td><code>is_in(nulls_equal=True)</code></td>
-<td><code>IN</code> propagates NULL</td>
-</tr>
-<tr>
 <td><code>list.get</code> without <code>null_on_oob</code></td>
 <td>Polars raises where <code>array_element</code> returns null</td>
 </tr>
@@ -964,7 +960,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 </tr>
 </tbody>
 </table>
-<p>Everything else translates, including <code>is_in</code> of any length, <code>xor</code>,
+<p>Everything else translates, including <code>is_in</code> of any length (also with <code>nulls_equal</code>), <code>xor</code>,
 <code>eq_missing</code>, arithmetic (<code>%</code> by a non-zero integer literal), <code>abs</code>, <code>**</code>,
 <code>min_horizontal</code> / <code>max_horizontal</code> over integers, <code>fill_null</code>, the <code>is_nan</code> family,
 <code>cast</code> (non-strict as <code>TRY_CAST</code>), the <code>dt</code> parts, <code>list.contains</code> /
