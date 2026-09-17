@@ -407,8 +407,6 @@ DECLINED: list[tuple[str, pl.Expr]] = [
         pl.col("cat").str.contains_any(["a"], ascii_case_insensitive=True),
     ),
     ("str.to_titlecase", pl.col("cat").str.to_titlecase() == "Beta"),
-    # `IN` propagates NULL; `nulls_equal` asks for null to match null.
-    ("is_in with nulls_equal", pl.col("opt").is_in([1, None], nulls_equal=True)),
     # Polars raises where `array_element` returns null.
     ("list.get, strict", pl.col("tags").list.get(0) == 3),
     # Polars breaks ties to even, Lance away from zero.
@@ -922,6 +920,11 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("is_in empty", pl.col("i").is_in(pl.Series([], dtype=pl.Int64))),
     ("is_in a zero", pl.col("f").is_in([0.0, 2.5])),
     ("is_in a negative zero", pl.col("f").is_in([-0.0])),
+    ("is_in nulls_equal", pl.col("i").is_in([1, None], nulls_equal=True)),
+    ("is_in nulls_equal, no null", pl.col("i").is_in([1, 2], nulls_equal=True)),
+    ("is_in nulls_equal, only null", pl.col("t").is_in([None], nulls_equal=True)),
+    ("is_in nulls_equal, empty", pl.col("t").is_in([], nulls_equal=True)),
+    ("is_in nulls_equal, zero", pl.col("f").is_in([0, None], nulls_equal=True)),
     ("float = 0", pl.col("f") == 0.0),
     ("float = -0", pl.col("f") == -0.0),
     ("float != 0", pl.col("f") != 0.0),
