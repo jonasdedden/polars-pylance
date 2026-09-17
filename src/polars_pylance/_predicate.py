@@ -695,9 +695,10 @@ class _Lowering:
         Polars' remainder takes the divisor's sign and SQL's the dividend's, so the
         divisor is added back where they differ, which cannot overflow. A zero
         divisor gives null in Polars and fails the scan in Lance, hence `NULLIF`.
-        Float remainders drift in this spelling.
         """
         dividend, divisor = self.value(left), self.value(right)
+        if dividend.floating or divisor.floating:
+            return self._float_modulus(dividend, divisor)
         for value in (dividend, divisor):
             integer = value.dtype is not None and value.dtype.is_integer()
             if not (integer or (value.untyped and self.types_known_later)):
@@ -709,6 +710,28 @@ class _Lowering:
             f"({r} + {b} * CAST({differs} AS bigint))",
             dtype=_numeric_supertype(dividend.dtype, divisor.dtype),
         )
+
+    def _float_modulus(self, a: _Value, b: _Value) -> _Value:
+        """`a % b` over floats, Polars' `a - b * floor(a / b)`.
+
+        Lance has no `floor`, so it is `trunc` less one where that rounded up. A
+        Float32 is computed as one, which a wider operand would undo, and Polars'
+        kernel for a fractional literal divisor disagrees with its own.
+        """
+        dtype = _numeric_supertype(a.dtype, b.dtype)
+        float32 = isinstance(dtype, pl.Float32)
+        for v in (a, b):
+            numeric = v.dtype is not None and (v.floating or v.dtype.is_integer())
+            if not (numeric or (v.untyped and self.types_known_later)):
+                raise _Decline
+            if v.is_literal and not float(v.sql).is_integer():
+                raise _Decline
+            if v.is_float32 and not float32:
+                raise _Decline
+        q, cast = f"({a.sql} / {b.sql})", "float" if float32 else "double"
+        floor = f"(trunc({q}) - CAST(trunc({q}) - {q} > 0.0 AS {cast}))"
+        # `+ 0.0` turns the `-0.0` of an exact multiple into Polars' `0.0`.
+        return _Value(f"(({a.sql} - {b.sql} * {floor}) + 0.0)", dtype=dtype)
 
     def _function_value(self, node: Json) -> _Value:
         body = _fields(node)
@@ -1117,11 +1140,14 @@ def _numeric_supertype(
 ) -> pl.DataType | None:
     """The type Polars computes arithmetic on two values in, as far as it matters.
 
-    Only float-ness is ever read, so any float makes a `Float64` and two
-    integers an `Int64`; everything else is unknown.
+    Only a float's width is ever read, so two integers make an `Int64`; everything
+    else is unknown.
     """
     floats = (pl.Float32, pl.Float64)
     if isinstance(left, floats) or isinstance(right, floats):
+        narrow = (pl.Float32, pl.Int8, pl.Int16, pl.UInt8, pl.UInt16)
+        if isinstance(left, narrow) and isinstance(right, narrow):
+            return pl.Float32()
         return pl.Float64()
     if left is None or right is None:
         return None
