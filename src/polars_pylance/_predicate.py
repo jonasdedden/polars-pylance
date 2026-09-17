@@ -751,10 +751,10 @@ class _Lowering:
             return _Value(f"{fn}({rendered})", dtype=dtype)
         if name == ("Pow", "Generic") and len(args) == 2:
             return self._power(args)
+        if name in (("Pow", "Sqrt"), ("Pow", "Cbrt"), ("Log",)):
+            return self._root_or_log(name[-1], args)
         # `Round` is deliberately absent: Polars breaks ties to even, Lance
         # away from zero, and nothing in the IR lets us ask for the other one.
-        # `sqrt` / `ln` / `log10` / `cbrt` are not translated yet, though Polars
-        # and Lance agree on them, NaN outside the domain included.
         if name[0] == "StringExpr":
             return self._string_value(name[1] if len(name) > 1 else "", payload, args)
         if name[0] == "TemporalExpr":
@@ -789,6 +789,33 @@ class _Lowering:
             raise _Decline
         base = self.value(args[0])
         return _Value(f"power({base.sql}, {whole})", dtype=base.dtype)
+
+    def _root_or_log(self, name: str, args: Sequence[Json]) -> _Value:
+        """`sqrt`, `cbrt` and `log` to base e, which Lance computes bit for bit.
+
+        Except `ln` of a Float32, an ulp off, and `log` to any other base.
+        """
+        value = self.value(args[0])
+        dtype = value.dtype
+        if dtype is not None and not (value.floating or dtype.is_integer()):
+            raise _Decline
+        function = name.lower()
+        if name == "Log":
+            maybe_float32 = value.untyped and not self.types_known_later
+            if (
+                len(args) != 2
+                or _literal(args[1]).sql != repr(math.e)
+                or maybe_float32
+                or isinstance(dtype, pl.Float32)
+            ):
+                raise _Decline
+            function = "ln"
+        return _Value(
+            f"{function}({value.sql})",
+            dtype=pl.Float32() if isinstance(dtype, pl.Float32) else pl.Float64(),
+            # `cbrt` is defined everywhere; the others make NaN of a negative.
+            nan_free=name == "Cbrt" and value.cannot_be_nan,
+        )
 
     def _list_get(self, payload: Json, args: Sequence[Json]) -> _Value:
         """`list.get(i)`, only in its null-on-out-of-bounds spelling.
