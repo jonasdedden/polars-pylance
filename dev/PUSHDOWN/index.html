@@ -810,7 +810,10 @@ columns belonging to rows that cannot survive.</p>
 <span class="n">lf</span> <span class="o">=</span> <span class="n">pll</span><span class="o">.</span><span class="n">scan_lance</span><span class="p">(</span><span class="s2">&quot;data.lance&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;val&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.999</span><span class="p">)</span>
 </code></pre></div>
 <p>You can see what any predicate becomes:</p>
-<div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">starts_with</span><span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_in</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]))</span>
+<div class="highlight"><pre><span></span><code><span class="o">&gt;&gt;&gt;</span> <span class="n">schema</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">Schema</span><span class="p">({</span><span class="s2">&quot;cat&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">String</span><span class="p">,</span> <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Int64</span><span class="p">})</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="n">pll</span><span class="o">.</span><span class="n">to_lance_filter</span><span class="p">(</span>
+<span class="o">...</span>     <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;cat&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">starts_with</span><span class="p">(</span><span class="s2">&quot;b&quot;</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">is_in</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">]),</span> <span class="n">schema</span><span class="o">=</span><span class="n">schema</span>
+<span class="o">...</span> <span class="p">)</span>
 <span class="n">LanceFilter</span><span class="p">(</span><span class="n">sql</span><span class="o">=</span><span class="s2">&quot;(starts_with(`cat`, &#39;b&#39;) AND (`id` IN (1, 2)))&quot;</span><span class="p">,</span> <span class="n">exact</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div>
 <h2 id="what-it-is-worth">What it is worth<a class="headerlink" href="#what-it-is-worth" title="Permanent link">&para;</a></h2>
@@ -964,10 +967,8 @@ as larger than any number. So <code>val &gt; 0.5</code> is sent as
 <code>((val &gt; 0.5) OR val &lt; CAST('-inf' AS double))</code>, which still uses a scalar index on
 <code>val</code>.</p>
 <p>That needs the column types. <code>scan_lance</code> always has them. Called without
-<code>schema=</code>, <code>to_lance_filter</code> cannot tell an integer column from a float one, so it
-spells numeric comparisons to hold for both, <code>((id &gt; 5) OR isnan(id))</code>, at the cost
-of the scalar index, and declines a comparison between two columns, which could as
-well be strings.</p>
+<code>schema=</code>, <code>to_lance_filter</code> cannot tell an integer column from a float one, or a
+Float32 from a Float64, so it declines numeric predicates.</p>
 <h2 id="prefilters-are-stricter">Prefilters are stricter<a class="headerlink" href="#prefilters-are-stricter" title="Permanent link">&para;</a></h2>
 <p>A prefilter for a vector search cannot lower loosely, because there is no
 second pass that could repair the candidate set the search already used. It

@@ -2026,9 +2026,8 @@ struct fields and list elements, decide how a float comparison is spelled
 literal is compared as a float, whether a promotion is a no-op (a <code>CAST</code>
 around an indexed column costs its scalar index), and whether <code>+</code> is
 string concatenation.</p>
-<p>Without one, a column may be a float, so numeric comparisons are spelled
-to hold for integers and floats alike, which costs a scalar index, and a
-comparison between two columns declines.</p>
+<p>Without one, a column may be a float of either width, so numeric
+predicates decline.</p>
               </div>
             </td>
             <td>
@@ -2050,8 +2049,8 @@ comparison between two columns declines.</p>
 <span class="gp">... </span>    <span class="n">schema</span><span class="o">=</span><span class="n">schema</span><span class="p">,</span>
 <span class="gp">... </span><span class="p">)</span>
 <span class="go">LanceFilter(sql=&#39;(`id` &gt; 3)&#39;, exact=False)</span>
-<span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span>
-<span class="go">LanceFilter(sql=&#39;((`id` &gt; 3) OR isnan(`id`))&#39;, exact=True)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
+<span class="go">True</span>
 <span class="gp">&gt;&gt;&gt; </span><span class="n">to_lance_filter</span><span class="p">(</span><span class="n">pl</span><span class="o">.</span><span class="n">col</span><span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">hash</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span>
 <span class="go">True</span>
 </code></pre></div>
@@ -2096,8 +2095,7 @@ comparison between two columns declines.</p>
 <span class="normal">257</span>
 <span class="normal">258</span>
 <span class="normal">259</span>
-<span class="normal">260</span>
-<span class="normal">261</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
+<span class="normal">260</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">to_lance_filter</span><span class="p">(</span>
     <span class="n">predicate</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">max_in_list</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">MAX_IN_LIST</span><span class="p">,</span>
@@ -2115,9 +2113,8 @@ comparison between two columns declines.</p>
 <span class="sd">            around an indexed column costs its scalar index), and whether `+` is</span>
 <span class="sd">            string concatenation.</span>
 
-<span class="sd">            Without one, a column may be a float, so numeric comparisons are spelled</span>
-<span class="sd">            to hold for integers and floats alike, which costs a scalar index, and a</span>
-<span class="sd">            comparison between two columns declines.</span>
+<span class="sd">            Without one, a column may be a float of either width, so numeric</span>
+<span class="sd">            predicates decline.</span>
 
 <span class="sd">    Examples:</span>
 <span class="sd">        &gt;&gt;&gt; import polars as pl</span>
@@ -2130,8 +2127,8 @@ comparison between two columns declines.</p>
 <span class="sd">        ...     schema=schema,</span>
 <span class="sd">        ... )</span>
 <span class="sd">        LanceFilter(sql=&#39;(`id` &gt; 3)&#39;, exact=False)</span>
-<span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;id&quot;) &gt; 3)</span>
-<span class="sd">        LanceFilter(sql=&#39;((`id` &gt; 3) OR isnan(`id`))&#39;, exact=True)</span>
+<span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;id&quot;) &gt; 3) is None</span>
+<span class="sd">        True</span>
 <span class="sd">        &gt;&gt;&gt; to_lance_filter(pl.col(&quot;id&quot;).hash() &gt; 3) is None</span>
 <span class="sd">        True</span>
 <span class="sd">    &quot;&quot;&quot;</span>
