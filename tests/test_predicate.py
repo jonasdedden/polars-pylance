@@ -259,12 +259,12 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "eq_missing",
         pl.col("opt").eq_missing(3),
-        "((`opt` = 3) AND `opt` IS NOT NULL)",
+        "((`opt` = 3) IS TRUE)",
     ),
     (
         "ne_missing",
         pl.col("opt").ne_missing(3),
-        "((`opt` != 3) OR `opt` IS NULL)",
+        "((`opt` = 3) IS NOT TRUE)",
     ),
     ("alias is transparent", (pl.col("id") > 7).alias("x"), "(`id` > 7)"),
     ("quoted identifier", pl.col("odd name") > 1, "(`odd name` > 1)"),
