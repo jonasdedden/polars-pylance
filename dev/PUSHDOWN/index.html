@@ -927,8 +927,8 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <td><code>date_trunc</code> takes a unit, not a window</td>
 </tr>
 <tr>
-<td><code>//</code></td>
-<td>Polars floors, SQL truncates</td>
+<td><code>//</code> over floats, by -1 or a column, or of a UInt64</td>
+<td>Lance loses the sign of <code>-0.0</code>, fails the scan on <code>min // -1</code>, and divides a UInt64 as a decimal</td>
 </tr>
 <tr>
 <td><code>%</code> by a fractional float literal, or between a Float32 and a wider type</td>
@@ -953,7 +953,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 </tbody>
 </table>
 <p>Everything else translates, including <code>is_in</code> of any length (also with <code>nulls_equal</code>), <code>xor</code>,
-<code>eq_missing</code>, arithmetic (<code>%</code> included), <code>abs</code>, <code>sqrt</code>, <code>cbrt</code>, <code>ln</code>, <code>**</code>,
+<code>eq_missing</code>, arithmetic (<code>%</code> and <code>//</code> included), <code>abs</code>, <code>sqrt</code>, <code>cbrt</code>, <code>ln</code>, <code>**</code>,
 <code>min_horizontal</code> / <code>max_horizontal</code>, <code>fill_null</code>, the <code>is_nan</code> family,
 <code>cast</code> (non-strict as <code>TRY_CAST</code>), the <code>dt</code> parts, <code>list.contains</code> /
 <code>len</code> / <code>get</code>, <code>struct.field</code> and <code>concat_str</code>.</p>
