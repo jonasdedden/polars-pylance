@@ -887,12 +887,12 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <td>Lance is an ulp off</td>
 </tr>
 <tr>
-<td><code>a ** b</code>, fractional exponent</td>
-<td>not translated yet; both give NaN for a negative base</td>
+<td><code>a ** b</code>, fractional exponent over a float</td>
+<td><code>(-inf) ** 0.5</code> is NaN in Polars and <code>inf</code> in Lance</td>
 </tr>
 <tr>
-<td><code>a ** b</code>, negative exponent</td>
-<td><code>0 ** -1</code> is <code>inf</code> in Polars and fails the scan in Lance</td>
+<td><code>a ** b</code>, zero or negative exponent</td>
+<td>Lance folds <code>x ** 0</code> to 1, dropping nulls; <code>0 ** -1</code> is <code>inf</code> in Polars and fails the scan in Lance</td>
 </tr>
 <tr>
 <td><code>str.strip_chars()</code> with no argument</td>
