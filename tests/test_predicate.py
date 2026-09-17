@@ -733,17 +733,17 @@ def test_lowering_is_pure_of_dataset_knowledge() -> None:
 
 def test_a_float_column_is_not_cast_when_the_schema_says_so() -> None:
     """A redundant `CAST` costs Lance's scalar index, so drop it where we can."""
-    predicate = pl.col("val") > 0.999
+    predicate = pl.col("val") > 0.75
     assert to_lance_filter(predicate) == LanceFilter(
         sql=(
-            "((CAST(`val` AS double) > 0.999)"
+            "((CAST(`val` AS double) > 0.75)"
             " OR CAST(`val` AS double) < CAST('-inf' AS double))"
         ),
         exact=True,
     )
     assert to_lance_filter(predicate, schema=pl.Schema({"val": pl.Float64})) == (
         LanceFilter(
-            sql="((`val` > 0.999) OR `val` < CAST('-inf' AS double))", exact=True
+            sql="((`val` > 0.75) OR `val` < CAST('-inf' AS double))", exact=True
         )
     )
 
@@ -1000,6 +1000,10 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("float modulo of a zero", (1.0 / (pl.col("f") % 2.0)) > 0),
     ("float modulo by an integer", (pl.col("f") % pl.col("i")) == 0),
     ("float32 modulo", (pl.col("h") % pl.col("k")) == pl.col("r")),
+    # Polars compares a Float32 to a bare literal as a Float32, to a Float64 literal
+    # as a Float64.
+    ("float32 against a bare literal", pl.col("h").abs() > 0.3),
+    ("float32 against a float64 literal", pl.col("h") >= pl.lit(-0.3, pl.Float64)),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),

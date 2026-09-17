@@ -201,8 +201,9 @@ class _Value:
         """Known to hold no NaN: a non-float type, or a `nan_free` float."""
         return self.nan_free or (self.dtype is not None and not self.floating)
 
-    def as_double(self) -> _Value:
-        if self.floating:
+    def as_double(self, *, float32: bool = False) -> _Value:
+        """This value as a float, widening a Float32 too if `float32`."""
+        if self.floating and not (float32 and self.is_float32):
             return self
         return _Value(
             f"CAST({self.sql} AS double)",
@@ -210,13 +211,12 @@ class _Value:
             nan_free=self.cannot_be_nan,
         )
 
-    def as_float_literal(self) -> _Value:
-        """An integer literal re-spelled as the float Polars would compare it as."""
+    def as_float_literal(self, *, float32: bool = False) -> _Value:
+        """A numeric literal re-spelled as the float Polars would compare it as."""
+        dtype = pl.Float32() if float32 else pl.Float64()
+        number = pl.Series([float(self.sql)]).cast(dtype).item()
         return _Value(
-            _scalar(float(self.sql), pl.Float64()),
-            dtype=pl.Float64(),
-            is_literal=True,
-            nan_free=True,
+            _scalar(number, dtype), dtype=dtype, is_literal=True, nan_free=True
         )
 
 
@@ -403,20 +403,48 @@ class _Lowering:
 
     def _compare(self, op: str, left: Json, right: Json) -> tuple[str | None, bool]:
         try:
-            lhs = self.value(left)
-            rhs = self.value(right)
+            lhs, rhs = self.value(left), self.value(right)
+            lhs, rhs = (
+                self._coerce_literal(lhs, rhs, left),
+                self._coerce_literal(rhs, lhs, right),
+            )
         except _Decline:
             return None, False
-        lhs, rhs = _coerce_literal(lhs, rhs), _coerce_literal(rhs, lhs)
         if lhs.is_float_literal != rhs.is_float_literal:
-            # Lance refuses the mixed comparison Polars promotes through.
-            lhs, rhs = lhs.as_double(), rhs.as_double()
+            # Lance refuses the mixed comparison Polars promotes through, and
+            # would narrow a Float64 literal to a Float32 column.
+            widen = lhs.is_float32 != rhs.is_float32
+            lhs, rhs = lhs.as_double(float32=widen), rhs.as_double(float32=widen)
         sql = _float_comparison(op, lhs, rhs)
         if sql is None and self.types_known_later:
             sql = f"({lhs.sql} {op} {rhs.sql})"
         if sql is None:
             return None, False
         return sql, True
+
+    def _coerce_literal(self, value: _Value, other: _Value, node: Json) -> _Value:
+        """`value`, as a float literal if Polars would compare it to `other` as one.
+
+        Polars' optimizer casts an integer literal compared to a float to that
+        float, so `score >= 0` reaches the scan as `score >= 0.0`, and a bare
+        literal compared to a Float32 to a Float32. An expression lowered without
+        the optimizer (a prefilter, a direct call) does not get that, so it is done
+        here. Without a schema the other side may be a Float32, so a bare literal
+        that rounds as one declines.
+        """
+        if not value.is_literal or other.is_literal or value.dtype is None:
+            return value
+        literal = node.get("Literal") if isinstance(node, dict) else None
+        if isinstance(literal, dict) and "Dyn" in literal and value.dtype.is_numeric():
+            float32 = value.as_float_literal(float32=True)
+            if other.is_float32:
+                return float32
+            rounds = float(float32.sql) != float(value.sql)
+            if other.untyped and rounds and not self.types_known_later:
+                raise _Decline
+        if value.dtype.is_integer() and other.floating:
+            return value.as_float_literal()
+        return value
 
     def _function_predicate(self, node: Json) -> tuple[str | None, bool]:
         body = _fields(node)
@@ -603,7 +631,7 @@ class _Lowering:
         except _Decline:
             return None, False
         inner = _inner(column.dtype)
-        needle = _coerce_literal(needle, _Value("", dtype=inner))
+        needle = self._coerce_literal(needle, _Value("", dtype=inner), None)
         untyped_zero = inner is None and needle.is_literal and needle.sql == "0"
         if untyped_zero or (needle.is_float_literal and needle.sql in _ZEROS):
             # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
@@ -1190,20 +1218,6 @@ def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
     if target == "Int64":
         return scalar or source.is_float() or source == pl.String
     return scalar or source.is_numeric() or source == pl.String
-
-
-def _coerce_literal(value: _Value, other: _Value) -> _Value:
-    """`value`, as a float literal if Polars would compare it to `other` as one.
-
-    Polars' optimizer casts an integer literal compared to a float to that
-    float, so `score >= 0` reaches the scan as `score >= 0.0`. An expression
-    lowered without the optimizer (a prefilter, a direct call) does not get
-    that, so it is done here, and the float rules then apply.
-    """
-    is_integer = value.dtype is not None and value.dtype.is_integer()
-    if value.is_literal and is_integer and other.floating and not other.is_literal:
-        return value.as_float_literal()
-    return value
 
 
 _NAN = "CAST('NaN' AS double)"
