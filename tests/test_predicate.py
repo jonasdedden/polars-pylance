@@ -439,10 +439,8 @@ DECLINED: list[tuple[str, pl.Expr]] = [
         "dt.truncate, multiple",
         pl.col("ts").dt.truncate("2d") == dt.datetime(2024, 1, 2),
     ),
-    ("floor division", (pl.col("id") // 2) == 1),
-    # Polars yields null for a zero divisor where Lance fails the scan, and a
-    # column divisor could be zero or overflow the sign correction.
     # Without a schema either side may be a float, of either width.
+    ("floor division", (pl.col("id") // 2) == 1),
     ("modulo", (pl.col("id") % 2) == 1),
     ("float modulo", (pl.col("val") % 2.0) == 1),
     # Not translated yet, though Polars and Lance both raise on overflow.
@@ -852,6 +850,21 @@ def test_float_arithmetic_lance_computes_differently_declines() -> None:
         assert to_lance_filter(predicate, schema=schema) is None
 
 
+def test_floor_division_declines_where_lance_divides_differently() -> None:
+    schema = pl.Schema({"i": pl.Int64, "u": pl.UInt64, "f": pl.Float64})
+    for predicate in (
+        # `min // -1` wraps in Polars and fails the scan in Lance, and a column
+        # divisor may be -1.
+        (pl.col("i") // -1) == 1,
+        (pl.col("i") // pl.col("i")) == 1,
+        # Lance divides a UInt64 as a decimal.
+        (pl.col("u") // 2) == 1,
+        # Lance's `trunc` loses the sign of `-0.0`.
+        (pl.col("f") // 2.0) == 1,
+    ):
+        assert to_lance_filter(predicate, schema=schema) is None
+
+
 def test_logarithms_decline_where_lance_is_an_ulp_off() -> None:
     schema = pl.Schema({"f32": pl.Float32, "f64": pl.Float64})
     for predicate in (pl.col("f32").log() > 0, pl.col("f64").log10() > 0):
@@ -993,6 +1006,9 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("modulo of a negation", (-pl.col("i") % 2) == 1),
     ("modulo by a negative", (pl.col("i") % -3) == -1),
     ("modulo by zero", (pl.col("i") % 0).is_null()),
+    ("floor division", (pl.col("i") // 3) == -3),
+    ("floor division by a negative", (pl.col("i") // -2) >= 1),
+    ("floor division by zero", (pl.col("i") // 0).is_null()),
     ("modulo by a column", (pl.col("i") % (pl.col("i") - 2)) == 1),
     ("float modulo", (pl.col("f") % pl.col("g")) > 0.5),
     ("float modulo by a literal", (pl.col("f") % -2) < -0.25),

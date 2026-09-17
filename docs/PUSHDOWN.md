@@ -117,7 +117,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `list.get` without `null_on_oob` | Polars raises where `array_element` returns null |
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
-| `//` | Polars floors, SQL truncates |
+| `//` over floats, by -1 or a column, or of a UInt64 | Lance loses the sign of `-0.0`, fails the scan on `min // -1`, and divides a UInt64 as a decimal |
 | `%` by a fractional float literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
@@ -125,7 +125,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
-`eq_missing`, arithmetic (`%` included), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
+`eq_missing`, arithmetic (`%` and `//` included), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
 `min_horizontal` / `max_horizontal`, `fill_null`, the `is_nan` family,
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
