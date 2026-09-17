@@ -93,7 +93,10 @@ early rather than reading to the end. `scan_lance` walks the Polars expression
 itself and emits Lance SQL:
 
 ```python
->>> pll.to_lance_filter(pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]))
+>>> schema = pl.Schema({"cat": pl.String, "id": pl.Int64})
+>>> pll.to_lance_filter(
+...     pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]), schema=schema
+... )
 LanceFilter(sql="(starts_with(`cat`, 'b') AND (`id` IN (1, 2)))", exact=True)
 ```
 
