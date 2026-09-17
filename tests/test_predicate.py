@@ -208,6 +208,11 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     ("column vs column", pl.col("id") > pl.col("opt"), "(`id` > `opt`)"),
     # An integer column cast to a float holds no NaN.
     ("cast", pl.col("id").cast(pl.Float64) > 1, "(CAST(`id` AS double) > 1.0)"),
+    (
+        "non-strict cast",
+        pl.col("cat").cast(pl.Int64, strict=False) == 1,
+        "(TRY_CAST(`cat` AS bigint) = 1)",
+    ),
     ("date part", pl.col("ts").dt.year() == 2024, "(date_part('year', `ts`) = 2024)"),
     # Polars counts Monday as 1; SQL's `dow` counts Sunday as 0.
     (
@@ -432,8 +437,7 @@ DECLINED: list[tuple[str, pl.Expr]] = [
         "concat_str with a separator, keeping nulls",
         pl.concat_str(pl.col("cat"), pl.col("text"), separator="-") == "x",
     ),
-    # A non-strict cast yields null in Polars and fails the scan in Lance --
-    # except for the widening one below, which the schema has to confirm.
+    # Without a schema, `TRY_CAST` may not null what Polars nulls.
     ("non-strict cast", pl.col("id").cast(pl.Float64, strict=False) > 1),
     ("time literal", pl.col("t") == dt.time(12, 30)),
     ("duration literal", pl.col("d") > dt.timedelta(hours=1)),
@@ -802,9 +806,8 @@ def test_concatenation_of_two_columns_needs_the_schema() -> None:
 def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> None:
     """Comparing an int column to a float one is rewritten before we see it.
 
-    Polars' optimizer inserts `cast(Float64, strict=False)`. That is normally
-    declined, but widening a number to a float cannot produce the null that
-    makes a non-strict cast unsafe.
+    Polars' optimizer inserts `cast(Float64, strict=False)`, which the schema
+    lets us spell as `TRY_CAST`.
     """
     predicate = pl.col("id").cast(pl.Float64, strict=False) > pl.col("val")
     assert to_lance_filter(predicate) is None
@@ -812,8 +815,9 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     assert to_lance_filter(predicate, schema=schema) == (
         LanceFilter(
             sql=(
-                "((CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double))) AND NOT "
-                "(CAST(`id` AS double) IN (-0.0, 0.0) AND `val` IN (-0.0, 0.0)))"
+                "((TRY_CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double)))"
+                " AND NOT (TRY_CAST(`id` AS double) IN (-0.0, 0.0)"
+                " AND `val` IN (-0.0, 0.0)))"
             ),
             exact=True,
         )
@@ -822,14 +826,23 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.Int64})) == (
         LanceFilter(
             sql=(
-                "((CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double))) AND NOT "
-                "(CAST(`id` AS double) IN (-0.0, 0.0) AND abs(`val`) = 0))"
+                "((TRY_CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double)))"
+                " AND NOT (TRY_CAST(`id` AS double) IN (-0.0, 0.0) AND abs(`val`) = 0))"
             ),
             exact=True,
         )
     )
-    # A string source can produce null there, so it stays declined.
-    assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.String})) is None
+
+
+def test_non_strict_casts_without_an_exact_try_cast_spelling_decline() -> None:
+    schema = pl.Schema({"id": pl.Int64, "cat": pl.String, "val": pl.Float64})
+    for predicate in (
+        pl.col("val").cast(pl.String, strict=False) == "0.5",
+        pl.col("cat").cast(pl.Boolean, strict=False) == True,  # noqa: E712
+        pl.col("cat").cast(pl.Date, strict=False).is_null(),
+        pl.col("id").cast(pl.Int32, strict=False) > 1,
+    ):
+        assert to_lance_filter(predicate, schema=schema) is None
 
 
 def test_the_schema_does_not_change_which_rows_survive(
@@ -882,6 +895,20 @@ EDGES = pl.DataFrame(
         "g": [0.0, 1.0, 2.0, 0.0, -0.0, -0.0, None, 2.0, NAN, 1.0, NEG_NAN],
         "b": [True, False, None, True, None, False, True, False, None, True, False],
         "l": [[1.0], [-0.0], None, [], [0.0], [1.0, None], [7.0], [2.0], [], [], []],
+        # Strings a non-strict cast parses, and ones it nulls.
+        "t": [
+            "123",
+            "+7",
+            " 42 ",
+            "12.9",
+            "abc",
+            None,
+            "007",
+            "NaN",
+            "-NaN",
+            "inf",
+            "9" * 22,
+        ],
     }
 ).with_columns(
     # The same floats one level down, where only the struct's type says so.
@@ -939,6 +966,14 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("nan between", pl.col("f").is_between(-10.0, 10.0)),
     ("nan against a computed value", (pl.col("f") * 2.0) > 1.0),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
+    ("try_cast string to int", pl.col("t").cast(pl.Int64, strict=False) == 7),
+    ("try_cast string to null", pl.col("t").cast(pl.Int64, strict=False).is_null()),
+    ("try_cast string to float", pl.col("t").cast(pl.Float64, strict=False) < 0.0),
+    ("try_cast float to int", pl.col("f").cast(pl.Int64, strict=False) == 1),
+    ("try_cast int to float", pl.col("i").cast(pl.Float64, strict=False) > 2.5),
+    ("try_cast float to bool", pl.col("f").cast(pl.Boolean, strict=False) == False),  # noqa: E712
+    ("try_cast bool to int", pl.col("b").cast(pl.Int64, strict=False) == 1),
+    ("try_cast int to string", pl.col("i").cast(pl.String, strict=False) == "5"),
 ]
 
 

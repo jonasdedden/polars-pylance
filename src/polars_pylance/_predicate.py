@@ -643,36 +643,21 @@ class _Lowering:
         name = dtype.get("Literal") if isinstance(dtype, dict) else None
         if not isinstance(name, str) or name not in _CAST_TYPES:
             raise _Decline
-        if body.get("options") != "Strict" and not self._is_widening(body, name):
-            # A non-strict Polars cast yields null where Lance fails the scan,
-            # unless it cannot fail, which is the case the optimizer creates.
-            raise _Decline
         inner = self.value(_field(body, "expr"))
         sql_type, target = _CAST_TYPES[name]
+        function = "CAST"
+        if body.get("options") != "Strict":
+            # Polars nulls what it cannot convert, where `CAST` fails the scan.
+            untyped = inner.untyped and self.types_known_later
+            if not (untyped or _try_cast_exact(name, inner.dtype)):
+                raise _Decline
+            function = "TRY_CAST"
         return _Value(
-            f"CAST({inner.sql} AS {sql_type})",
+            f"{function}({inner.sql} AS {sql_type})",
             dtype=target,
-            nan_free=inner.cannot_be_nan,
+            # A string can parse to NaN.
+            nan_free=inner.cannot_be_nan and inner.dtype != pl.String,
         )
-
-    def _is_widening(self, body: dict[str, Json], target: str) -> bool:
-        """Whether this non-strict cast cannot produce a null.
-
-        Comparing an int column to a float one makes Polars' optimizer insert
-        `col.cast(Float64, strict=False)` before the plugin sees the predicate.
-        Widening a number to a float never fails; nothing else here is checked,
-        hence the schema lookup.
-        """
-        if target not in ("Float32", "Float64"):
-            return False
-        inner = body.get("expr")
-        if not isinstance(inner, dict) or list(inner) != ["Column"]:
-            return False
-        column = inner["Column"]
-        if not isinstance(column, str):
-            return False
-        source = self.schema.get(column) if self.schema is not None else None
-        return source is not None and source.is_numeric()
 
     def _arithmetic(self, node: Json) -> _Value:
         body = _fields(node)
@@ -1125,6 +1110,26 @@ def _struct_field(dtype: pl.DataType | None, name: str) -> pl.DataType | None:
         if field.name == name and isinstance(field.dtype, pl.DataType):
             return field.dtype
     return None
+
+
+def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
+    """Whether `TRY_CAST` nulls exactly the rows a non-strict Polars cast does.
+
+    Probed on pylance 9 and 13.0.0b4. Floats print large exponents differently
+    (`1e+308`, `1e308`), Polars refuses strings to booleans, and dates are unprobed.
+    """
+    if source is None:
+        return False
+    if target == "Date":
+        return source == pl.Date
+    scalar = source.is_integer() or source == pl.Boolean
+    if target == "String":
+        return scalar or source == pl.String
+    if target == "Boolean":
+        return scalar or source.is_float()
+    if target == "Int64":
+        return scalar or source.is_float() or source == pl.String
+    return scalar or source.is_numeric() or source == pl.String
 
 
 def _coerce_literal(value: _Value, other: _Value) -> _Value:

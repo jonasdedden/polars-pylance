@@ -123,14 +123,14 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
 | `min_horizontal` / `max_horizontal` over floats | Polars skips NaN, `least` / `greatest` do not |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
-| non-strict cast, unless widening | Polars yields null, Lance fails the scan |
+| non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length, `xor`,
 `eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `**`,
 `min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
-`cast`, the `dt` parts, `list.contains` /
+`cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
 
 Float comparisons translate with a correction. Lance orders floats by IEEE total
