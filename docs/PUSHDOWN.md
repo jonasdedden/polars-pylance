@@ -107,8 +107,8 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
 | `log` to a base other than e, `ln` of a Float32 | Lance is an ulp off |
-| `a ** b`, fractional exponent | not translated yet; both give NaN for a negative base |
-| `a ** b`, negative exponent | `0 ** -1` is `inf` in Polars and fails the scan in Lance |
+| `a ** b`, fractional exponent over a float | `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance |
+| `a ** b`, zero or negative exponent | Lance folds `x ** 0` to 1, dropping nulls; `0 ** -1` is `inf` in Polars and fails the scan in Lance |
 | `str.strip_chars()` with no argument | Polars strips Unicode whitespace, `btrim` strips spaces |
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
