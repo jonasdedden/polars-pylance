@@ -29,7 +29,7 @@ import lance
 import polars as pl
 
 from ._options import LanceScanOptions
-from ._predicate import VIRTUAL_COLUMNS, lower_predicate, to_lance_filter
+from ._predicate import VIRTUAL_COLUMNS, LanceFilter, lower_predicate, to_lance_filter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -291,11 +291,10 @@ def _plan_scan(
         # rows the search ranks; the query's own `.filter()` therefore stays in
         # Polars, where it is a postfilter over that ranking. `predicate_pushdown`
         # governs the automatic lowering, not this explicit argument.
-        sql = (
-            spec.prefilter
-            if spec.prefilter_expr is None
-            else _prefilter_sql(_deserialize(spec.prefilter_expr), schema=schema)
-        )
+        sql = spec.prefilter
+        if spec.prefilter_expr is not None:
+            expr = _deserialize(spec.prefilter_expr)
+            sql = _prefilter_sql(expr, to_lance_filter(expr, schema=schema))
         residual, prefilter = predicate, True
     else:
         lowered = (
@@ -415,21 +414,14 @@ def _deserialize(blob: bytes) -> pl.Expr:
     return pl.Expr.deserialize(io.BytesIO(blob))
 
 
-def _prefilter_sql(prefilter: pl.Expr, *, schema: pl.Schema | None) -> str:
-    """Lower an explicit prefilter, refusing whatever Lance cannot decide alone.
+def _prefilter_sql(prefilter: pl.Expr, lowered: LanceFilter | None) -> str:
+    """A lowered prefilter's SQL, refusing whatever Lance cannot decide alone.
 
     A pushed-down predicate is allowed to be relaxed, because Polars still
     evaluates it afterwards. A prefilter chooses which rows the search ranks at
     all, and nothing downstream can repair that choice. A partial lowering is
     therefore an error here rather than a silent demotion to a postfilter.
-
-    `scan_lance` calls this without a schema, so that a prefilter with no Lance
-    spelling fails at the call site; the scan calls it again with the dataset's
-    schema, and that SQL is the one used.
     """
-    lowered = lower_predicate(
-        prefilter, schema=schema, types_known_later=schema is None
-    )
     if lowered is None:
         msg = (
             f"prefilter does not translate to a Lance filter: {prefilter}. "
@@ -525,7 +517,8 @@ def scan_lance(
     if expr_prefilter is not None:
         # Refuse an untranslatable prefilter here rather than mid-collect. The
         # SQL is produced again, with the dataset's schema, when the scan runs.
-        _prefilter_sql(expr_prefilter, schema=None)
+        provisional = lower_predicate(expr_prefilter, types_known_later=True)
+        _prefilter_sql(expr_prefilter, provisional)
 
     spec = LanceScanSpec(
         uri=uri,
