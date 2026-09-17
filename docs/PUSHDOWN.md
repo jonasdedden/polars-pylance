@@ -114,7 +114,6 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
 | `str.to_titlecase` | `initcap` disagrees on words starting with a digit |
 | `str.slice` | Lance has no `substr` |
-| `is_in(nulls_equal=True)` | `IN` propagates NULL |
 | `list.get` without `null_on_oob` | Polars raises where `array_element` returns null |
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
@@ -127,7 +126,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
 
-Everything else translates, including `is_in` of any length, `xor`,
+Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
 `eq_missing`, arithmetic (`%` by a non-zero integer literal), `abs`, `**`,
 `min_horizontal` / `max_horizontal` over integers, `fill_null`, the `is_nan` family,
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /

@@ -493,9 +493,6 @@ class _Lowering:
     ) -> tuple[str | None, bool]:
         if len(args) != 2:
             return None, False
-        if options.get("nulls_equal"):
-            # `IN` propagates NULL, so null matching null has no spelling.
-            return None, False
         try:
             column = self.value(args[0])
             values = _literal_elements(args[1])
@@ -506,9 +503,13 @@ class _Lowering:
         if column.floating and values.dtype.is_integer():
             # Polars compares as floats, so `0` must also find `-0.0`.
             values = values.cast(pl.Float64)
-        # Polars never matches a null element, where SQL's `IN` turns null on
-        # any non-match, which `NOT` cannot undo.
+        # Polars matches a null element only with `nulls_equal`, where SQL's
+        # `IN` turns null on any non-match, which `NOT` cannot undo.
+        nulls_equal = bool(options.get("nulls_equal"))
+        has_null = values.null_count() > 0
         values = values.drop_nulls()
+        if values.is_empty() and nulls_equal:
+            return (f"({column.sql} IS NULL)" if has_null else "FALSE"), True
         if values.is_empty():
             # `IN ()` is a syntax error. False, but null for a null input, so
             # that it stays dropped under negation.
@@ -526,7 +527,11 @@ class _Lowering:
         if column.dtype is None and "0" in rendered:
             # Possibly a float column holding `-0.0`, which `IN (0)` misses.
             # `abs` takes integers and floats alike.
-            return f"({membership} OR abs({column.sql}) = 0)", True
+            membership = f"({membership} OR abs({column.sql}) = 0)"
+        if nulls_equal:
+            # Total: a null input matches a null element and nothing else.
+            null = "OR {} IS NULL" if has_null else "AND {} IS NOT NULL"
+            membership = f"({membership} {null.format(column.sql)})"
         return membership, True
 
     def _is_between(
