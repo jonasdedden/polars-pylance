@@ -15,7 +15,7 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from conftest import ScannerCall, spy_on_scanner
-from polars_pylance import scan_lance
+from polars_pylance import LanceScanOptions, scan_lance
 from polars_pylance._predicate import LanceFilter
 
 if TYPE_CHECKING:
@@ -65,23 +65,31 @@ def test_limit_reaches_lance_without_filter(
     assert 5 in [c.limit for c in _scan_calls(scanner_calls)]
 
 
-def test_limit_is_not_pushed_past_an_unapplied_filter(
-    lance_uri: str, expected: pl.DataFrame, scanner_calls: list[ScannerCall]
+@pytest.mark.parametrize(
+    ("predicate", "pushdown"),
+    [
+        pytest.param(pl.col("cat") == "d", True, id="pushed filter"),
+        pytest.param(pl.col("cat").str.slice(0, 1) == "d", True, id="residual filter"),
+        pytest.param(pl.col("cat") == "d", False, id="pushdown disabled"),
+    ],
+)
+def test_head_after_a_filter_counts_surviving_rows(
+    lance_uri: str,
+    expected: pl.DataFrame,
+    scanner_calls: list[ScannerCall],
+    predicate: pl.Expr,
+    pushdown: bool,  # noqa: FBT001 - a pytest parameter
 ) -> None:
-    """A pushed limit with a filter still to come would truncate early.
-
-    Polars is not observed to offer both together; this pins the behaviour
-    anyway.
-    """
+    """A limit pushed while a filter is still to run downstream would truncate early."""
     got = (
-        scan_lance(lance_uri, predicate_pushdown=False)
-        .filter(pl.col("cat") == "d")
+        scan_lance(lance_uri, predicate_pushdown=pushdown)
+        .filter(predicate)
         .sort("id")
         .head(3)
         .collect(engine="streaming")
     )
-    want = expected.filter(pl.col("cat") == "d").sort("id").head(3)
-    assert got["id"].to_list() == want["id"].to_list()
+    want = expected.filter(predicate).sort("id").head(3)
+    assert_frame_equal(got, want)
     for call in _scan_calls(scanner_calls):
         assert not (call.limit and call.filter is None), (
             "limit pushed into Lance while the filter was handled downstream"
@@ -91,8 +99,6 @@ def test_limit_is_not_pushed_past_an_unapplied_filter(
 def test_scan_options_reach_lance(
     lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
-    from polars_pylance import LanceScanOptions
-
     options = LanceScanOptions(batch_size=1_234, io_buffer_size=8 * 1024 * 1024)
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
     calls = _scan_calls(scanner_calls)
@@ -106,8 +112,6 @@ def test_scan_options_reach_lance(
 def test_the_engine_batch_size_hint_is_used_when_no_option_asks_otherwise(
     lance_uri: str, scanner_calls: list[ScannerCall]
 ) -> None:
-    from polars_pylance import LanceScanOptions
-
     options = LanceScanOptions(batch_size=None)
     scan_lance(lance_uri, options=options).select("id").collect(engine="streaming")
     sizes = {c.batch_size for c in _scan_calls(scanner_calls)}
@@ -120,19 +124,10 @@ def test_the_engine_batch_size_hint_is_used_when_no_option_asks_otherwise(
 # ---------------------------------------------------------------------------
 
 
-def test_predicate_reaches_lance_as_sql(
-    lance_uri: str, pushed_filters: list[str]
-) -> None:
-    scan_lance(lance_uri).filter((pl.col("cat") == "b") & (pl.col("val") > 0.9)).select(
-        "id"
-    ).collect(engine="streaming")
-    assert pushed_filters, "no filter pushed down"
-    assert all("`cat` = 'b'" in f and "`val` > 0.9" in f for f in pushed_filters)
-
-
-# Every one of these is silently dropped by Polars' own PyArrow lowering (as of
-# 1.44.2), which is the whole argument for translating the predicate here instead.
-BEYOND_PYARROW: list[tuple[str, pl.Expr, str]] = [
+# Most of these are silently dropped by Polars' own PyArrow lowering (as of 1.44.2),
+# which is the whole argument for translating the predicate here instead.
+PUSHED: list[tuple[str, pl.Expr, str]] = [
+    ("comparison", (pl.col("cat") == "b") & (pl.col("val") > 0.9), "`cat` = 'b'"),
     # Polars lowers `is_in` to PyArrow only up to 100 values.
     ("long is_in", pl.col("id").is_in(list(range(0, 1_000, 5))), "IN"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with"),
@@ -143,14 +138,22 @@ BEYOND_PYARROW: list[tuple[str, pl.Expr, str]] = [
     ("is_nan", pl.col("val").is_nan(), "isnan"),
     ("xor", (pl.col("id") > 5) ^ (pl.col("cat") == "b"), "NOT"),
     ("min_horizontal", pl.min_horizontal("id", pl.col("id") * 2) > 100, "least"),
+    # The optimizer casts one side before the plugin sees the comparison.
+    ("mixed types", pl.col("id") > pl.col("val"), "TRY_CAST"),
+    # The pushed half narrows the read; the rest is finished in Polars.
+    (
+        "partly",
+        (pl.col("val") > 0.9) & (pl.col("cat").str.slice(0, 1) == "b"),
+        "`val` > 0.9",
+    ),
 ]
 
 
 @pytest.mark.parametrize(
     ("predicate", "fragment"),
-    [pytest.param(e, f, id=name) for name, e, f in BEYOND_PYARROW],
+    [pytest.param(e, f, id=name) for name, e, f in PUSHED],
 )
-def test_predicates_pyarrow_cannot_express_still_reach_lance(
+def test_predicate_reaches_lance(
     predicate: pl.Expr,
     fragment: str,
     lance_uri: str,
@@ -168,48 +171,30 @@ def test_predicates_pyarrow_cannot_express_still_reach_lance(
     assert got.item() == expected.filter(predicate).height
 
 
-def test_predicate_pushdown_can_be_disabled(
-    lance_uri: str, expected: pl.DataFrame, pushed_filters: list[str]
+@pytest.mark.parametrize(
+    ("predicate", "pushdown", "with_row_id"),
+    [
+        pytest.param(pl.col("cat") == "b", False, False, id="disabled"),
+        pytest.param(
+            pl.col("cat").str.slice(0, 1) == "b", True, False, id="untranslatable"
+        ),
+        # `_rowid` does not exist while Lance evaluates the filter.
+        pytest.param(pl.col("_rowid") < 10, True, True, id="generated column"),
+    ],
+)
+def test_predicate_stays_in_polars(
+    predicate: pl.Expr,
+    pushdown: bool,  # noqa: FBT001 - a pytest parameter
+    with_row_id: bool,  # noqa: FBT001 - a pytest parameter
+    lance_uri: str,
+    pushed_filters: list[str],
 ) -> None:
-    got = (
-        scan_lance(lance_uri, predicate_pushdown=False)
-        .filter(pl.col("cat") == "b")
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
+    lf = scan_lance(lance_uri, predicate_pushdown=pushdown, with_row_id=with_row_id)
+    got = lf.filter(predicate).select(pl.len()).collect(engine="streaming")
     assert not pushed_filters
-    assert got.item() == expected.filter(pl.col("cat") == "b").height
-
-
-def test_untranslatable_predicate_is_not_pushed(
-    lance_uri: str, expected: pl.DataFrame, pushed_filters: list[str]
-) -> None:
-    """A predicate with no Lance spelling stays entirely with the engine."""
-    predicate = pl.col("cat").str.slice(0, 1) == "b"
-    got = (
-        scan_lance(lance_uri)
-        .filter(predicate)
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
-    assert not pushed_filters
-    assert got.item() == expected.filter(predicate).height
-
-
-def test_a_partly_translatable_predicate_pushes_the_half_it_can(
-    lance_uri: str, expected: pl.DataFrame, pushed_filters: list[str]
-) -> None:
-    """The pushed half narrows the read; the rest is finished in Polars."""
-    predicate = (pl.col("val") > 0.9) & (pl.col("cat").str.slice(0, 1) == "b")
-    got = (
-        scan_lance(lance_uri)
-        .filter(predicate)
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
-    assert pushed_filters
-    assert all("slice" not in f and "`val` > 0.9" in f for f in pushed_filters)
-    assert got.item() == expected.filter(predicate).height
+    frame = pl.from_arrow(lance.dataset(lance_uri).to_table(with_row_id=True))
+    assert isinstance(frame, pl.DataFrame)
+    assert got.item() == frame.filter(predicate).height
 
 
 def test_a_filter_lance_refuses_is_dropped_rather_than_raised(
@@ -290,81 +275,6 @@ def test_scan_matches_an_eager_read(
         .sort("id")
     )
     want = rich_frame.filter(predicate).select("id").sort("id")
-    assert_frame_equal(got, want)
-
-
-@pytest.mark.parametrize(
-    "predicate", [pytest.param(e, id=name) for name, e in END_TO_END]
-)
-def test_pushdown_does_not_change_the_answer(predicate: pl.Expr, rich_uri: str) -> None:
-    """Same query with the translation switched off, row for row."""
-    pushed = (
-        scan_lance(rich_uri).filter(predicate).select("id").collect(engine="streaming")
-    )
-    plain = (
-        scan_lance(rich_uri, predicate_pushdown=False)
-        .filter(predicate)
-        .select("id")
-        .collect(engine="streaming")
-    )
-    assert_frame_equal(pushed.sort("id"), plain.sort("id"))
-
-
-def test_a_mixed_type_comparison_survives_the_optimizer(
-    rich_uri: str, rich_frame: pl.DataFrame, pushed_filters: list[str]
-) -> None:
-    """End to end, because the rewrite only happens inside a real query."""
-    predicate = pl.col("id") > pl.col("val")
-    got = (
-        scan_lance(rich_uri).filter(predicate).select("id").collect(engine="streaming")
-    )
-    assert pushed_filters, "the promoted comparison did not reach Lance"
-    assert got["id"].to_list() == rich_frame.filter(predicate)["id"].to_list()
-
-
-def test_a_filter_on_a_generated_column_is_not_pushed(
-    rich_uri: str, pushed_filters: list[str]
-) -> None:
-    """`_rowid` does not exist while Lance evaluates the filter."""
-    got = (
-        scan_lance(rich_uri, with_row_id=True)
-        .filter(pl.col("_rowid") < 10)
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
-    assert not pushed_filters
-    assert got.item() == 10
-
-
-def test_the_projection_is_widened_for_a_residual_predicate(
-    rich_uri: str, rich_frame: pl.DataFrame
-) -> None:
-    """A column only the leftover predicate needs still has to be read."""
-    predicate = pl.col("cat").str.slice(0, 1) == "b"
-    got = (
-        scan_lance(rich_uri)
-        .filter(predicate)
-        .select("id")
-        .collect(engine="streaming")
-        .sort("id")
-    )
-    assert got.columns == ["id"]
-    assert_frame_equal(got, rich_frame.filter(predicate).select("id").sort("id"))
-
-
-def test_head_after_a_residual_filter_counts_surviving_rows(
-    rich_uri: str, rich_frame: pl.DataFrame
-) -> None:
-    predicate = pl.col("cat").str.slice(0, 1) == "b"
-    got = (
-        scan_lance(rich_uri)
-        .filter(predicate)
-        .sort("id")
-        .head(7)
-        .select("id")
-        .collect(engine="streaming")
-    )
-    want = rich_frame.filter(predicate).sort("id").head(7).select("id")
     assert_frame_equal(got, want)
 
 

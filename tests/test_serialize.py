@@ -13,8 +13,20 @@ from polars_pylance import LanceScanOptions, LanceScanSpec, scan_lance
 from polars_pylance.cloud import requirements_txt
 
 
-def test_spec_is_picklable(lance_uri: str) -> None:
-    spec = LanceScanSpec(uri=lance_uri, options=LanceScanOptions(batch_size=100))
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({"options": LanceScanOptions(batch_size=100)}, id="options"),
+        pytest.param({"prefilter": "cat = 'b'"}, id="sql prefilter"),
+        pytest.param(
+            {"prefilter_expr": (pl.col("cat") == "b").meta.serialize()},
+            id="expression prefilter",
+        ),
+    ],
+)
+def test_spec_is_picklable(lance_uri: str, fields: dict[str, object]) -> None:
+    """A spec is plain data, compared by value, even holding a prefilter."""
+    spec = LanceScanSpec(uri=lance_uri, **fields)  # type: ignore[arg-type]
     restored = pickle.loads(pickle.dumps(spec))
     assert restored == spec
     assert restored.open().count_rows() > 0

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pickle
+from typing import TYPE_CHECKING, Any
 
 import lance
 import polars as pl
@@ -10,33 +11,80 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from polars_pylance import (
+    commit_lance_fragments,
     scan_lance,
     scan_lance_fragments,
     sink_lance,
     write_lance_fragments,
+    write_lance_shard,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+
+    Writer = Callable[..., lance.LanceDataset]
 
 
 def _transformed(uri: str) -> pl.LazyFrame:
     return (
         scan_lance(uri)
         .filter(pl.col("val") > 0.5)
-        .select("id", "cat", (pl.col("val") * 2).alias("val2"))
+        .select("id", "cat", "payload", (pl.col("val") * 2).alias("val2"))
     )
 
 
-def test_create_round_trip(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "out.lance")
-    dataset = sink_lance(_transformed(lance_uri), out, max_rows_per_file=5_000)
+def _sink(lf: pl.LazyFrame, out: str, **kwargs: Any) -> lance.LanceDataset:  # noqa: ANN401
+    dataset = sink_lance(lf, out, **kwargs)
     assert isinstance(dataset, lance.LanceDataset)
+    return dataset
+
+
+def _in_two_shards(lf: pl.LazyFrame, out: str, **kwargs: Any) -> lance.LanceDataset:  # noqa: ANN401
+    shards = [lf.filter(pl.col("id") % 2 == parity) for parity in (0, 1)]
+    return write_lance_fragments(shards, out, **kwargs)
+
+
+WRITERS = [
+    pytest.param(_sink, id="sink_lance"),
+    pytest.param(_in_two_shards, id="write_lance_fragments"),
+]
+
+
+@pytest.mark.parametrize("write", WRITERS)
+def test_round_trip(tmp_path: Path, lance_uri: str, write: Writer) -> None:
+    out = str(tmp_path / "out.lance")
+    dataset = write(_transformed(lance_uri), out, max_rows_per_file=5_000)
 
     want = _transformed(lance_uri).collect(engine="streaming")
     got = scan_lance(out).collect(engine="streaming")
     assert_frame_equal(got.sort("id"), want.sort("id"))
     assert len(dataset.get_fragments()) > 1, "expected several fragments"
+
+
+@pytest.mark.parametrize("write", WRITERS)
+def test_append(tmp_path: Path, lance_uri: str, write: Writer) -> None:
+    out = str(tmp_path / "appended.lance")
+    first = write(_transformed(lance_uri), out).count_rows()
+    assert write(_transformed(lance_uri), out, mode="append").count_rows() == 2 * first
+
+
+@pytest.mark.parametrize("write", WRITERS)
+def test_overwrite(tmp_path: Path, lance_uri: str, write: Writer) -> None:
+    out = str(tmp_path / "overwritten.lance")
+    write(_transformed(lance_uri), out)
+    only_a = _transformed(lance_uri).filter(pl.col("cat") == "a")
+    write(only_a, out, mode="overwrite")
+    got = scan_lance(out).collect(engine="streaming")
+    assert_frame_equal(got.sort("id"), only_a.collect(engine="streaming").sort("id"))
+
+
+@pytest.mark.parametrize("write", WRITERS)
+def test_create_refuses_existing(tmp_path: Path, lance_uri: str, write: Writer) -> None:
+    out = str(tmp_path / "twice.lance")
+    write(_transformed(lance_uri), out)
+    with pytest.raises(OSError, match="already exists"):
+        write(_transformed(lance_uri), out, mode="create")
 
 
 def test_accepts_eager_dataframe(tmp_path: Path) -> None:
@@ -46,35 +94,6 @@ def test_accepts_eager_dataframe(tmp_path: Path) -> None:
     sink_lance(frame, out)
 
     assert_frame_equal(scan_lance(out).collect(engine="streaming"), frame)
-
-
-def test_create_refuses_existing(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "twice.lance")
-    sink_lance(_transformed(lance_uri), out)
-    with pytest.raises(OSError, match="already exists"):
-        sink_lance(_transformed(lance_uri), out, mode="create")
-
-
-def test_append(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "appended.lance")
-    sink_lance(_transformed(lance_uri), out)
-    first = scan_lance(out).select(pl.len()).collect(engine="streaming").item()
-    sink_lance(_transformed(lance_uri), out, mode="append")
-    second = scan_lance(out).select(pl.len()).collect(engine="streaming").item()
-    assert second == 2 * first
-
-
-def test_overwrite(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "overwritten.lance")
-    sink_lance(_transformed(lance_uri), out)
-    sink_lance(
-        _transformed(lance_uri).filter(pl.col("cat") == "a"), out, mode="overwrite"
-    )
-    got = scan_lance(out).collect(engine="streaming")
-    want = (
-        _transformed(lance_uri).filter(pl.col("cat") == "a").collect(engine="streaming")
-    )
-    assert_frame_equal(got.sort("id"), want.sort("id"))
 
 
 def test_merge_upsert(tmp_path: Path, lance_uri: str) -> None:
@@ -116,87 +135,19 @@ def test_lazy_sink_defers_until_collect(tmp_path: Path, lance_uri: str) -> None:
     assert summary["uri"].item().endswith("deferred.lance")
 
 
-def test_write_fragments_parallel(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "fragmented.lance")
-    shards = [
-        shard.filter(pl.col("val") > 0.5).select("id", "cat")
-        for shard in scan_lance_fragments(lance_uri)
-    ]
-    dataset = write_lance_fragments(shards, out, max_rows_per_file=5_000)
-
-    want = (
-        scan_lance(lance_uri)
-        .filter(pl.col("val") > 0.5)
-        .select("id", "cat")
-        .collect(engine="streaming")
-    )
-    got = scan_lance(out).collect(engine="streaming")
-    assert_frame_equal(got.sort("id"), want.sort("id"))
-    assert dataset.count_rows() == want.height
-
-
-def test_write_fragments_append(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "frag_append.lance")
-    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
-    first = write_lance_fragments(shards, out)
-    second = write_lance_fragments(shards, out, mode="append")
-    assert second.count_rows() == 2 * first.count_rows()
-
-
-def test_write_fragments_overwrite_existing(tmp_path: Path, lance_uri: str) -> None:
-    """Replacing a dataset writes its fragments in 'overwrite' mode.
-
-    `write_fragments(mode='create')` refuses an existing dataset outright.
-    """
-    out = str(tmp_path / "frag_overwrite.lance")
-    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
-    write_lance_fragments(shards, out)
-
-    half = [s.filter(pl.col("id") < 10_000) for s in shards]
-    dataset = write_lance_fragments(half, out, mode="overwrite")
-    assert dataset.count_rows() == sum(
-        s.select(pl.len()).collect(engine="streaming").item() for s in half
-    )
-
-
-def test_write_fragments_create_refuses_existing(
-    tmp_path: Path, lance_uri: str
-) -> None:
-    out = str(tmp_path / "frag_twice.lance")
-    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
-    write_lance_fragments(shards, out)
-    with pytest.raises(FileExistsError):
-        write_lance_fragments(shards, out)
-
-
 def test_write_fragments_needs_input(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="at least one LazyFrame"):
         write_lance_fragments([], str(tmp_path / "empty.lance"))
 
 
-def test_round_trip_preserves_binary_payload(tmp_path: Path, lance_uri: str) -> None:
-    out = str(tmp_path / "payload.lance")
-    sink_lance(scan_lance(lance_uri), out)
-    got = scan_lance(out).select("id", "payload").collect(engine="streaming")
-    want = scan_lance(lance_uri).select("id", "payload").collect(engine="streaming")
-    assert_frame_equal(got.sort("id"), want.sort("id"))
-
-
-def test_write_lance_shard_matches_write_lance_fragments(
+def test_write_lance_shard_publishes_only_on_commit(
     tmp_path: Path, lance_uri: str
 ) -> None:
-    """One `write_lance_shard` per shard, then one commit, equals the threaded path."""
-    import pickle
-
-    from polars_pylance import commit_lance_fragments, write_lance_shard
-
-    shards = [
-        shard.filter(pl.col("val") > 0.5).select("id", "cat")
-        for shard in scan_lance_fragments(lance_uri)
-    ]
+    """Shards write files a worker can pickle back; one commit publishes them."""
+    shards = [s.select("id", "cat") for s in scan_lance_fragments(lance_uri)]
     schema = shards[0].collect_schema().to_arrow()
-
     out = str(tmp_path / "sharded.lance")
+
     fragments = [
         f
         for shard in shards
@@ -204,27 +155,11 @@ def test_write_lance_shard_matches_write_lance_fragments(
             pickle.dumps(write_lance_shard(shard, out, arrow_schema=schema))
         )
     ]
-    dataset = commit_lance_fragments(out, fragments, schema=schema)
+    with pytest.raises(ValueError, match="was not found"):
+        lance.dataset(out)
 
-    want = (
-        scan_lance(lance_uri)
-        .filter(pl.col("val") > 0.5)
-        .select("id", "cat")
-        .collect(engine="streaming")
-    )
+    dataset = commit_lance_fragments(out, fragments, schema=schema)
+    want = scan_lance(lance_uri).select("id", "cat").collect(engine="streaming")
     got = scan_lance(out).collect(engine="streaming")
     assert_frame_equal(got.sort("id"), want.sort("id"))
     assert dataset.count_rows() == want.height
-
-
-def test_write_lance_shard_commits_nothing(tmp_path: Path, lance_uri: str) -> None:
-    """The shard writes files but publishes no dataset version."""
-    import lance
-
-    from polars_pylance import write_lance_shard
-
-    out = str(tmp_path / "uncommitted.lance")
-    shard = scan_lance_fragments(lance_uri)[0].select("id", "cat")
-    assert write_lance_shard(shard, out)
-    with pytest.raises(ValueError, match="was not found"):
-        lance.dataset(out)
