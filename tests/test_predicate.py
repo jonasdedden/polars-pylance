@@ -331,53 +331,14 @@ def test_lowering_shape(predicate: pl.Expr, expected: str) -> None:
     assert lowered.exact
 
 
-# Without a schema a column may be a float, which Lance orders differently (NaN
-# below every number when its sign bit is set, `-0.0` below `0.0`). `isnan` and
-# `abs` take integers too, so these hold whichever the column turns out to be.
+# Without a schema a number may be a float of either width, which Lance orders and
+# rounds differently, so numeric predicates decline.
 UNTYPED_TRANSLATIONS: list[tuple[str, pl.Expr, str | None]] = [
-    ("above", pl.col("id") > 7, "((`id` > 7) OR isnan(`id`))"),
-    ("at least", pl.col("id") >= 7, "((`id` >= 7) OR isnan(`id`))"),
-    ("below", pl.col("id") < 7, "((`id` < 7) AND NOT isnan(`id`))"),
-    ("at most", pl.col("id") <= 7, "((`id` <= 7) AND NOT isnan(`id`))"),
-    ("equal", pl.col("id") == 7, "(`id` = 7)"),
-    ("not equal", pl.col("id") != 7, "(`id` != 7)"),
-    ("equal to zero", pl.col("id") == 0, "(abs(`id`) = 0)"),
-    ("not zero", pl.col("id") != 0, "(abs(`id`) != 0)"),
-    (
-        "below zero",
-        pl.col("id") < 0,
-        "((`id` < 0) AND abs(`id`) != 0 AND NOT isnan(`id`))",
-    ),
-    (
-        "at least zero",
-        pl.col("id") >= 0,
-        "((`id` >= 0) OR isnan(`id`) OR abs(`id`) = 0)",
-    ),
-    ("zero on the left", pl.lit(0) < pl.col("id"), "((`id` > 0) OR isnan(`id`))"),
-    (
-        "computed",
-        (pl.col("id") + 1) > 3,
-        "(((`id` + 1) > 3) OR isnan((`id` + 1)))",
-    ),
-    (
-        "is_in with a zero",
-        pl.col("id").is_in([0, 2]),
-        "((`id` IN (0, 2)) OR abs(`id`) = 0)",
-    ),
-    (
-        "list contains a zero",
-        pl.col("tags").list.contains(0),
-        "(array_has(`tags`, -0.0) OR array_has(`tags`, 0.0))",
-    ),
-    # A float literal casts the column, and a cast to double is typed.
-    (
-        "float literal",
-        pl.col("val") > 0.5,
-        (
-            "((CAST(`val` AS double) > 0.5) "
-            "OR CAST(`val` AS double) < CAST('-inf' AS double))"
-        ),
-    ),
+    ("integer literal", pl.col("id") > 7, None),
+    ("literal on the left", pl.lit(0) < pl.col("id"), None),
+    ("float literal", pl.col("val") > 0.5, None),
+    ("is_in", pl.col("id").is_in([0, 2]), None),
+    ("list contains", pl.col("tags").list.contains(0), None),
     # Nothing about text or dates needs guarding.
     ("string literal", pl.col("cat") == "beta", "(`cat` = 'beta')"),
     (
@@ -469,8 +430,9 @@ def test_declined(predicate: pl.Expr) -> None:
 
 def test_long_is_in_is_declined() -> None:
     """Past some size the SQL round trip stops paying for itself."""
-    assert to_lance_filter(pl.col("id").is_in(list(range(10)))) is not None
-    assert to_lance_filter(pl.col("id").is_in(list(range(10))), max_in_list=5) is None
+    predicate = pl.col("id").is_in(list(range(10)))
+    assert to_lance_filter(predicate, schema=RICH) is not None
+    assert to_lance_filter(predicate, schema=RICH, max_in_list=5) is None
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +455,7 @@ def test_deep_conjunct_is_dropped() -> None:
         & UNTRANSLATABLE
         & pl.col("text").str.starts_with("row")
     )
-    lowered = to_lance_filter(predicate)
+    lowered = to_lance_filter(predicate, schema=RICH)
     assert lowered is not None
     assert not lowered.exact
     assert "`id` > 5" in lowered.sql
@@ -651,7 +613,7 @@ def test_random_nested_predicates_are_sound(
         assert kept <= pushed, f"{predicate}\n  lowered to {lowered.sql}"
         if lowered.exact:
             assert pushed == kept, f"{predicate}\n  lowered to {lowered.sql}"
-    assert lowered_count > 60, "the generator stopped producing pushable predicates"
+    assert lowered_count > 50, "the generator stopped producing pushable predicates"
 
 
 def test_untranslatable_predicate_does_not_raise() -> None:
@@ -721,7 +683,7 @@ def test_a_malformed_node_declines_in_value_position(node: Json) -> None:
 
 def test_lowering_is_pure_of_dataset_knowledge() -> None:
     """The lowering never touches the dataset; it works from the expression alone."""
-    assert to_lance_filter(pl.col("nonexistent") > 1) is not None
+    assert to_lance_filter(pl.col("nonexistent") == "x") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -732,13 +694,6 @@ def test_lowering_is_pure_of_dataset_knowledge() -> None:
 def test_a_float_column_is_not_cast_when_the_schema_says_so() -> None:
     """A redundant `CAST` costs Lance's scalar index, so drop it where we can."""
     predicate = pl.col("val") > 0.75
-    assert to_lance_filter(predicate) == LanceFilter(
-        sql=(
-            "((CAST(`val` AS double) > 0.75)"
-            " OR CAST(`val` AS double) < CAST('-inf' AS double))"
-        ),
-        exact=True,
-    )
     assert to_lance_filter(predicate, schema=pl.Schema({"val": pl.Float64})) == (
         LanceFilter(
             sql="((`val` > 0.75) OR `val` < CAST('-inf' AS double))", exact=True
@@ -821,16 +776,6 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
                 "((TRY_CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double)))"
                 " AND NOT (TRY_CAST(`id` AS double) IN (-0.0, 0.0)"
                 " AND `val` IN (-0.0, 0.0)))"
-            ),
-            exact=True,
-        )
-    )
-    # With `val` untyped, its zero test is spelled for an integer or a float.
-    assert to_lance_filter(predicate, schema=pl.Schema({"id": pl.Int64})) == (
-        LanceFilter(
-            sql=(
-                "((TRY_CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double)))"
-                " AND NOT (TRY_CAST(`id` AS double) IN (-0.0, 0.0) AND abs(`val`) = 0))"
             ),
             exact=True,
         )

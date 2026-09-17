@@ -18,7 +18,10 @@ lf = pll.scan_lance("data.lance").filter(pl.col("val") > 0.999)
 You can see what any predicate becomes:
 
 ```python
->>> pll.to_lance_filter(pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]))
+>>> schema = pl.Schema({"cat": pl.String, "id": pl.Int64})
+>>> pll.to_lance_filter(
+...     pl.col("cat").str.starts_with("b") & pl.col("id").is_in([1, 2]), schema=schema
+... )
 LanceFilter(sql="(starts_with(`cat`, 'b') AND (`id` IN (1, 2)))", exact=True)
 ```
 
@@ -138,10 +141,8 @@ as larger than any number. So `val > 0.5` is sent as
 `val`.
 
 That needs the column types. `scan_lance` always has them. Called without
-`schema=`, `to_lance_filter` cannot tell an integer column from a float one, so it
-spells numeric comparisons to hold for both, `((id > 5) OR isnan(id))`, at the cost
-of the scalar index, and declines a comparison between two columns, which could as
-well be strings.
+`schema=`, `to_lance_filter` cannot tell an integer column from a float one, or a
+Float32 from a Float64, so it declines numeric predicates.
 
 ## Prefilters are stricter
 
