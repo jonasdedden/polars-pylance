@@ -118,14 +118,14 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
 | `//` | Polars floors, SQL truncates |
-| `%` on floats | the result takes the divisor's sign in Polars and the dividend's in SQL; the integer fix-up is inexact for floats |
+| `%` by a fractional float literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
 | `Time` and `Duration` literals | Lance has no matching type |
 | `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
-`eq_missing`, arithmetic (`%` over integers), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
+`eq_missing`, arithmetic (`%` included), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
 `min_horizontal` / `max_horizontal`, `fill_null`, the `is_nan` family,
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.

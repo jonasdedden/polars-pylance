@@ -442,8 +442,9 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("floor division", (pl.col("id") // 2) == 1),
     # Polars yields null for a zero divisor where Lance fails the scan, and a
     # column divisor could be zero or overflow the sign correction.
-    # Without a schema either side may be a float.
+    # Without a schema either side may be a float, of either width.
     ("modulo", (pl.col("id") % 2) == 1),
+    ("float modulo", (pl.col("val") % 2.0) == 1),
     # Not translated yet, though Polars and Lance both raise on overflow.
     ("narrowing cast", pl.col("id").cast(pl.Int32) > 1),
     # `concat_ws` skips nulls, so it cannot spell a null-propagating join.
@@ -838,10 +839,16 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     )
 
 
-def test_float_powers_and_remainders_decline() -> None:
-    """`(-inf) ** 0.5` is NaN in Polars and `inf` in Lance; remainders drift."""
-    schema = pl.Schema({"val": pl.Float64})
-    for predicate in ((pl.col("val") ** 0.5) > 0.5, (pl.col("val") % 0.5) == 0.25):
+def test_float_arithmetic_lance_computes_differently_declines() -> None:
+    schema = pl.Schema({"f64": pl.Float64, "f32": pl.Float32, "i32": pl.Int32})
+    for predicate in (
+        # `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance.
+        (pl.col("f64") ** 0.5) > 0.5,
+        # Polars' kernel for a fractional literal divisor disagrees with its own.
+        (pl.col("f64") % 0.5) == 0.25,
+        # A Float32 is computed as one, which a wider type undoes.
+        (pl.col("f32") % pl.col("i32")) == 1,
+    ):
         assert to_lance_filter(predicate, schema=schema) is None
 
 
@@ -931,6 +938,10 @@ EDGES = pl.DataFrame(
     # The same floats one level down, where only the struct's type says so.
     s=pl.struct(x=pl.col("f")),
     fl=pl.concat_list(pl.col("f")),
+    # Float32 remainders, which round differently in Float64.
+    h=-pl.col("f").cast(pl.Float32) - 0.3,
+    k=pl.col("i").cast(pl.Float32),
+    r=(-pl.col("f").cast(pl.Float32) - 0.3) % pl.col("i").cast(pl.Float32),
 )
 
 EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
@@ -983,6 +994,12 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("modulo by a negative", (pl.col("i") % -3) == -1),
     ("modulo by zero", (pl.col("i") % 0).is_null()),
     ("modulo by a column", (pl.col("i") % (pl.col("i") - 2)) == 1),
+    ("float modulo", (pl.col("f") % pl.col("g")) > 0.5),
+    ("float modulo by a literal", (pl.col("f") % -2) < -0.25),
+    # A remainder of `-0.0` would turn the quotient negative.
+    ("float modulo of a zero", (1.0 / (pl.col("f") % 2.0)) > 0),
+    ("float modulo by an integer", (pl.col("f") % pl.col("i")) == 0),
+    ("float32 modulo", (pl.col("h") % pl.col("k")) == pl.col("r")),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),
