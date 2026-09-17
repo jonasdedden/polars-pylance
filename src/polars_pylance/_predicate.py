@@ -644,31 +644,29 @@ class _Lowering:
     def _arithmetic(self, node: Json) -> _Value:
         body = _fields(node)
         op = body.get("op")
-        if not isinstance(op, str):
-            raise _Decline
-        if op in _ARITHMETIC:
-            left = self.value(_field(body, "left"))
-            right = self.value(_field(body, "right"))
-            if op == "Plus" and (left.is_string or right.is_string):
-                # Polars overloads `+` for text; SQL spells that `||`. A string
-                # literal settles it on its own; two columns need the schema,
-                # without which this stays `+` and Lance declines to plan it.
-                return _Value(f"({left.sql} || {right.sql})", dtype=pl.String())
-            return _Value(
-                f"({left.sql} {_ARITHMETIC[op]} {right.sql})",
-                dtype=_numeric_supertype(left.dtype, right.dtype),
-            )
         if op in ("Modulus", "FloorDivide"):
             return self._remainder_or_floor(
                 _field(body, "left"), _field(body, "right"), floor=op == "FloorDivide"
             )
+        if not isinstance(op, str) or (op not in _ARITHMETIC and op != "TrueDivide"):
+            raise _Decline
+        left = self.value(_field(body, "left"))
+        right = self.value(_field(body, "right"))
+        if op == "Plus" and (left.is_string or right.is_string):
+            # Polars overloads `+` for text; SQL spells that `||`.
+            return _Value(f"({left.sql} || {right.sql})", dtype=pl.String())
+        if (left.untyped or right.untyped) and not self.types_known_later:
+            # Without a schema `+` may be concatenation, and a number may be a
+            # float of either width.
+            raise _Decline
         if op == "TrueDivide":
             # Polars' `/` is always float division; SQL's is integer division
             # between integers.
-            left = self.value(_field(body, "left")).as_double()
-            divisor = self.value(_field(body, "right"))
-            return _Value(f"({left.sql} / {divisor.sql})", dtype=pl.Float64())
-        raise _Decline
+            return _Value(f"({left.as_double().sql} / {right.sql})", dtype=pl.Float64())
+        return _Value(
+            f"({left.sql} {_ARITHMETIC[op]} {right.sql})",
+            dtype=_numeric_supertype(left.dtype, right.dtype),
+        )
 
     def _remainder_or_floor(self, left: Json, right: Json, *, floor: bool) -> _Value:
         """`a % b`, or `a // b` if `floor`, over integers.

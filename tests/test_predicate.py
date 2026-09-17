@@ -151,6 +151,12 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         (pl.col("cat") + "!") == "beta!",
         "((`cat` || '!') = 'beta!')",
     ),
+    # Two columns are concatenated rather than added only because the schema says so.
+    (
+        "column concatenation",
+        (pl.col("cat") + pl.col("cat")) == "betabeta",
+        "((`cat` || `cat`) = 'betabeta')",
+    ),
     (
         "concat_str",
         pl.concat_str(pl.col("cat"), pl.col("text")) == "x",
@@ -396,6 +402,9 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("column against column", pl.col("id") > pl.col("opt")),
     ("min_horizontal", pl.min_horizontal("id", "opt") > 3),
     ("floor division", (pl.col("id") // 2) == 1),
+    ("true division", (pl.col("id") / pl.col("opt")) > 1.5),
+    # `+` may be concatenation.
+    ("column concatenation", (pl.col("cat") + pl.col("cat")) == "betabeta"),
     ("modulo", (pl.col("id") % 2) == 1),
     ("float modulo", (pl.col("val") % 2.0) == 1),
     # Not translated yet, though Polars and Lance both raise on overflow.
@@ -475,34 +484,13 @@ def test_long_is_in_is_declined() -> None:
     assert to_lance_filter(predicate, schema=RICH, max_in_list=5) is None
 
 
-# Shapes that need a type the `rich` fixture does not carry.
-SCHEMA_SHAPES: list[tuple[str, pl.Expr, pl.Schema, str]] = [
-    # A `double` bound makes Lance cast a Float32 column, which costs its index.
-    (
-        "float32 bound",
-        pl.col("val") <= 0.5,
-        pl.Schema({"val": pl.Float32}),
-        "((`val` <= 0.5) AND `val` >= CAST('-inf' AS float))",
-    ),
-    # Two columns are concatenated rather than added only because the schema says so.
-    (
-        "column concatenation",
-        (pl.col("cat") + pl.col("cat")) == "betabeta",
-        pl.Schema({"cat": pl.String}),
-        "((`cat` || `cat`) = 'betabeta')",
-    ),
-]
-
-
-@pytest.mark.parametrize(
-    ("predicate", "schema", "expected"),
-    [pytest.param(e, sc, sql, id=name) for name, e, sc, sql in SCHEMA_SHAPES],
-)
-def test_lowering_shape_with_its_own_schema(
-    predicate: pl.Expr, schema: pl.Schema, expected: str
-) -> None:
-    assert to_lance_filter(predicate, schema=schema) == LanceFilter(
-        expected, exact=True
+def test_a_float32_column_gets_a_bound_of_its_own_type() -> None:
+    """A `double` bound makes Lance cast the column, which costs its index."""
+    lowered = to_lance_filter(
+        pl.col("val") <= 0.5, schema=pl.Schema({"val": pl.Float32})
+    )
+    assert lowered == LanceFilter(
+        sql="((`val` <= 0.5) AND `val` >= CAST('-inf' AS float))", exact=True
     )
 
 
