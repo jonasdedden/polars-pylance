@@ -951,8 +951,8 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <td>not translated yet; Polars and Lance both raise on overflow</td>
 </tr>
 <tr>
-<td>non-strict cast, unless widening</td>
-<td>Polars yields null, Lance fails the scan</td>
+<td>non-strict cast from float to string, string to boolean, or to a date</td>
+<td><code>TRY_CAST</code> nulls different rows than Polars</td>
 </tr>
 <tr>
 <td><code>Time</code> and <code>Duration</code> literals</td>
@@ -967,7 +967,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <p>Everything else translates, including <code>is_in</code> of any length, <code>xor</code>,
 <code>eq_missing</code>, arithmetic (<code>%</code> by a non-zero integer literal), <code>abs</code>, <code>**</code>,
 <code>min_horizontal</code> / <code>max_horizontal</code> over integers, <code>fill_null</code>, the <code>is_nan</code> family,
-<code>cast</code>, the <code>dt</code> parts, <code>list.contains</code> /
+<code>cast</code> (non-strict as <code>TRY_CAST</code>), the <code>dt</code> parts, <code>list.contains</code> /
 <code>len</code> / <code>get</code>, <code>struct.field</code> and <code>concat_str</code>.</p>
 <p>Float comparisons translate with a correction. Lance orders floats by IEEE total
 order, so <code>-0.0 &lt; 0.0</code> and a NaN with its sign bit set, which is what <code>0 / 0</code>
