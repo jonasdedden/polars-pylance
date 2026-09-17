@@ -169,7 +169,15 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     ),
     ("arithmetic", (pl.col("id") + 1) > 3, "((`id` + 1) > 3)"),
     # Polars' remainder takes the divisor's sign, SQL's the dividend's.
-    ("modulo", (pl.col("id") % 2) == 0, "((((`id` % 2) + 2) % 2) = 0)"),
+    (
+        "modulo",
+        (pl.col("id") % 2) == 0,
+        (
+            "(((`id` % NULLIF(2, 0)) + NULLIF(2, 0) * CAST("
+            "(((`id` % NULLIF(2, 0)) < 0 AND NULLIF(2, 0) > 0)"
+            " OR ((`id` % NULLIF(2, 0)) > 0 AND NULLIF(2, 0) < 0)) AS bigint)) = 0)"
+        ),
+    ),
     (
         "float against zero",
         pl.col("val") == 0.0,
@@ -434,10 +442,8 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("floor division", (pl.col("id") // 2) == 1),
     # Polars yields null for a zero divisor where Lance fails the scan, and a
     # column divisor could be zero or overflow the sign correction.
-    ("modulo by zero", (pl.col("id") % 0) == 1),
-    ("modulo by a column", (pl.col("id") % pl.col("opt")) == 1),
-    # The sign correction drifts for floats.
-    ("float modulo", (pl.col("val") % 0.5) == 0.25),
+    # Without a schema either side may be a float.
+    ("modulo", (pl.col("id") % 2) == 1),
     # Not translated yet, though Polars and Lance both raise on overflow.
     ("narrowing cast", pl.col("id").cast(pl.Int32) > 1),
     # `concat_ws` skips nulls, so it cannot spell a null-propagating join.
@@ -832,9 +838,11 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     )
 
 
-def test_a_fractional_power_of_a_float_declines() -> None:
+def test_float_powers_and_remainders_decline() -> None:
+    """`(-inf) ** 0.5` is NaN in Polars and `inf` in Lance; remainders drift."""
     schema = pl.Schema({"val": pl.Float64})
-    assert to_lance_filter((pl.col("val") ** 0.5) > 0.5, schema=schema) is None
+    for predicate in ((pl.col("val") ** 0.5) > 0.5, (pl.col("val") % 0.5) == 0.25):
+        assert to_lance_filter(predicate, schema=schema) is None
 
 
 def test_logarithms_decline_where_lance_is_an_ulp_off() -> None:
@@ -973,6 +981,8 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("modulo", (pl.col("i") % 2) == 1),
     ("modulo of a negation", (-pl.col("i") % 2) == 1),
     ("modulo by a negative", (pl.col("i") % -3) == -1),
+    ("modulo by zero", (pl.col("i") % 0).is_null()),
+    ("modulo by a column", (pl.col("i") % (pl.col("i") - 2)) == 1),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),

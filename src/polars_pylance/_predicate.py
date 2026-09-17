@@ -56,9 +56,6 @@ _ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*"}
 # The comparison seen from the other side, for a literal on the left.
 _MIRRORED = {"=": "=", "!=": "!=", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
 
-# Beyond this a divisor could overflow `(a % b) + b` in `_modulus`.
-_MAX_MODULUS = 2**62
-
 # SQL has no typed null keyword; a bare `NULL` is not a boolean to Lance.
 _NULL_BOOLEAN = "CAST(NULL AS boolean)"
 
@@ -693,27 +690,24 @@ class _Lowering:
         raise _Decline
 
     def _modulus(self, left: Json, right: Json) -> _Value:
-        """`a % b`, restricted to integers and a non-zero literal divisor.
+        """`a % b` over integers.
 
-        Polars' `%` takes the sign of the divisor and SQL's the sign of the
-        dividend, which `((a % b) + b) % b` reconciles. A column divisor could be
-        zero, which Polars answers with null and Lance with an error, or large
-        enough to overflow the sum. Float remainders drift in that spelling.
+        Polars' remainder takes the divisor's sign and SQL's the dividend's, so the
+        divisor is added back where they differ, which cannot overflow. A zero
+        divisor gives null in Polars and fails the scan in Lance, hence `NULLIF`.
+        Float remainders drift in this spelling.
         """
-        dividend = self.value(left)
-        divisor = self.value(right)
-        kind, _ = _unpack(right)
-        if kind != "Literal" or dividend.floating or divisor.floating:
-            raise _Decline
-        try:
-            number = int(divisor.sql)
-        except ValueError as exc:
-            raise _Decline from exc
-        if number == 0 or abs(number) > _MAX_MODULUS:
-            raise _Decline
+        dividend, divisor = self.value(left), self.value(right)
+        for value in (dividend, divisor):
+            integer = value.dtype is not None and value.dtype.is_integer()
+            if not (integer or (value.untyped and self.types_known_later)):
+                raise _Decline
+        b = f"NULLIF({divisor.sql}, 0)"
+        r = f"({dividend.sql} % {b})"
+        differs = f"(({r} < 0 AND {b} > 0) OR ({r} > 0 AND {b} < 0))"
         return _Value(
-            f"((({dividend.sql} % {number}) + {number}) % {number})",
-            dtype=dividend.dtype,
+            f"({r} + {b} * CAST({differs} AS bigint))",
+            dtype=_numeric_supertype(dividend.dtype, divisor.dtype),
         )
 
     def _function_value(self, node: Json) -> _Value:
