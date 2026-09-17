@@ -965,6 +965,7 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     # as a Float64.
     ("float32 against a bare literal", pl.col("h").abs() > 0.3),
     ("float32 against a float64 literal", pl.col("h") >= pl.lit(-0.3, pl.Float64)),
+    ("float32 is_in", pl.col("h").is_in([-0.3])),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),

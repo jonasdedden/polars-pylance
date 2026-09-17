@@ -546,7 +546,7 @@ class _Lowering:
         except _Decline:
             return None, False
         if isinstance(values.dtype, (pl.Float32, pl.Float64)):
-            column = column.as_double()
+            column = column.as_double(float32=True)
             if any(r in _ZEROS for r in rendered):
                 # Polars matches `-0.0` and `0.0` to each other; Lance does not.
                 rendered = [r for r in rendered if r not in _ZEROS] + _ZEROS
