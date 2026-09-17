@@ -774,21 +774,24 @@ class _Lowering:
         raise _Decline
 
     def _power(self, args: Sequence[Json]) -> _Value:
-        """`a ** b`, restricted to a whole non-negative exponent.
+        """`a ** b`, for a positive literal exponent.
 
-        A negative exponent declines: `0 ** -1` is `inf` in Polars, where Lance
-        fails the scan. A fractional one is not translated yet; both give NaN for
-        a negative base.
+        Lance folds `power(x, 0)` to 1, dropping nulls, and fails the scan on
+        `0 ** -1`, which is `inf` in Polars. A fractional exponent needs an integer
+        base: `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance.
         """
         exponent = _literal(args[1])
-        try:
-            whole = int(exponent.sql)
-        except ValueError as exc:
-            raise _Decline from exc
-        if whole < 0:
-            raise _Decline
         base = self.value(args[0])
-        return _Value(f"power({base.sql}, {whole})", dtype=base.dtype)
+        whole = exponent.dtype is not None and exponent.dtype.is_integer()
+        fractional = isinstance(exponent.dtype, pl.Float64) and (
+            base.dtype is not None and base.dtype.is_integer()
+        )
+        if not (whole or fractional) or float(exponent.sql) <= 0:
+            raise _Decline
+        return _Value(
+            f"power({base.sql}, {exponent.sql})",
+            dtype=base.dtype if whole else pl.Float64(),
+        )
 
     def _root_or_log(self, name: str, args: Sequence[Json]) -> _Value:
         """`sqrt`, `cbrt` and `log` to base e, which Lance computes bit for bit.

@@ -420,8 +420,10 @@ DECLINED: list[tuple[str, pl.Expr]] = [
     ("list.get, strict", pl.col("tags").list.get(0) == 3),
     # Polars breaks ties to even, Lance away from zero.
     ("round", pl.col("val").round(2) == 0.5),
-    # Not translated yet, though Polars and Lance agree, NaN included.
-    ("fractional power", (pl.col("val") ** 0.5) > 0.5),
+    # Lance folds `power(x, 0)` to 1, dropping nulls.
+    ("zero power", (pl.col("id") ** 0) == 1),
+    # `0 ** -1` is `inf` in Polars and fails the scan in Lance.
+    ("negative power", (pl.col("id") ** -1) > 0),
     # `date_part('epoch', ...)` keeps the fraction; `dt.epoch` truncates.
     ("dt.epoch", pl.col("ts").dt.epoch("s") > 0),
     # `date_trunc` has no spelling for a multiple of a unit.
@@ -840,6 +842,11 @@ def test_the_optimizer_promotion_cast_is_pushed_when_the_schema_allows_it() -> N
     )
 
 
+def test_a_fractional_power_of_a_float_declines() -> None:
+    schema = pl.Schema({"val": pl.Float64})
+    assert to_lance_filter((pl.col("val") ** 0.5) > 0.5, schema=schema) is None
+
+
 def test_logarithms_decline_where_lance_is_an_ulp_off() -> None:
     schema = pl.Schema({"f32": pl.Float32, "f64": pl.Float64})
     for predicate in (pl.col("f32").log() > 0, pl.col("f64").log10() > 0):
@@ -986,6 +993,9 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("sqrt of an integer", pl.col("i").sqrt() < 2.0),
     ("cbrt", pl.col("f").cbrt() < 1.0),
     ("ln", pl.col("f").log() <= 0.0),
+    ("fractional power", (pl.col("i") ** 0.5) > 1.5),
+    ("fractional power of a negative", (pl.col("i") ** 0.5).is_nan()),
+    ("whole float power", (pl.col("i") ** 2.0) >= 4.0),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
     ("try_cast string to int", pl.col("t").cast(pl.Int64, strict=False) == 7),
     ("try_cast string to null", pl.col("t").cast(pl.Int64, strict=False).is_null()),
