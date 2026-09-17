@@ -678,26 +678,35 @@ class _Lowering:
                 f"({left.sql} {_ARITHMETIC[op]} {right.sql})",
                 dtype=_numeric_supertype(left.dtype, right.dtype),
             )
-        if op == "Modulus":
-            return self._modulus(_field(body, "left"), _field(body, "right"))
+        if op in ("Modulus", "FloorDivide"):
+            return self._remainder_or_floor(
+                _field(body, "left"), _field(body, "right"), floor=op == "FloorDivide"
+            )
         if op == "TrueDivide":
             # Polars' `/` is always float division; SQL's is integer division
             # between integers.
             left = self.value(_field(body, "left")).as_double()
             divisor = self.value(_field(body, "right"))
             return _Value(f"({left.sql} / {divisor.sql})", dtype=pl.Float64())
-        # FloorDivide has no Lance spelling (`floor()` is rejected).
         raise _Decline
 
-    def _modulus(self, left: Json, right: Json) -> _Value:
-        """`a % b` over integers.
+    def _remainder_or_floor(self, left: Json, right: Json, *, floor: bool) -> _Value:
+        """`a % b`, or `a // b` if `floor`, over integers.
 
         Polars' remainder takes the divisor's sign and SQL's the dividend's, so the
-        divisor is added back where they differ, which cannot overflow. A zero
-        divisor gives null in Polars and fails the scan in Lance, hence `NULLIF`.
+        divisor is added back where they differ, which cannot overflow; the quotient
+        is one less there. A zero divisor gives null in Polars and fails the scan in
+        Lance, hence `NULLIF`. `min // -1` wraps in Polars and fails the scan in
+        Lance, and Lance divides a UInt64 as a decimal.
         """
         dividend, divisor = self.value(left), self.value(right)
-        if dividend.floating or divisor.floating:
+        if floor and (
+            not divisor.is_literal
+            or divisor.sql == "-1"
+            or pl.UInt64 in (dividend.dtype, divisor.dtype)
+        ):
+            raise _Decline
+        if not floor and (dividend.floating or divisor.floating):
             return self._float_modulus(dividend, divisor)
         for value in (dividend, divisor):
             integer = value.dtype is not None and value.dtype.is_integer()
@@ -705,11 +714,11 @@ class _Lowering:
                 raise _Decline
         b = f"NULLIF({divisor.sql}, 0)"
         r = f"({dividend.sql} % {b})"
-        differs = f"(({r} < 0 AND {b} > 0) OR ({r} > 0 AND {b} < 0))"
-        return _Value(
-            f"({r} + {b} * CAST({differs} AS bigint))",
-            dtype=_numeric_supertype(dividend.dtype, divisor.dtype),
-        )
+        differs = f"CAST((({r} < 0 AND {b} > 0) OR ({r} > 0 AND {b} < 0)) AS bigint)"
+        sql = f"({r} + {b} * {differs})"
+        if floor:
+            sql = f"(({dividend.sql} / {b}) - {differs})"
+        return _Value(sql, dtype=_numeric_supertype(dividend.dtype, divisor.dtype))
 
     def _float_modulus(self, a: _Value, b: _Value) -> _Value:
         """`a % b` over floats, Polars' `a - b * floor(a / b)`.
