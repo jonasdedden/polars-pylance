@@ -47,9 +47,9 @@ _COMPARISONS = {
     "Gt": ">",
     "GtEq": ">=",
 }
-# `eq_missing` / `ne_missing` need explicit null handling even against a
-# non-null literal: the Boolean result must remain equivalent under NOT/XOR.
-_NULL_SAFE = {"EqValidity": "=", "NotEqValidity": "!="}
+# `eq_missing` / `ne_missing` against a non-null literal: a null row becomes
+# false / true, so the result stays two-valued under NOT and XOR.
+_NULL_SAFE = {"EqValidity": "IS TRUE", "NotEqValidity": "IS NOT TRUE"}
 
 _ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*"}
 
@@ -380,17 +380,13 @@ class _Lowering:
                 _COMPARISONS[op], _field(body, "left"), _field(body, "right")
             )
         if op in _NULL_SAFE:
-            left_node, right_node = _field(body, "left"), _field(body, "right")
-            pairs = ((right_node, left_node), (left_node, right_node))
-            for value, other in pairs:
+            lhs, rhs = _field(body, "left"), _field(body, "right")
+            for value, other in ((rhs, lhs), (lhs, rhs)):
                 if _is_non_null_literal(value):
-                    comparison, exact = self._compare(_NULL_SAFE[op], other, value)
+                    comparison, exact = self._compare("=", other, value)
                     if comparison is None:
                         return None, False
-                    column = self.value(other).sql
-                    if op == "EqValidity":
-                        return f"({comparison} AND {column} IS NOT NULL)", exact
-                    return f"({comparison} OR {column} IS NULL)", exact
+                    return f"({comparison} {_NULL_SAFE[op]})", exact
             return None, False
 
         if op == "Xor":
