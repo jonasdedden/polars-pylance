@@ -84,8 +84,6 @@ def requirements_txt(extra: list[str] | None = None) -> str:
         ... )  # doctest: +SKIP
     """
     lines = [
-        # pylance 12 is only published to Lance's own index so far.
-        "--extra-index-url https://pypi.fury.io/lance-format/",
         f"polars=={pl.__version__}",
         f"pylance=={lance.__version__}",
         "polars-pylance",

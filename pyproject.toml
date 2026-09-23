@@ -37,9 +37,9 @@ dependencies = [
     # `scan_lance` is built on. 1.44.1 is also the first release to annotate
     # `collect_batches` as what it returns, which `sink_lance` relies on.
     "polars>=1.44.1",
-    # 12.0.0b7 is the first release to treat `-0.0` and `0.0` alike against a
-    # zero literal (lance-format/lance#6236), which the lowering relies on.
-    "pylance>=12.0.0b7",
+    # 12 is the first release to treat `-0.0` and `0.0` alike against a zero
+    # literal (lance-format/lance#6236), which the lowering relies on.
+    "pylance>=12",
     "pyarrow",
 ]
 
@@ -101,15 +101,6 @@ dev = [
 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
-
-# pylance 12 is only published to Lance's own index so far.
-[[tool.uv.index]]
-name = "lance-format"
-url = "https://pypi.fury.io/lance-format/"
-explicit = true
-
-[tool.uv.sources]
-pylance = { index = "lance-format" }
 
 [tool.uv-dynamic-versioning]
 vcs = "git"

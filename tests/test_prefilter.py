@@ -334,7 +334,7 @@ def float_uri(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, pl.DataFra
 def test_expression_prefilter_keeps_polars_float_semantics(
     float_uri: tuple[str, pl.DataFrame], prefilter: pl.Expr
 ) -> None:
-    """Without the column types, `score >= 0` would drop the negative NaN and `-0.0`."""
+    """Without the column types, `score >= 0` would drop the negative NaN."""
     uri, frame = float_uri
     nearest = {
         "column": "vector",

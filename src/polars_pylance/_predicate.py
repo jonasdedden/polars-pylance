@@ -120,8 +120,6 @@ _POS_INF = "CAST('inf' AS double)"
 _NEG_INF = "CAST('-inf' AS double)"
 _NAN = "CAST('NaN' AS double)"
 
-_ZEROS = ["-0.0", "0.0"]
-
 
 # One node of Polars' serialized expression IR, as `json.loads` hands it over.
 # The IR is versioned by Polars and its shape has changed between releases, so
@@ -498,7 +496,7 @@ class _Lowering:
         if column.untyped and values.dtype.is_numeric() and not self.types_known_later:
             return None, False
         if column.floating and values.dtype.is_integer():
-            # Polars compares as floats, so `0` must also find `-0.0`.
+            # Polars compares as Float64; Lance would round to a Float32 column.
             values = values.cast(pl.Float64)
         # Polars matches a null element only with `nulls_equal`, where SQL's
         # `IN` turns null on any non-match, which `NOT` cannot undo.
@@ -578,10 +576,12 @@ class _Lowering:
         if inner is None and _maybe_number(needle) and not self.types_known_later:
             return None, False
         needle = self._coerce_literal(needle, _Value("", dtype=inner), None)
-        if needle.is_float_literal and needle.sql in _ZEROS:
+        if needle.is_float_literal and float(needle.sql) == 0:
             # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
-            either = " OR ".join(f"array_has({column.sql}, {z})" for z in _ZEROS)
-            return f"({either})", True
+            return (
+                f"(array_has({column.sql}, -0.0) OR array_has({column.sql}, 0.0))",
+                True,
+            )
         return f"array_has({column.sql}, {needle.sql})", True
 
     def _column_dtype(self, name: Json) -> pl.DataType | None:

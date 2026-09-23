@@ -88,7 +88,6 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.col("id").is_in(pl.Series([1, None])),
         "(`id` IN (1))",
     ),
-    ("is_in with a zero", pl.col("val").is_in([0.0, 0.5]), "(`val` IN (0.0, 0.5))"),
     ("is_between", pl.col("id").is_between(1, 2), "((`id` >= 1) AND (`id` <= 2))"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with(`cat`, 'b')"),
     ("ends_with", pl.col("cat").str.ends_with("a"), "ends_with(`cat`, 'a')"),
@@ -772,6 +771,8 @@ EDGES = pl.DataFrame(
     # Float32 remainders, which round differently in Float64.
     h=-pl.col("f").cast(pl.Float32) - 0.3,
     k=pl.col("i").cast(pl.Float32),
+    # Integers a Float32 rounds `2 ** 24 + 1` onto.
+    m=pl.col("i").cast(pl.Float32) * 2**24,
     r=(-pl.col("f").cast(pl.Float32) - 0.3) % pl.col("i").cast(pl.Float32),
 )
 
@@ -839,6 +840,7 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("float32 against a bare literal", pl.col("h").abs() > 0.3),
     ("float32 against a float64 literal", pl.col("h") >= pl.lit(-0.3, pl.Float64)),
     ("float32 is_in", pl.col("h").is_in([-0.3])),
+    ("float32 is_in an integer", pl.col("m").is_in([2**24 + 1])),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),
