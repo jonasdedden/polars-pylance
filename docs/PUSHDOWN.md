@@ -133,10 +133,9 @@ Everything else translates, including `is_in` of any length (also with `nulls_eq
 `cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
 `len` / `get`, `struct.field` and `concat_str`.
 
-Float comparisons translate with a correction. Lance orders floats by IEEE total
-order, so `-0.0 < 0.0` and a NaN with its sign bit set, which is what `0 / 0`
-produces, sorts below every number. Polars treats the zeros as equal and every NaN
-as larger than any number. So `val > 0.5` is sent as
+Float comparisons translate with a correction for NaN. Lance orders it by IEEE total
+order, so a NaN with its sign bit set, which is what `0 / 0` produces, sorts below
+every number, where Polars puts every NaN above. So `val > 0.5` is sent as
 `((val > 0.5) OR val < CAST('-inf' AS double))`, which still uses a scalar index on
 `val`.
 

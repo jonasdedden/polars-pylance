@@ -120,8 +120,6 @@ _POS_INF = "CAST('inf' AS double)"
 _NEG_INF = "CAST('-inf' AS double)"
 _NAN = "CAST('NaN' AS double)"
 
-_ZEROS = ["-0.0", "0.0"]
-
 
 # One node of Polars' serialized expression IR, as `json.loads` hands it over.
 # The IR is versioned by Polars and its shape has changed between releases, so
@@ -183,10 +181,6 @@ class _Value:
     def is_float32(self) -> bool:
         # An index on a `Float32` column only serves bounds of its own type.
         return isinstance(self.dtype, pl.Float32)
-
-    @property
-    def is_zero_literal(self) -> bool:
-        return self.is_literal and self.sql in ("0", *_ZEROS)
 
     @property
     def may_be_nan(self) -> bool:
@@ -502,7 +496,7 @@ class _Lowering:
         if column.untyped and values.dtype.is_numeric() and not self.types_known_later:
             return None, False
         if column.floating and values.dtype.is_integer():
-            # Polars compares as floats, so `0` must also find `-0.0`.
+            # Polars compares as Float64; Lance would round to a Float32 column.
             values = values.cast(pl.Float64)
         # Polars matches a null element only with `nulls_equal`, where SQL's
         # `IN` turns null on any non-match, which `NOT` cannot undo.
@@ -518,9 +512,6 @@ class _Lowering:
         rendered = [_scalar(v, values.dtype) for v in values]
         if values.dtype.is_float():
             column = column.as_double(float32=True)
-            if any(r in _ZEROS for r in rendered):
-                # Polars matches `-0.0` and `0.0` to each other; Lance does not.
-                rendered = [r for r in rendered if r not in _ZEROS] + _ZEROS
         membership = f"({column.sql} IN ({', '.join(rendered)}))"
         if nulls_equal:
             # Total: a null input matches a null element and nothing else.
@@ -585,10 +576,12 @@ class _Lowering:
         if inner is None and _maybe_number(needle) and not self.types_known_later:
             return None, False
         needle = self._coerce_literal(needle, _Value("", dtype=inner), None)
-        if needle.is_float_literal and needle.sql in _ZEROS:
+        if needle.is_float_literal and float(needle.sql) == 0:
             # Polars finds `-0.0` and `0.0` as each other; `array_has` does not.
-            either = " OR ".join(f"array_has({column.sql}, {z})" for z in _ZEROS)
-            return f"({either})", True
+            return (
+                f"(array_has({column.sql}, -0.0) OR array_has({column.sql}, 0.0))",
+                True,
+            )
         return f"array_has({column.sql}, {needle.sql})", True
 
     def _column_dtype(self, name: Json) -> pl.DataType | None:
@@ -692,7 +685,7 @@ class _Lowering:
                 raise _Decline
         b = f"NULLIF({divisor.sql}, 0)"
         r = f"({dividend.sql} % {b})"
-        differs = f"CAST((({r} < 0 AND {b} > 0) OR ({r} > 0 AND {b} < 0)) AS bigint)"
+        differs = f"CAST(signum({r}) * signum({b}) < 0 AS bigint)"
         sql = f"({r} + {b} * {differs})"
         if floor:
             sql = f"(({dividend.sql} / {b}) - {differs})"
@@ -1157,17 +1150,17 @@ def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
 def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
     """`lhs op rhs`, with Polars' rules for signed zeros and NaN.
 
-    Lance compares floats by IEEE total order, from a negative NaN through
-    `-inf`, `-0.0`, `0.0` and `inf` up to a positive NaN. Polars treats `-0.0`
-    and `0.0` as equal, and every NaN as equal to every other and above every
-    number. A NaN with its sign bit set is no oddity: it is what `0 / 0` and
-    `inf - inf` produce on x86.
+    Lance orders NaN by IEEE total order, a negative NaN below `-inf` and a
+    positive one above `inf`, where Polars puts every NaN above every number. A
+    NaN with its sign bit set is no oddity: it is what `0 / 0` and `inf - inf`
+    produce on x86. Lance treats `-0.0` and `0.0` alike against a zero, but not
+    against each other.
 
     Against a literal, which is never NaN, the comparison stays on the column so
-    that a scalar index still applies: the zero's sign is picked per operator,
-    and `x < -inf`, which holds exactly for a negative NaN, is added to or
-    excluded from the ordering comparisons. Each extra test is null whenever
-    `x` is, so nulls propagate as the plain comparison would.
+    that a scalar index still applies: `x < -inf`, which holds exactly for a
+    negative NaN, is added to or excluded from the ordering comparisons. Each
+    extra test is null whenever `x` is, so nulls propagate as the plain
+    comparison would.
 
     Between two float values, `nanvl` gives every NaN the positive sign and the
     pair of zeros is decided explicitly.
@@ -1182,20 +1175,9 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
         lhs, rhs, op = rhs, lhs, _MIRRORED[op]
     if not (lhs.floating or rhs.floating) or lhs.untyped or rhs.untyped:
         return plain
-    zeros = ", ".join(_ZEROS)
     if rhs.is_literal:
         value = lhs.sql
-        if rhs.is_zero_literal:
-            if op == "=":
-                return f"({value} IN ({zeros}))"
-            if op == "!=":
-                return f"(NOT ({value} IN ({zeros})))"
-            # Below `-0.0` or above `0.0` excludes both zeros; the rest include
-            # both.
-            bound = "-0.0" if op in ("<", ">=") else "0.0"
-            compared = f"({value} {op} {bound})"
-        else:
-            compared = f"({value} {op} {rhs.sql})"
+        compared = f"({value} {op} {rhs.sql})"
         if not lhs.may_be_nan or op in ("=", "!="):
             return compared
         neg_inf = "CAST('-inf' AS float)" if lhs.is_float32 else _NEG_INF
@@ -1208,14 +1190,8 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
             return f"nanvl({value.sql}, {_NAN})"
         return value.sql
 
-    def is_zero(value: _Value) -> str:
-        # `IN (-0.0, 0.0)` only plans against a float; `abs` takes either.
-        if value.floating:
-            return f"{value.sql} IN ({zeros})"
-        return f"abs({value.sql}) = 0"
-
     compared = f"({positive_nan(lhs)} {op} {positive_nan(rhs)})"
-    both_zero = f"({is_zero(lhs)} AND {is_zero(rhs)})"
+    both_zero = f"({lhs.sql} = 0 AND {rhs.sql} = 0)"
     if op in ("=", "<=", ">="):
         return f"({compared} OR {both_zero})"
     return f"({compared} AND NOT {both_zero})"

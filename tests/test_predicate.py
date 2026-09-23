@@ -88,12 +88,6 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.col("id").is_in(pl.Series([1, None])),
         "(`id` IN (1))",
     ),
-    # Polars matches `-0.0` and `0.0` to each other; Lance's total order does not.
-    (
-        "is_in with a zero",
-        pl.col("val").is_in([0.0, 0.5]),
-        "(`val` IN (0.5, -0.0, 0.0))",
-    ),
     ("is_between", pl.col("id").is_between(1, 2), "((`id` >= 1) AND (`id` <= 2))"),
     ("starts_with", pl.col("cat").str.starts_with("b"), "starts_with(`cat`, 'b')"),
     ("ends_with", pl.col("cat").str.ends_with("a"), "ends_with(`cat`, 'a')"),
@@ -180,21 +174,20 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         (pl.col("id") % 2) == 0,
         (
             "(((`id` % NULLIF(2, 0)) + NULLIF(2, 0) * CAST("
-            "(((`id` % NULLIF(2, 0)) < 0 AND NULLIF(2, 0) > 0)"
-            " OR ((`id` % NULLIF(2, 0)) > 0 AND NULLIF(2, 0) < 0)) AS bigint)) = 0)"
+            "signum((`id` % NULLIF(2, 0))) * signum(NULLIF(2, 0)) < 0 AS bigint)) = 0)"
         ),
     ),
     (
         "float against zero",
         pl.col("val") == 0.0,
-        "(`val` IN (-0.0, 0.0))",
+        "(`val` = 0.0)",
     ),
     # `x < -inf` holds for exactly a NaN with its sign bit set, which Lance
     # orders below every number and Polars above.
     (
         "float below zero",
         pl.col("val") < 0.0,
-        "((`val` < -0.0) AND `val` >= CAST('-inf' AS double))",
+        "((`val` < 0.0) AND `val` >= CAST('-inf' AS double))",
     ),
     (
         "float above zero",
@@ -204,7 +197,7 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
     (
         "zero on the left",
         pl.lit(0.0) <= pl.col("val"),
-        "((`val` >= -0.0) OR `val` < CAST('-inf' AS double))",
+        "((`val` >= 0.0) OR `val` < CAST('-inf' AS double))",
     ),
     ("negate", -pl.col("id") < 0, "((- `id`) < 0)"),
     ("power", (pl.col("id") ** 2) > 9, "(power(`id`, 2) > 9)"),
@@ -234,7 +227,7 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         (
             "((nanvl(`val`, CAST('NaN' AS double))"
             " < nanvl(`odd`, CAST('NaN' AS double)))"
-            " AND NOT (`val` IN (-0.0, 0.0) AND `odd` IN (-0.0, 0.0)))"
+            " AND NOT (`val` = 0 AND `odd` = 0))"
         ),
     ),
     # What Polars' optimizer inserts to compare an integer column with a float one.
@@ -243,8 +236,7 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.col("id").cast(pl.Float64, strict=False) > pl.col("val"),
         (
             "((TRY_CAST(`id` AS double) > nanvl(`val`, CAST('NaN' AS double)))"
-            " AND NOT (TRY_CAST(`id` AS double) IN (-0.0, 0.0)"
-            " AND `val` IN (-0.0, 0.0)))"
+            " AND NOT (TRY_CAST(`id` AS double) = 0 AND `val` = 0))"
         ),
     ),
     # An integer column cast to a float holds no NaN.
@@ -779,6 +771,8 @@ EDGES = pl.DataFrame(
     # Float32 remainders, which round differently in Float64.
     h=-pl.col("f").cast(pl.Float32) - 0.3,
     k=pl.col("i").cast(pl.Float32),
+    # Integers a Float32 rounds `2 ** 24 + 1` onto.
+    m=pl.col("i").cast(pl.Float32) * 2**24,
     r=(-pl.col("f").cast(pl.Float32) - 0.3) % pl.col("i").cast(pl.Float32),
 )
 
@@ -846,6 +840,7 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("float32 against a bare literal", pl.col("h").abs() > 0.3),
     ("float32 against a float64 literal", pl.col("h") >= pl.lit(-0.3, pl.Float64)),
     ("float32 is_in", pl.col("h").is_in([-0.3])),
+    ("float32 is_in an integer", pl.col("m").is_in([2**24 + 1])),
     ("nan comparison", pl.col("f") > 1.0),
     ("nan below", pl.col("f") < 1.0),
     ("nan at most", pl.col("f") <= 2.5),
