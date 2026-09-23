@@ -2920,7 +2920,9 @@ contents with these fragments), or <code>"append"</code> (add them to it).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_sink.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">295</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">293</span>
+<span class="normal">294</span>
+<span class="normal">295</span>
 <span class="normal">296</span>
 <span class="normal">297</span>
 <span class="normal">298</span>
@@ -2959,9 +2961,7 @@ contents with these fragments), or <code>"append"</code> (add them to it).</p>
 <span class="normal">331</span>
 <span class="normal">332</span>
 <span class="normal">333</span>
-<span class="normal">334</span>
-<span class="normal">335</span>
-<span class="normal">336</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">commit_lance_fragments</span><span class="p">(</span>
+<span class="normal">334</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">commit_lance_fragments</span><span class="p">(</span>
     <span class="n">uri</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
     <span class="n">fragments</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3309,9 +3309,7 @@ plan. Collecting it yields a one-row summary of what was written.</p>
 <span class="normal">147</span>
 <span class="normal">148</span>
 <span class="normal">149</span>
-<span class="normal">150</span>
-<span class="normal">151</span>
-<span class="normal">152</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">sink_lance</span><span class="p">(</span>
+<span class="normal">150</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">sink_lance</span><span class="p">(</span>
     <span class="n">lf</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span> <span class="o">|</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3370,9 +3368,7 @@ plan. Collecting it yields a one-row summary of what was written.</p>
             <span class="p">)</span>
             <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
         <span class="n">dataset</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">target</span>
-            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">)</span>
-            <span class="k">else</span> <span class="n">lance</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">storage_options</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+            <span class="n">target</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">lance</span><span class="o">.</span><span class="n">LanceDataset</span><span class="p">)</span> <span class="k">else</span> <span class="n">lance</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span><span class="n">uri</span><span class="p">)</span>
         <span class="p">)</span>
         <span class="n">reader</span> <span class="o">=</span> <span class="n">_reader_from_lazyframe</span><span class="p">(</span><span class="n">lf</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="n">chunk_size</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="n">engine</span><span class="p">)</span>
         <span class="n">dataset</span><span class="o">.</span><span class="n">merge_insert</span><span class="p">(</span>
@@ -3587,7 +3583,9 @@ by materialising each shard first.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_sink.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">218</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
 <span class="normal">219</span>
 <span class="normal">220</span>
 <span class="normal">221</span>
@@ -3647,9 +3645,7 @@ by materialising each shard first.</p>
 <span class="normal">275</span>
 <span class="normal">276</span>
 <span class="normal">277</span>
-<span class="normal">278</span>
-<span class="normal">279</span>
-<span class="normal">280</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_fragments</span><span class="p">(</span>
+<span class="normal">278</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_fragments</span><span class="p">(</span>
     <span class="n">lazyframes</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">],</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3911,7 +3907,9 @@ pass the coordinator's schema so every worker writes identically.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/polars_pylance/_sink.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">155</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
 <span class="normal">156</span>
 <span class="normal">157</span>
 <span class="normal">158</span>
@@ -3969,9 +3967,7 @@ pass the coordinator's schema so every worker writes identically.</p>
 <span class="normal">210</span>
 <span class="normal">211</span>
 <span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_shard</span><span class="p">(</span>
+<span class="normal">213</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">write_lance_shard</span><span class="p">(</span>
     <span class="n">shard</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">LazyFrame</span><span class="p">,</span>
     <span class="n">target</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
