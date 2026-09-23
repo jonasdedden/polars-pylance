@@ -960,10 +960,9 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 <code>min_horizontal</code> / <code>max_horizontal</code>, <code>fill_null</code>, the <code>is_nan</code> family,
 <code>cast</code> (non-strict as <code>TRY_CAST</code>), the <code>dt</code> parts, <code>list.contains</code> /
 <code>len</code> / <code>get</code>, <code>struct.field</code> and <code>concat_str</code>.</p>
-<p>Float comparisons translate with a correction. Lance orders floats by IEEE total
-order, so <code>-0.0 &lt; 0.0</code> and a NaN with its sign bit set, which is what <code>0 / 0</code>
-produces, sorts below every number. Polars treats the zeros as equal and every NaN
-as larger than any number. So <code>val &gt; 0.5</code> is sent as
+<p>Float comparisons translate with a correction for NaN. Lance orders it by IEEE total
+order, so a NaN with its sign bit set, which is what <code>0 / 0</code> produces, sorts below
+every number, where Polars puts every NaN above. So <code>val &gt; 0.5</code> is sent as
 <code>((val &gt; 0.5) OR val &lt; CAST('-inf' AS double))</code>, which still uses a scalar index on
 <code>val</code>.</p>
 <p>That needs the column types. <code>scan_lance</code> always has them. Called without
