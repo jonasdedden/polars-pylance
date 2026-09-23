@@ -114,9 +114,7 @@ def sink_lance(
             )
             raise TypeError(msg)
         dataset = (
-            target
-            if isinstance(target, lance.LanceDataset)
-            else lance.dataset(uri, storage_options=None)
+            target if isinstance(target, lance.LanceDataset) else lance.dataset(uri)
         )
         reader = _reader_from_lazyframe(lf, chunk_size=chunk_size, engine=engine)
         dataset.merge_insert(
