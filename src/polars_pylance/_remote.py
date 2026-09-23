@@ -153,15 +153,7 @@ def _content_key(df: pl.DataFrame) -> str:
     digest = hashlib.blake2b(digest_size=16)
     digest.update(repr(df.schema).encode())
     digest.update(df.height.to_bytes(8, "big"))
-    hashes = df.hash_rows(seed=0).to_arrow()
-    if isinstance(hashes, pa.ChunkedArray):
-        hashes = hashes.combine_chunks()
-    # buffers() is [validity, values]; the validity buffer is None here because
-    # hash_rows never produces nulls, but the values buffer is always present.
-    values_buffer = hashes.buffers()[1]
-    assert values_buffer is not None
-    values = memoryview(values_buffer)
-    digest.update(values[hashes.offset * 8 : (hashes.offset + len(hashes)) * 8])
+    digest.update(df.hash_rows(seed=0).to_numpy().tobytes())
     return digest.hexdigest()
 
 
