@@ -54,6 +54,7 @@ nav:
   - Home: index.md
   - Comparison with polars-lance: COMPARISON.md
   - Predicate pushdown: PUSHDOWN.md
+  - Upstream fixes: UPSTREAM.md
   - Vector search: VECTOR_SEARCH.md
   - Polars Cloud: POLARS_CLOUD.md
   - Benchmarks: BENCHMARKS.md
