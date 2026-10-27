@@ -1012,7 +1012,7 @@ def _column(name: Json) -> str:
 
 
 def _quote(name: str) -> str:
-    """Backtick-quote an identifier; Lance rejects the double-quoted form."""
+    """Backtick-quote an identifier; Lance reads a double-quoted one as a string."""
     if "`" in name:
         raise _Decline
     return f"`{name}`"
@@ -1132,8 +1132,9 @@ def _struct_field(dtype: pl.DataType | None, name: str) -> pl.DataType | None:
 def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
     """Whether `TRY_CAST` nulls exactly the rows a non-strict Polars cast does.
 
-    Probed on pylance 9 and 13.0.0b4. Floats print large exponents differently
-    (`1e+308`, `1e308`), Polars refuses strings to booleans, and dates are unprobed.
+    Probed on pylance 9 and 13.0.0b4, and rechecked on 12.0.0, 14.0.0 and 15.0.0b3.
+    Floats print large exponents differently (`1e+308`, `1e308`), Polars refuses
+    strings to booleans, and dates are unprobed.
     """
     if source is None:
         return False
