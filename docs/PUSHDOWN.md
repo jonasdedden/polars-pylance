@@ -116,22 +116,27 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
 | `str.to_titlecase` | `initcap` disagrees on words starting with a digit |
-| `str.slice` | not translated yet: Lance's planner rejects `SUBSTRING`, but a backtick-quoted ``` `substr` ``` works, with `character_length` for a negative offset |
 | `list.get` without `null_on_oob` | Polars raises where `array_element` returns null |
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
-| `//` over floats, by -1 or a column, or of a UInt64 | Lance loses the sign of `-0.0`, fails the scan on `min // -1`, and divides a UInt64 as a decimal |
-| `%` by a fractional float literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
+| `//` over integers by -1 or a column, or of a UInt64 | Lance fails the scan on `min // -1`, and divides a UInt64 as a decimal |
+| `%` and `//` over floats by a fractional literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
 | `Time` and `Duration` literals | Lance has no matching type |
-| `when/then` | Lance rejects `CASE` |
+| `when/then` with an inexact condition, or as a value whose branches differ in type | the condition is negated; Lance would pick the result type itself |
+| `eq_missing` between floats, or a UInt64 and a signed integer | Lance compares floats by total order below pylance 15, and the integers as decimals |
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
-`eq_missing`, arithmetic (`%` and `//` included), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
-`min_horizontal` / `max_horizontal`, `fill_null`, the `is_nan` family,
-`cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
-`len` / `get`, `struct.field` and `concat_str`.
+`eq_missing`, `when/then/otherwise`, arithmetic (`%` and `//` included), `abs`, `floor`,
+`ceil`, `sqrt`, `cbrt`, `ln`, `**`, `min_horizontal` / `max_horizontal`, `fill_null`, the
+`is_nan` family, `cast` (non-strict as `TRY_CAST`), the `dt` parts, `str.slice`,
+`list.contains` / `len` / `get`, `struct.field` and `concat_str`.
+
+Lance's planner rejects `CASE`, `FLOOR(x)`, `CEIL(x)` and `SUBSTRING(...)` as syntax.
+`floor`, `ceil` and `substr` are sent backtick-quoted, which makes them plain function
+calls, and `when/then/otherwise` as `(c IS TRUE AND a) OR (c IS NOT TRUE AND b)`, or as a
+value through `nvl2`, which DataFusion turns into a `CASE`.
 
 Float comparisons translate with a correction for NaN. Lance orders it by IEEE total
 order, so a NaN with its sign bit set, which is what `0 / 0` produces, sorts below

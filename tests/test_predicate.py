@@ -317,6 +317,45 @@ TRANSLATIONS: list[tuple[str, pl.Expr, str]] = [
         pl.col("opt").ne_missing(3),
         "(NOT (`opt` = 3) OR `opt` IS NULL)",
     ),
+    (
+        "eq_missing between columns",
+        pl.col("id").eq_missing(pl.col("opt")),
+        "(`id` IS NOT DISTINCT FROM `opt`)",
+    ),
+    ("eq_missing a null", pl.col("opt").eq_missing(None), "(`opt` IS NULL)"),
+    ("ne_missing a null", pl.col("opt").ne_missing(None), "(`opt` IS NOT NULL)"),
+    # A null condition takes the `otherwise` branch.
+    (
+        "when/then",
+        pl.when(pl.col("id") > 1).then(pl.col("flag")).otherwise(pl.col("id") < 0),
+        "(((`id` > 1) IS TRUE AND `flag`) OR ((`id` > 1) IS NOT TRUE AND (`id` < 0)))",
+    ),
+    (
+        "when/then as a value",
+        pl.when(pl.col("flag")).then(pl.col("id")).otherwise(0) > 3,
+        "(nvl2(NULLIF(CAST(`flag` IS TRUE AS bigint), 0), `id`, 0) > 3)",
+    ),
+    (
+        "str.slice",
+        pl.col("cat").str.slice(1, 2) == "et",
+        "(`substr`(`cat`, 2, 2) = 'et')",
+    ),
+    (
+        "str.slice from the end",
+        pl.col("cat").str.slice(-2) == "ta",
+        "(`substr`(`cat`, character_length(`cat`) + -1) = 'ta')",
+    ),
+    ("floor of an integer", pl.col("id").floor() > 3, "(`id` > 3)"),
+    (
+        "floor",
+        pl.col("val").floor() < 1.0,
+        "((`floor`(`val`) < 1.0) AND NOT isnan(`floor`(`val`)))",
+    ),
+    (
+        "float floor division",
+        (pl.col("val") // 2.0) < 1.0,
+        "((`floor`(`val` / 2.0) < 1.0) AND NOT isnan(`floor`(`val` / 2.0)))",
+    ),
     ("alias is transparent", (pl.col("id") > 7).alias("x"), "(`id` > 7)"),
     ("quoted identifier", pl.col("odd name") > 1, "(`odd name` > 1)"),
     # Polars promotes to float to compare; Lance refuses the mixed comparison.
@@ -367,8 +406,7 @@ def test_lowering_shape(predicate: pl.Expr, expected: str) -> None:
 DECLINED: list[tuple[str, pl.Expr]] = [
     ("python-level hash", pl.col("id").hash() % 2 == 0),
     ("aggregate in predicate", pl.col("val") > pl.col("val").mean()),
-    ("when/then", pl.when(pl.col("id") > 1).then(True).otherwise(False)),
-    ("str.slice", pl.col("cat").str.slice(0, 2) == "be"),
+    ("when/then on a number", pl.when(pl.col("id") > 1).then(True).otherwise(False)),
     # Lance's `ln` of a Float32 is an ulp off, and the column may be one.
     ("ln, untyped", pl.col("val").log() > 0.5),
     # Polars strips every Unicode whitespace; `btrim` strips spaces.
@@ -457,8 +495,16 @@ SCHEMA_DECLINED: list[tuple[str, pl.Expr]] = [
     ("floor division by a column", (pl.col("i64") // pl.col("i64")) == 1),
     # Lance divides a UInt64 as a decimal.
     ("floor division of a UInt64", (pl.col("u64") // 2) == 1),
-    # Lance's `trunc` loses the sign of `-0.0`.
-    ("float floor division", (pl.col("f64") // 2.0) == 1),
+    ("float floor division by a fraction", (pl.col("f64") // 0.5) == 1),
+    ("float32 floor division by a wider type", (pl.col("f32") // pl.col("f64")) == 1),
+    # A UInt64 against a signed integer is a decimal comparison in Lance.
+    ("eq_missing, UInt64 and signed", pl.col("u64").eq_missing(pl.col("i64"))),
+    ("eq_missing between floats", pl.col("f64").eq_missing(pl.col("f32"))),
+    # The branches must already share a type, which Lance would pick for itself.
+    (
+        "when/then of mixed types",
+        pl.when(pl.col("i64") > 0).then(pl.col("f32")).otherwise(pl.col("f64")) > 1,
+    ),
     # Lance is an ulp off.
     ("ln of a Float32", pl.col("f32").log() > 0),
     ("log10", pl.col("f64").log10() > 0),
@@ -513,7 +559,7 @@ def test_a_float32_column_gets_a_bound_of_its_own_type() -> None:
 # relaxation: what happens when only part of a predicate lowers
 # ---------------------------------------------------------------------------
 
-UNTRANSLATABLE = pl.col("cat").str.slice(0, 2) == "beta"
+UNTRANSLATABLE = pl.col("cat").str.to_titlecase().str.starts_with("beta")
 
 RELAXED: list[tuple[str, pl.Expr, LanceFilter | None]] = [
     # An AND keeps whatever lowered; the engine filters the rest.
@@ -637,7 +683,7 @@ def _random_predicate(rng: random.Random, depth: int) -> pl.Expr:
             lambda: pl.col("meta").struct.field("k") > rng.randrange(10),
             lambda: pl.col("flag"),
             # leaves with no Lance equivalent, to exercise relaxation
-            lambda: pl.col("cat").str.slice(0, 2) == "be",
+            lambda: pl.col("cat").str.to_titlecase().str.starts_with("Be"),
             lambda: pl.col("id").hash() % 3 == 0,
             lambda: pl.col("val").round(1) == 0.5,
         ]
@@ -884,6 +930,49 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("whole power of a float", (pl.col("f") ** 12.0) <= 1.0),
     ("eq_missing", pl.col("i").eq_missing(3)),
     ("ne_missing", pl.col("f").ne_missing(0.0)),
+    ("eq_missing a null", pl.col("i").eq_missing(None)),
+    ("ne_missing between columns", pl.col("i").ne_missing(pl.col("i") % 3)),
+    (
+        "eq_missing between strings",
+        pl.col("t").eq_missing(pl.col("t").str.to_lowercase()),
+    ),
+    ("float32 above a float64 literal", pl.col("h") > pl.lit(-0.3, pl.Float64)),
+    (
+        "float32 is_in float64",
+        pl.col("h").is_in(pl.Series([-0.3, -1.3], dtype=pl.Float64)),
+    ),
+    ("float32 is_in float32", pl.col("h").is_in(pl.Series([-1.3], dtype=pl.Float32))),
+    ("float floor division", (pl.col("f") // pl.col("g")) <= 0.0),
+    ("float floor division of a zero", (1.0 / (pl.col("f") // 2.0)) > 0),
+    ("float32 floor division", (pl.col("h") // pl.col("k")) > -1.0),
+    ("floor", pl.col("f").floor() >= 1.0),
+    ("ceil", pl.col("h").ceil() < 0.0),
+    ("ceil of an integer", pl.col("i").ceil() > 2),
+    (
+        "when/then",
+        pl.when(pl.col("i") > 2).then(pl.col("b")).otherwise(pl.col("f") > 0.0),
+    ),
+    ("when/then without otherwise", pl.when(pl.col("b")).then(pl.col("i") > 2)),
+    (
+        "chained when/then",
+        pl.when(pl.col("i") > 5)
+        .then(True)
+        .when(pl.col("i") < 0)
+        .then(pl.col("b"))
+        .otherwise(False),
+    ),
+    ("when/then as a value", pl.when(pl.col("b")).then(pl.col("i")).otherwise(-1) > 2),
+    (
+        "when/then of floats",
+        pl.when(pl.col("i") > 0).then(pl.col("f")).otherwise(pl.col("g")) > 1.0,
+    ),
+    (
+        "when/then of strings",
+        pl.when(pl.col("i") > 2).then(pl.col("t")).otherwise(pl.lit("x")) == "x",
+    ),
+    ("str.slice", pl.col("t").str.slice(1, 2) == "23"),
+    ("str.slice from the end", pl.col("t").str.slice(-3) == "NaN"),
+    ("str.slice past the start", pl.col("t").str.slice(-30, 28) == "12"),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
     ("try_cast string to int", pl.col("t").cast(pl.Int64, strict=False) == 7),
     ("try_cast string to null", pl.col("t").cast(pl.Int64, strict=False).is_null()),

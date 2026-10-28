@@ -70,7 +70,11 @@ def test_limit_reaches_lance_without_filter(
     ("predicate", "pushdown"),
     [
         pytest.param(pl.col("cat") == "d", True, id="pushed filter"),
-        pytest.param(pl.col("cat").str.slice(0, 1) == "d", True, id="residual filter"),
+        pytest.param(
+            pl.col("cat").str.to_titlecase().str.starts_with("D"),
+            True,
+            id="residual filter",
+        ),
         pytest.param(pl.col("cat") == "d", False, id="pushdown disabled"),
     ],
 )
@@ -144,7 +148,7 @@ PUSHED: list[tuple[str, pl.Expr, str]] = [
     # The pushed half narrows the read; the rest is finished in Polars.
     (
         "partly",
-        (pl.col("val") > 0.9) & (pl.col("cat").str.slice(0, 1) == "b"),
+        (pl.col("val") > 0.9) & (pl.col("cat").str.to_titlecase().str.starts_with("B")),
         "`val` > 0.9",
     ),
 ]
@@ -177,7 +181,10 @@ def test_predicate_reaches_lance(
     [
         pytest.param(pl.col("cat") == "b", False, False, id="disabled"),
         pytest.param(
-            pl.col("cat").str.slice(0, 1) == "b", True, False, id="untranslatable"
+            pl.col("cat").str.to_titlecase().str.starts_with("B"),
+            True,
+            False,
+            id="untranslatable",
         ),
         # `_rowid` does not exist while Lance evaluates the filter.
         pytest.param(pl.col("_rowid") < 10, True, True, id="generated column"),
@@ -250,14 +257,14 @@ END_TO_END: list[tuple[str, pl.Expr]] = [
     ("struct field", pl.col("meta").struct.field("s") == "gamma"),
     (
         "relaxed conjunction",
-        (pl.col("id") > 500) & (pl.col("cat").str.slice(0, 1) == "b"),
+        (pl.col("id") > 500) & (pl.col("cat").str.to_titlecase().str.starts_with("B")),
     ),
     (
         "nested",
         ((pl.col("cat") == "beta") | pl.col("odd").is_nan())
         & pl.col("text").str.contains("row-001", literal=True),
     ),
-    ("nothing pushable", pl.col("cat").str.slice(1, 2) == "et"),
+    ("nothing pushable", pl.col("cat").str.to_titlecase().str.ends_with("eta")),
 ]
 
 
@@ -286,8 +293,11 @@ def test_scan_matches_an_eager_read(
         pl.col("val") <= 0.001,
         pl.col("val").eq_missing(0.5),
         pl.col("val").ne_missing(0.5),
+        # Polars' optimizer casts the Float32 to compare it with a Float64.
+        pl.col("f32") > pl.lit(0.5, pl.Float64),
+        pl.col("f32").is_in(pl.Series([0.5, 0.25])),
     ],
-    ids=["above", "at most", "eq_missing", "ne_missing"],
+    ids=["above", "at most", "eq_missing", "ne_missing", "float32", "float32 is_in"],
 )
 def test_an_indexed_column_keeps_its_index(
     predicate: pl.Expr,
@@ -296,10 +306,12 @@ def test_an_indexed_column_keeps_its_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A `CAST` or `IS TRUE` around an indexed column costs the index."""
+    frame = rich_frame.with_columns(f32=pl.col("val").cast(pl.Float32))
     uri = str(tmp_path / "indexed.lance")
-    lance.write_dataset(rich_frame.to_arrow(), uri)
+    lance.write_dataset(frame.to_arrow(), uri)
     dataset = lance.dataset(uri)
-    dataset.create_scalar_index("val", index_type="BTREE")
+    for column in ("val", "f32"):
+        dataset.create_scalar_index(column, index_type="BTREE")
 
     # Recording starts here, rather than at fixture time, so building the index
     # above does not count as a pushed-down filter.
@@ -314,7 +326,7 @@ def test_an_indexed_column_keeps_its_index(
 
     assert len(filters) == 1
     assert "ScalarIndexQuery" in dataset.scanner(filter=filters[0]).explain_plan()
-    assert got.item() == rich_frame.filter(predicate).height
+    assert got.item() == frame.filter(predicate).height
 
 
 @pytest.mark.parametrize(
