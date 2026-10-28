@@ -39,7 +39,7 @@ dependencies = [
     "polars>=1.44.1",
     # 12 is the first release to treat `-0.0` and `0.0` alike against a zero
     # literal (lance-format/lance#6236), which the lowering relies on.
-    "pylance>=12",
+    "pylance>=14",
     "pyarrow",
 ]
 

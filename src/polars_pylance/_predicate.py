@@ -49,8 +49,12 @@ _COMPARISONS = {
     "GtEq": ">=",
 }
 # `eq_missing` / `ne_missing` against a non-null literal: a null row becomes
-# false / true, so the result stays two-valued under NOT and XOR.
-_NULL_SAFE = {"EqValidity": "IS TRUE", "NotEqValidity": "IS NOT TRUE"}
+# false / true, so the result stays two-valued under NOT and XOR. Not `IS TRUE`,
+# which no scalar index serves.
+_NULL_SAFE = {
+    "EqValidity": "({} AND {} IS NOT NULL)",
+    "NotEqValidity": "(NOT {} OR {} IS NULL)",
+}
 
 _ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*"}
 
@@ -158,6 +162,9 @@ class _Value:
     # Cannot be NaN even as a float: a literal, or a cast of a value that is
     # known not to be a float.
     nan_free: bool = False
+    # The Float32 this is a widening cast of, as Polars' optimizer inserts it to
+    # compare with a Float64.
+    widened: _Value | None = None
 
     @property
     def floating(self) -> bool:
@@ -196,9 +203,23 @@ class _Value:
         """Known to hold no NaN: a non-float type, or a `nan_free` float."""
         return self.nan_free or (self.dtype is not None and not self.floating)
 
+    def unwidened(self) -> _Value:
+        return self.widened or self
+
     def as_double(self, *, float32: bool = False) -> _Value:
-        """This value as a float, widening a Float32 too if `float32`."""
-        if self.floating and not (float32 and self.is_float32):
+        """This value as a float, a literal typed as a double if `float32`.
+
+        Lance narrows a typed literal to a Float32 column only where that is exact,
+        and compares in double otherwise; either way the column keeps its index.
+        """
+        if float32 and self.is_literal and self.sql != "NULL":
+            return _Value(
+                f"CAST({self.sql} AS double)",
+                dtype=pl.Float64(),
+                is_literal=True,
+                nan_free=True,
+            )
+        if self.floating:
             return self
         return _Value(
             f"CAST({self.sql} AS double)",
@@ -329,15 +350,29 @@ class _Lowering:
             return _column(body), True
         if kind == "Literal":
             value = _literal_series(node)
-            if value.dtype == pl.Boolean and value.len() == 1:
+            if isinstance(value.dtype, (pl.Boolean, pl.Null)) and value.len() == 1:
                 item = value.item()
                 if item is None:
                     # Not `FALSE`: that would turn true under negation.
                     return _NULL_BOOLEAN, True
                 return ("TRUE" if item else "FALSE"), True
             return None, False
-        # Ternary (when/then/otherwise) has no Lance spelling: CASE is rejected.
+        if kind == "Ternary":
+            return self._ternary(_fields(body))
         return None, False
+
+    def _ternary(self, body: dict[str, Json]) -> tuple[str | None, bool]:
+        """`when/then/otherwise`, whose `otherwise` a null condition takes too.
+
+        Lance rejects `CASE`. The condition is negated, so it must be exact.
+        """
+        condition, condition_exact = self.predicate(_field(body, "predicate"))
+        truthy, truthy_exact = self.predicate(_field(body, "truthy"))
+        falsy, falsy_exact = self.predicate(_field(body, "falsy"))
+        if condition is None or truthy is None or falsy is None or not condition_exact:
+            return None, False
+        sql = f"(({condition} IS TRUE AND {truthy}) OR ({condition} IS NOT TRUE"
+        return f"{sql} AND {falsy}))", truthy_exact and falsy_exact
 
     def _binary_predicate(self, node: Json) -> tuple[str | None, bool]:
         body = _fields(node)
@@ -365,18 +400,11 @@ class _Lowering:
                 _COMPARISONS[op], _field(body, "left"), _field(body, "right")
             )
         if op in _NULL_SAFE:
-            lhs, rhs = _field(body, "left"), _field(body, "right")
-            for value, other in ((rhs, lhs), (lhs, rhs)):
-                if _is_non_null_literal(value):
-                    comparison, exact = self._compare("=", other, value)
-                    return f"({comparison} {_NULL_SAFE[op]})", exact
-            return None, False
+            return self._null_safe(op, _field(body, "left"), _field(body, "right"))
 
         if op == "Xor":
-            # Not `left != right`: with a boolean column on the left, Lance
-            # converts every literal on the right to Boolean and fails to plan
-            # `flag != (id > 0)`. Both halves of the expansion must be exact,
-            # since it negates each of them.
+            # Not `left != right`, which no scalar index serves; the expansion
+            # reaches one. Both halves must be exact, since it negates each of them.
             left, left_exact = self.predicate(_field(body, "left"))
             right, right_exact = self.predicate(_field(body, "right"))
             if left is None or right is None or not (left_exact and right_exact):
@@ -386,6 +414,28 @@ class _Lowering:
                 True,
             )
         return None, False
+
+    def _null_safe(self, op: str, lhs: Json, rhs: Json) -> tuple[str, bool]:
+        """`eq_missing` / `ne_missing`, two-valued so they survive NOT and XOR."""
+        for value, other in ((rhs, lhs), (lhs, rhs)):
+            literal = _single_literal(value)
+            if literal is None:
+                continue
+            if literal.item() is None:
+                null = "IS NULL" if op == "EqValidity" else "IS NOT NULL"
+                return f"({self.value(other).sql} {null})", True
+            comparison, exact = self._compare("=", other, value)
+            return _NULL_SAFE[op].format(comparison, self.value(other).sql), exact
+        # Between two values, which no index serves anyway. Floats compare by
+        # Lance's total order below pylance 15.
+        left, right = self.value(lhs), self.value(rhs)
+        alike = left.dtype == right.dtype and isinstance(
+            left.dtype, (pl.Boolean, pl.String)
+        )
+        if not (alike or _integers(left.dtype, right.dtype)):
+            raise _Decline
+        distinct = "IS NOT DISTINCT FROM" if op == "EqValidity" else "IS DISTINCT FROM"
+        return f"({left.sql} {distinct} {right.sql})", True
 
     def _compare(self, op: str, left: Json, right: Json) -> tuple[str, bool]:
         lhs, rhs = self.value(left), self.value(right)
@@ -401,7 +451,9 @@ class _Lowering:
         )
         if lhs.is_float_literal != rhs.is_float_literal:
             # Lance refuses the mixed comparison Polars promotes through, and
-            # would narrow a Float64 literal to a Float32 column.
+            # narrows a bare Float64 literal to a Float32 column, so the literal
+            # is typed instead, also where Polars' optimizer cast the column.
+            lhs, rhs = lhs.unwidened(), rhs.unwidened()
             widen = lhs.is_float32 != rhs.is_float32
             lhs, rhs = lhs.as_double(float32=widen), rhs.as_double(float32=widen)
         return _float_comparison(op, lhs, rhs), True
@@ -490,7 +542,7 @@ class _Lowering:
     ) -> tuple[str | None, bool]:
         if len(args) != 2:
             return None, False
-        column, values = self.value(args[0]), _literal_elements(args[1])
+        column, values = self.value(args[0]).unwidened(), _literal_elements(args[1])
         if values.len() > self.max_in_list:
             return None, False
         if column.untyped and values.dtype.is_numeric() and not self.types_known_later:
@@ -510,8 +562,10 @@ class _Lowering:
             # that it stays dropped under negation.
             return f"({column.sql} IS NULL AND {_NULL_BOOLEAN})", True
         rendered = [_scalar(v, values.dtype) for v in values]
-        if values.dtype.is_float():
-            column = column.as_double(float32=True)
+        if column.is_float32 and values.dtype == pl.Float64:
+            rendered = [f"CAST({r} AS double)" for r in rendered]
+        elif values.dtype.is_float():
+            column = column.as_double()
         membership = f"({column.sql} IN ({', '.join(rendered)}))"
         if nulls_equal:
             # Total: a null input matches a null element and nothing else.
@@ -610,7 +664,37 @@ class _Lowering:
             return self._arithmetic(body)
         if kind == "Function":
             return self._function_value(body)
+        if kind == "Ternary":
+            return self._ternary_value(_fields(body))
         raise _Decline
+
+    def _ternary_value(self, body: dict[str, Json]) -> _Value:
+        """`when/then/otherwise` as a value, through `nvl2`.
+
+        DataFusion rewrites `nvl2` into a lazy `CASE`; a Boolean first argument
+        fails its coercion, hence the `bigint`. Both branches must already share
+        Polars' type, which Lance would otherwise pick for itself.
+        """
+        condition, exact = self.predicate(_field(body, "predicate"))
+        if condition is None or not exact:
+            raise _Decline
+        truthy_node, falsy_node = _field(body, "truthy"), _field(body, "falsy")
+        truthy, falsy = self.value(truthy_node), self.value(falsy_node)
+        truthy = self._coerce_literal(truthy, falsy, truthy_node)
+        falsy = self._coerce_literal(falsy, truthy, falsy_node)
+        if falsy.sql == "NULL":
+            dtype = truthy.dtype
+        elif truthy.sql == "NULL" or truthy.dtype == falsy.dtype:
+            dtype = falsy.dtype
+        elif _integers(truthy.dtype, falsy.dtype):
+            dtype = pl.Int64()
+        else:
+            raise _Decline
+        return _Value(
+            f"nvl2(NULLIF(CAST({condition} IS TRUE AS bigint), 0),"
+            f" {truthy.sql}, {falsy.sql})",
+            dtype=dtype,
+        )
 
     def _cast(self, node: Json) -> _Value:
         body = _fields(node)
@@ -632,6 +716,7 @@ class _Lowering:
             dtype=target,
             # A string can parse to NaN.
             nan_free=inner.cannot_be_nan and inner.dtype != pl.String,
+            widened=inner if name == "Float64" and inner.is_float32 else None,
         )
 
     def _arithmetic(self, node: Json) -> _Value:
@@ -662,23 +747,23 @@ class _Lowering:
         )
 
     def _remainder_or_floor(self, left: Json, right: Json, *, floor: bool) -> _Value:
-        """`a % b`, or `a // b` if `floor`, over integers.
+        """`a % b`, or `a // b` if `floor`.
 
-        Polars' remainder takes the divisor's sign and SQL's the dividend's, so the
-        divisor is added back where they differ, which cannot overflow; the quotient
-        is one less there. A zero divisor gives null in Polars and fails the scan in
-        Lance, hence `NULLIF`. `min // -1` wraps in Polars and fails the scan in
-        Lance, and Lance divides a UInt64 as a decimal.
+        Over integers, Polars' remainder takes the divisor's sign and SQL's the
+        dividend's, so the divisor is added back where they differ, which cannot
+        overflow; the quotient is one less there. A zero divisor gives null in
+        Polars and fails the scan in Lance, hence `NULLIF`. `min // -1` wraps in
+        Polars and fails the scan in Lance, and Lance divides a UInt64 as a decimal.
         """
         dividend, divisor = self.value(left), self.value(right)
+        if dividend.floating or divisor.floating:
+            return self._float_floor(dividend, divisor, floor=floor)
         if floor and (
             not divisor.is_literal
             or divisor.sql == "-1"
             or pl.UInt64 in (dividend.dtype, divisor.dtype)
         ):
             raise _Decline
-        if not floor and (dividend.floating or divisor.floating):
-            return self._float_modulus(dividend, divisor)
         for value in (dividend, divisor):
             integer = value.dtype is not None and value.dtype.is_integer()
             if not (integer or (value.untyped and self.types_known_later)):
@@ -691,12 +776,12 @@ class _Lowering:
             sql = f"(({dividend.sql} / {b}) - {differs})"
         return _Value(sql, dtype=_numeric_supertype(dividend.dtype, divisor.dtype))
 
-    def _float_modulus(self, a: _Value, b: _Value) -> _Value:
-        """`a % b` over floats, Polars' `a - b * floor(a / b)`.
+    def _float_floor(self, a: _Value, b: _Value, *, floor: bool) -> _Value:
+        """`a % b` over floats, Polars' `a - b * floor(a / b)`, or `a // b`.
 
-        Lance has no `floor`, so it is `trunc` less one where that rounded up. A
+        `FLOOR(x)` is syntax Lance rejects; quoted, `floor` is a plain call. A
         Float32 is computed as one, which a wider operand would undo, and Polars'
-        kernel for a fractional literal divisor disagrees with its own.
+        kernels for a fractional literal divisor disagree with their own.
         """
         dtype = _numeric_supertype(a.dtype, b.dtype)
         float32 = isinstance(dtype, pl.Float32)
@@ -704,14 +789,14 @@ class _Lowering:
             numeric = v.dtype is not None and (v.floating or v.dtype.is_integer())
             if not (numeric or (v.untyped and self.types_known_later)):
                 raise _Decline
-            if v.is_literal and not float(v.sql).is_integer():
+            if v.is_literal and (v.sql == "NULL" or not float(v.sql).is_integer()):
                 raise _Decline
             if v.is_float32 and not float32:
                 raise _Decline
-        q, cast = f"({a.sql} / {b.sql})", "float" if float32 else "double"
-        floor = f"(trunc({q}) - CAST(trunc({q}) - {q} > 0.0 AS {cast}))"
-        # `+ 0.0` turns the `-0.0` of an exact multiple into Polars' `0.0`.
-        return _Value(f"(({a.sql} - {b.sql} * {floor}) + 0.0)", dtype=dtype)
+        quotient = f"`floor`({a.sql} / {b.sql})"
+        if floor:
+            return _Value(quotient, dtype=dtype)
+        return _Value(f"({a.sql} - {b.sql} * {quotient})", dtype=dtype)
 
     def _function_value(self, node: Json) -> _Value:
         name, payload, args = _function(node)
@@ -722,6 +807,18 @@ class _Lowering:
         if name == ("Negate",):
             inner = self.value(args[0])
             return _Value(f"(- {inner.sql})", dtype=inner.dtype)
+        if name in (("Floor",), ("Ceil",)):
+            inner = self.value(args[0])
+            if inner.dtype is not None and inner.dtype.is_integer():
+                return inner
+            if not (inner.floating or (inner.untyped and self.types_known_later)):
+                raise _Decline
+            # Quoted: `FLOOR(x)` and `CEIL(x)` are syntax Lance rejects.
+            return _Value(
+                f"`{name[0].lower()}`({inner.sql})",
+                dtype=inner.dtype,
+                nan_free=inner.nan_free,
+            )
         if name == ("FillNull",) and len(args) == 2:
             left, right = self.value(args[0]), self.value(args[1])
             return _Value(
@@ -771,24 +868,25 @@ class _Lowering:
         raise _Decline
 
     def _power(self, args: Sequence[Json]) -> _Value:
-        """`a ** b`, for a positive literal exponent.
+        """`a ** b` where Polars computes `powf` in Float64, as Lance does.
 
-        Lance folds `power(x, 0)` to 1, dropping nulls, and fails the scan on
-        `0 ** -1`, which is `inf` in Polars. A fractional exponent needs an integer
-        base: `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance.
+        Not to an integer exponent (wrapping integer arithmetic), of a Float32, or
+        to 0.5 or a whole exponent below 10, which Polars takes as `sqrt` or
+        multiplies out. Lance folds `power(x, 0)` to 1 and fails on `0 ** -1`.
         """
-        exponent = _literal(args[1])
-        base = self.value(args[0])
-        whole = exponent.dtype is not None and exponent.dtype.is_integer()
-        fractional = isinstance(exponent.dtype, pl.Float64) and (
-            base.dtype is not None and base.dtype.is_integer()
-        )
-        if not (whole or fractional) or float(exponent.sql) <= 0:
+        exponent, base = _literal(args[1]), self.value(args[0])
+        integer = base.dtype is not None and base.dtype.is_integer()
+        typed = isinstance(base.dtype, pl.Float64) or integer
+        if (
+            not isinstance(exponent.dtype, pl.Float64)
+            or exponent.sql == "NULL"
+            or not (typed or (base.untyped and self.types_known_later))
+        ):
             raise _Decline
-        return _Value(
-            f"power({base.sql}, {exponent.sql})",
-            dtype=base.dtype if whole else pl.Float64(),
-        )
+        value = float(exponent.sql)
+        if value <= 0 or value == 0.5 or (value.is_integer() and value < 10):
+            raise _Decline
+        return _Value(f"power({base.sql}, {exponent.sql})", dtype=pl.Float64())
 
     def _root_or_log(self, name: str, args: Sequence[Json]) -> _Value:
         """`sqrt`, `cbrt` and `log` to base e, which Lance computes bit for bit.
@@ -853,7 +951,27 @@ class _Lowering:
             return self._replace(_options(payload), column, args)
         if name == "ConcatHorizontal":
             return self._concat(_options(payload), args)
+        if name == "Slice" and len(args) == 3:
+            return self._slice(column, args)
         raise _Decline
+
+    def _slice(self, column: str, args: Sequence[Json]) -> _Value:
+        """`str.slice`, as `substr`, which counts characters too.
+
+        Quoted: `SUBSTR(...)` is syntax Lance rejects. A negative offset counts from
+        the end; both clip the requested window to the string.
+        """
+        offset, length = _literal(args[1]), _literal(args[2])
+        if not (offset.dtype and offset.dtype.is_integer()) or not (
+            length.sql == "NULL" or (length.dtype and length.dtype.is_integer())
+        ):
+            raise _Decline
+        start = str(int(offset.sql) + 1)
+        if int(offset.sql) < 0:
+            start = f"character_length({column}) + {start}"
+        if length.sql == "NULL":
+            return _Value(f"`substr`({column}, {start})", dtype=pl.String())
+        return _Value(f"`substr`({column}, {start}, {length.sql})", dtype=pl.String())
 
     def _concat(self, options: dict[str, Json], args: Sequence[Json]) -> _Value:
         """`concat_str`, which is what the optimizer rewrites a string `+` into.
@@ -1010,7 +1128,7 @@ def _column(name: Json) -> str:
 
 
 def _quote(name: str) -> str:
-    """Backtick-quote an identifier; Lance rejects the double-quoted form."""
+    """Backtick-quote an identifier; Lance reads a double-quoted one as a string."""
     if "`" in name:
         raise _Decline
     return f"`{name}`"
@@ -1130,8 +1248,9 @@ def _struct_field(dtype: pl.DataType | None, name: str) -> pl.DataType | None:
 def _try_cast_exact(target: str, source: pl.DataType | None) -> bool:
     """Whether `TRY_CAST` nulls exactly the rows a non-strict Polars cast does.
 
-    Probed on pylance 9 and 13.0.0b4. Floats print large exponents differently
-    (`1e+308`, `1e308`), Polars refuses strings to booleans, and dates are unprobed.
+    Probed on pylance 9 and 13.0.0b4, and rechecked on 12.0.0, 14.0.0 and 15.0.0b3.
+    Floats print large exponents differently (`1e+308`, `1e308`), Polars refuses
+    strings to booleans, and dates are unprobed.
     """
     if source is None:
         return False
@@ -1157,10 +1276,11 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
     against each other.
 
     Against a literal, which is never NaN, the comparison stays on the column so
-    that a scalar index still applies: `x < -inf`, which holds exactly for a
-    negative NaN, is added to or excluded from the ordering comparisons. Each
-    extra test is null whenever `x` is, so nulls propagate as the plain
-    comparison would.
+    that a scalar index still applies. `>` and `>=` add `x < -inf`, true exactly
+    for a negative NaN, and `x = NaN`, without which a zone map below pylance 15
+    skips zones of positive NaNs. `<` and `<=` add `NOT isnan(x)`, which the index
+    leaves to a refining filter. Each extra test is null whenever `x` is, so nulls
+    propagate as the plain comparison would.
 
     Between two float values, `nanvl` gives every NaN the positive sign and the
     pair of zeros is decided explicitly.
@@ -1180,10 +1300,13 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
         compared = f"({value} {op} {rhs.sql})"
         if not lhs.may_be_nan or op in ("=", "!="):
             return compared
-        neg_inf = "CAST('-inf' AS float)" if lhs.is_float32 else _NEG_INF
-        if op in (">", ">="):
-            return f"({compared} OR {value} < {neg_inf})"
-        return f"({compared} AND {value} >= {neg_inf})"
+        if op in ("<", "<="):
+            return f"({compared} AND NOT isnan({value}))"
+        sql_type = "float" if lhs.is_float32 else "double"
+        return (
+            f"({compared} OR {value} < CAST('-inf' AS {sql_type})"
+            f" OR {value} = CAST('NaN' AS {sql_type}))"
+        )
 
     def positive_nan(value: _Value) -> str:
         if value.may_be_nan:
@@ -1205,8 +1328,16 @@ def _string_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _is_non_null_literal(node: Json) -> bool:
+def _single_literal(node: Json) -> pl.Series | None:
+    """The value of a one-element literal node, or None for anything else."""
     if not (isinstance(node, dict) and list(node) == ["Literal"]):
-        return False
+        return None
     series = _literal_series(node)
-    return series.len() == 1 and series.item() is not None
+    return series if series.len() == 1 else None
+
+
+def _integers(*dtypes: pl.DataType | None) -> bool:
+    """All integers, none a UInt64, which Lance mixes with a signed one as a decimal."""
+    return pl.UInt64 not in dtypes and all(
+        d is not None and d.is_integer() for d in dtypes
+    )
