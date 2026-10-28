@@ -478,6 +478,15 @@ def test_declined(predicate: pl.Expr) -> None:
 # With a schema, where Lance still computes something else than Polars.
 SCHEMA_DECLINED: list[tuple[str, pl.Expr]] = [
     # Polars takes `sqrt`: `(-inf) ** 0.5` is NaN there and `inf` in Lance.
+    # Polars' JSON IR writes an infinity as null; a one-element Series keeps it,
+    # but the lowering reads a scalar literal's SQL back as a number.
+    ("infinite literal", pl.col("f64") > float("-inf")),
+    (
+        "infinite one-element Series",
+        (pl.col("f64") % pl.lit(pl.Series([float("inf")]))) > 1,
+    ),
+    # Lance orders NaN by its sign below pylance 15.
+    ("is_in a nan", pl.col("f64").is_in([float("nan")])),
     ("square root as a power", (pl.col("f64") ** 0.5) > 0.5),
     ("square root of an integer as a power", (pl.col("i64") ** 0.5) > 0.5),
     # Polars multiplies these out, an ulp off Lance's `powf`.
@@ -973,6 +982,20 @@ EDGE_PREDICATES: list[tuple[str, pl.Expr]] = [
     ("str.slice", pl.col("t").str.slice(1, 2) == "23"),
     ("str.slice from the end", pl.col("t").str.slice(-3) == "NaN"),
     ("str.slice past the start", pl.col("t").str.slice(-30, 28) == "12"),
+    # Polars hands an `is_in` list over as Arrow IPC, which keeps an infinity; a
+    # scalar literal reaches the lowering without its value.
+    ("is_in an infinity", pl.col("f").is_in([float("inf"), 2.5])),
+    ("is_in an infinity, negated column", (-pl.col("f")).is_in([float("-inf")])),
+    ("float32 is_in an infinity", pl.col("h").is_in([float("-inf"), -1.8])),
+    (
+        "float32 is_in a Float32 infinity",
+        pl.col("h").is_in(pl.Series([float("-inf")], dtype=pl.Float32)),
+    ),
+    ("integer is_in an infinity", pl.col("i").is_in([float("inf"), 3.0])),
+    (
+        "is_in an infinity, nulls_equal",
+        pl.col("f").is_in([float("inf"), None], nulls_equal=True),
+    ),
     ("kleene or", pl.col("b") | (pl.col("i") > 2)),
     ("try_cast string to int", pl.col("t").cast(pl.Int64, strict=False) == 7),
     ("try_cast string to null", pl.col("t").cast(pl.Int64, strict=False).is_null()),
