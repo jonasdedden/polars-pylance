@@ -110,41 +110,34 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
 | `log` to a base other than e, `ln` of a Float32 | Lance is an ulp off |
-| `a ** b` to an integer, 0.5 or a whole number below 10, or of a Float32 | Polars computes in wrapping integers or in Float32, takes `sqrt`, or multiplies out; Lance's `powf` in Float64 differs |
+| `a ** b`, fractional exponent over a float | `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance |
 | `a ** b`, zero or negative exponent | Lance folds `x ** 0` to 1, dropping nulls; `0 ** -1` is `inf` in Polars and fails the scan in Lance |
 | `str.strip_chars()` with no argument | Polars strips Unicode whitespace, `btrim` strips spaces |
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
 | `str.to_titlecase` | `initcap` disagrees on words starting with a digit |
+| `str.slice` | Lance has no `substr` |
 | `list.get` without `null_on_oob` | Polars raises where `array_element` returns null |
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
-| `//` over integers by -1 or a column, or of a UInt64 | Lance fails the scan on `min // -1`, and divides a UInt64 as a decimal |
-| `%` and `//` over floats by a fractional literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
+| `//` over floats, by -1 or a column, or of a UInt64 | Lance loses the sign of `-0.0`, fails the scan on `min // -1`, and divides a UInt64 as a decimal |
+| `%` by a fractional float literal, or between a Float32 and a wider type | Polars' own kernels disagree, or Lance widens the Float32 |
 | narrowing integer cast | not translated yet; Polars and Lance both raise on overflow |
 | non-strict cast from float to string, string to boolean, or to a date | `TRY_CAST` nulls different rows than Polars |
 | `Time` and `Duration` literals | Lance has no matching type |
-| `when/then` with an inexact condition, or as a value whose branches differ in type | the condition is negated; Lance would pick the result type itself |
-| `eq_missing` between floats, or a UInt64 and a signed integer | Lance compares floats by total order below pylance 15, and the integers as decimals |
+| `when/then` | Lance rejects `CASE` |
 
 Everything else translates, including `is_in` of any length (also with `nulls_equal`), `xor`,
-`eq_missing`, `when/then/otherwise`, arithmetic (`%` and `//` included), `abs`, `floor`,
-`ceil`, `sqrt`, `cbrt`, `ln`, `**`, `min_horizontal` / `max_horizontal`, `fill_null`, the
-`is_nan` family, `cast` (non-strict as `TRY_CAST`), the `dt` parts, `str.slice`,
-`list.contains` / `len` / `get`, `struct.field` and `concat_str`.
-
-Lance's planner rejects `CASE`, `FLOOR(x)`, `CEIL(x)` and `SUBSTRING(...)` as syntax.
-`floor`, `ceil` and `substr` are sent backtick-quoted, which makes them plain function
-calls, and `when/then/otherwise` as `(c IS TRUE AND a) OR (c IS NOT TRUE AND b)`, or as a
-value through `nvl2`, which DataFusion turns into a `CASE`.
+`eq_missing`, arithmetic (`%` and `//` included), `abs`, `sqrt`, `cbrt`, `ln`, `**`,
+`min_horizontal` / `max_horizontal`, `fill_null`, the `is_nan` family,
+`cast` (non-strict as `TRY_CAST`), the `dt` parts, `list.contains` /
+`len` / `get`, `struct.field` and `concat_str`.
 
 Float comparisons translate with a correction for NaN. Lance orders it by IEEE total
 order, so a NaN with its sign bit set, which is what `0 / 0` produces, sorts below
 every number, where Polars puts every NaN above. So `val > 0.5` is sent as
-`((val > 0.5) OR val < CAST('-inf' AS double) OR val = CAST('NaN' AS double))`, and
-`val < 0.5` as `((val < 0.5) AND NOT isnan(val))`. Both still use a scalar index on
-`val`. The `val = NaN` term is for a zone map, which before pylance 15 skips a zone
-holding only positive NaNs.
+`((val > 0.5) OR val < CAST('-inf' AS double))`, which still uses a scalar index on
+`val`.
 
 That needs the column types. `scan_lance` always has them. Called without
 `schema=`, `to_lance_filter` cannot tell an integer column from a float one, or a
