@@ -1152,10 +1152,12 @@ def _literal(node: Json) -> _Value:
     series = _literal_series(node)
     if series.len() != 1:
         raise _Decline
-    dtype = series.dtype
-    return _Value(
-        _scalar(series.item(), dtype), dtype=dtype, is_literal=True, nan_free=True
-    )
+    dtype, item = series.dtype, series.item()
+    if isinstance(item, float) and math.isinf(item):
+        # Only a one-element Series keeps it; the rest of the lowering reads a
+        # scalar literal's SQL back as a number.
+        raise _Decline
+    return _Value(_scalar(item, dtype), dtype=dtype, is_literal=True, nan_free=True)
 
 
 def _literal_elements(node: Json) -> pl.Series:
@@ -1184,7 +1186,9 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         return _string_literal(str(value))
     if dtype.is_integer() and isinstance(value, (int, float)):
         return str(int(value))
-    if dtype.is_float() and isinstance(value, (int, float)) and math.isfinite(value):
+    if dtype.is_float() and isinstance(value, (int, float)) and not math.isnan(value):
+        if math.isinf(value):
+            return f"CAST('{value}' AS {'float' if dtype == pl.Float32 else 'double'})"
         return repr(float(value))
     if dtype == pl.Date:
         if not isinstance(value, dt.date):
@@ -1203,8 +1207,8 @@ def _scalar(value: object, dtype: pl.DataType) -> str:
         if not isinstance(value, (bytes, bytearray)):
             raise _Decline
         return f"X'{bytes(value).hex()}'"
-    # Time, Duration, Decimal, every nested dtype, and NaN or infinite floats: no
-    # dependable spelling.
+    # Time, Duration, Decimal, every nested dtype, and NaN, which Lance orders by
+    # its sign below pylance 15: no dependable spelling.
     raise _Decline
 
 
