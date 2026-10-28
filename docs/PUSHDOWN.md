@@ -116,7 +116,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
 | `str.contains_any(ascii_case_insensitive=True)` | Polars folds ASCII only |
 | `str.to_titlecase` | `initcap` disagrees on words starting with a digit |
-| `str.slice` | not translated yet: Lance's planner rejects `SUBSTRING`, but a backtick-quoted ``` `substr` ``` works for a non-negative offset |
+| `str.slice` | not translated yet: Lance's planner rejects `SUBSTRING`, but a backtick-quoted ``` `substr` ``` works, with `character_length` for a negative offset |
 | `list.get` without `null_on_oob` | Polars raises where `array_element` returns null |
 | `dt.epoch` | `date_part('epoch', ...)` keeps the fraction |
 | `dt.truncate` of a multiple ("2d") | `date_trunc` takes a unit, not a window |
