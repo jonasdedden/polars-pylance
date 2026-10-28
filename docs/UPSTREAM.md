@@ -5,7 +5,7 @@ is [14.0.1](https://github.com/lance-format/lance/releases/tag/v14.0.1); 15.0.0 
 beta (`15.0.0b4`, from `https://pypi.fury.io/lance-format/`). Every Lance release up to
 15.0.0-beta.4 builds on DataFusion 54.1.0. Lance `main` moved to DataFusion 55.2.0 with
 [lance#10397](https://github.com/lance-format/lance/pull/10397) on 2026-10-28, and the
-15.0.0 betas are cut from `main`. Code links point at `main` @ `f058bc6`.
+15.0.0 betas are cut from `main`. Code links point at `main` @ `bf9a7a8`.
 
 Every claim below was checked against pylance 14.0.0, 14.0.1, 15.0.0b3 and 15.0.0b4 by
 running the SQL against data holding NaN of both signs, signed zeros, infinities,
@@ -23,9 +23,9 @@ the code.
 
 | Workaround | Code | Upstream | Fixed in |
 | --- | --- | --- | --- |
-| **NaN sign against a literal.** Lance orders a NaN with its sign bit set (what `0 / 0` gives on x86) below `-inf`; Polars puts every NaN above every number. `>` / `>=` add `x < -inf`, which holds exactly for a negative NaN. Pylance 15 adds that term itself (`x > 1.0` plans as `OR([x > 1], [x < -inf])` on the index), also for computed and Float32 values. | [`_float_comparison`, L1298-1309][pred-literal] | [lance#9315](https://github.com/lance-format/lance/issues/9315), fixed by [lance#9628](https://github.com/lance-format/lance/pull/9628) | 15.0.0-beta.2 |
-| **Zone maps skip NaN-only zones.** A ZONEMAP index treats a zone holding only positive NaNs as empty, so `>` / `>=` add `x = NaN`, and `<` / `<=` use `NOT isnan(x)` rather than `x >= -inf`, which under `NOT` would become such a range again. Both keep a BTREE index. Pylance 15 reads zone maps written by 14 correctly too. | [`_float_comparison`, L1298-1309][pred-literal] | [lance#10102](https://github.com/lance-format/lance/pull/10102) | 15.0.0-beta.1 |
-| **NaN sign and signed zeros between two float values.** Arrow's total order puts `-0.0` below `0.0` and a negative NaN below everything. `nanvl(x, NaN)` gives every NaN the positive sign, and the pair of zeros is decided explicitly. Pylance 15 compares through its own `_lance_compare_floats`, which ignores both signs; all six operators match Polars on 15.0.0b4, computed values and Float32 against Float64 included. ([datafusion#22835](https://github.com/apache/datafusion/pull/22835) in DataFusion 55 normalizes zeros only, not NaN, and does not matter here.) | [`_float_comparison`, L1311-1320][pred-columns] | [lance#9315](https://github.com/lance-format/lance/issues/9315), [lance#9316](https://github.com/lance-format/lance/issues/9316), fixed by [lance#9628](https://github.com/lance-format/lance/pull/9628) | 15.0.0-beta.2 |
+| **NaN sign against a literal.** Lance orders a NaN with its sign bit set (what `0 / 0` gives on x86) below `-inf`; Polars puts every NaN above every number. `>` / `>=` add `x < -inf`, which holds exactly for a negative NaN. Pylance 15 adds that term itself (`x > 1.0` plans as `OR([x > 1], [x < -inf])` on the index), also for computed and Float32 values. | [`_float_comparison`, L1302-1313][pred-literal] | [lance#9315](https://github.com/lance-format/lance/issues/9315), fixed by [lance#9628](https://github.com/lance-format/lance/pull/9628) | 15.0.0-beta.2 |
+| **Zone maps skip NaN-only zones.** A ZONEMAP index treats a zone holding only positive NaNs as empty, so `>` / `>=` add `x = NaN`, and `<` / `<=` use `NOT isnan(x)` rather than `x >= -inf`, which under `NOT` would become such a range again. Both keep a BTREE index. Pylance 15 reads zone maps written by 14 correctly too. | [`_float_comparison`, L1302-1313][pred-literal] | [lance#10102](https://github.com/lance-format/lance/pull/10102) | 15.0.0-beta.1 |
+| **NaN sign and signed zeros between two float values.** Arrow's total order puts `-0.0` below `0.0` and a negative NaN below everything. `nanvl(x, NaN)` gives every NaN the positive sign, and the pair of zeros is decided explicitly. Pylance 15 compares through its own `_lance_compare_floats`, which ignores both signs; all six operators match Polars on 15.0.0b4, computed values and Float32 against Float64 included. ([datafusion#22835](https://github.com/apache/datafusion/pull/22835) in DataFusion 55 normalizes zeros only, not NaN, and does not matter here.) | [`_float_comparison`, L1315-1324][pred-columns] | [lance#9315](https://github.com/lance-format/lance/issues/9315), [lance#9316](https://github.com/lance-format/lance/issues/9316), fixed by [lance#9628](https://github.com/lance-format/lance/pull/9628) | 15.0.0-beta.2 |
 | **`array_has` with a zero.** `array_has(l, 0.0)` does not find `-0.0`, so `list.contains(0.0)` is sent as `array_has(l, -0.0) OR array_has(l, 0.0)`. Pylance 15 rewrites a zero needle to `array_has_any` over both encodings, for Float64 and Float32 lists. | [`_contains`, L633-638][pred-contains] | [lance#9316](https://github.com/lance-format/lance/issues/9316), fixed by [lance#9628](https://github.com/lance-format/lance/pull/9628) | 15.0.0-beta.2 |
 | **`nan_free` tracking.** Each `_Value` records whether it can be NaN, so that the guards above are left off where they cannot matter. Without the guards, only `min_horizontal` / `max_horizontal` read it, and wrapping every float there in `nanvl(x, NULL)` costs nothing. | [`nan_free`, L162-164][pred-nanfree]; [`may_be_nan`][pred-maybenan], [`cannot_be_nan`][pred-cannotbenan] and their callers | follows from the rows above | 15.0.0-beta.2 |
 
@@ -36,7 +36,7 @@ Pylance 15 also lets more be pushed, which would add code rather than remove it:
   floats only with lance#9628). Declined today in [`_null_safe`][pred-nullsafe].
 - NaN in an `is_in` list: `x IN (CAST('NaN' AS double), …)` matches Polars on 15 and
   not on 14. It declines in [`_scalar`][pred-scalar]. An infinity in a list needs no
-  upstream fix and is lowered by
+  upstream fix and is lowered since
   [#64](https://github.com/jonasdedden/polars-pylance/pull/64). A scalar NaN literal,
   and so `x = NaN` or `list.contains(NaN)`, cannot be pushed whatever the pylance version
   until Polars changes; see *Non-finite float literals* below.
@@ -90,26 +90,26 @@ own choices, or from Lance's typing, so there is nothing to file:
   are backtick-quoted ([`_quote`][pred-quote]).
 - Unclear, not investigated: `ln` of a Float32 and `log10` are an ulp off.
 
-[pred-literal]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L1298-L1309
-[pred-columns]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L1311-L1320
-[pred-contains]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L633-L638
-[pred-nanfree]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L162-L164
-[pred-maybenan]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L192-L194
-[pred-cannotbenan]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L201-L204
-[pred-nullsafe]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L429-L436
-[pred-scalar]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L1206-L1208
-[pred-literalseries]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L1144-L1148
-[pred-asdouble]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L209-L228
-[pred-compare]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L452-L458
-[pred-isin]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L565-L568
-[pred-widened]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L165-L167
-[pred-widenedset]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L719
-[pred-xor]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L405-L415
-[pred-nullsafe-const]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L54-L57
-[pred-power]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L887
-[pred-ternary]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L364-L375
-[pred-ternaryvalue]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L671-L697
-[pred-floorceil]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L810-L821
-[pred-floatfloor]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L796
-[pred-slice]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L958-L974
-[pred-quote]: https://github.com/jonasdedden/polars-pylance/blob/f058bc60c0e29244ddc1970be9d1dd0d490c1df7/src/polars_pylance/_predicate.py#L1130-L1134
+[pred-literal]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L1302-L1313
+[pred-columns]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L1315-L1324
+[pred-contains]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L633-L638
+[pred-nanfree]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L162-L164
+[pred-maybenan]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L192-L194
+[pred-cannotbenan]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L201-L204
+[pred-nullsafe]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L429-L436
+[pred-scalar]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L1210-L1212
+[pred-literalseries]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L1144-L1148
+[pred-asdouble]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L209-L228
+[pred-compare]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L452-L458
+[pred-isin]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L565-L568
+[pred-widened]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L165-L167
+[pred-widenedset]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L719
+[pred-xor]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L405-L415
+[pred-nullsafe-const]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L54-L57
+[pred-power]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L887
+[pred-ternary]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L364-L375
+[pred-ternaryvalue]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L671-L697
+[pred-floorceil]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L810-L821
+[pred-floatfloor]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L796
+[pred-slice]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L958-L974
+[pred-quote]: https://github.com/jonasdedden/polars-pylance/blob/bf9a7a863d9ccd1f23c28d2800d5f5791adf7b38/src/polars_pylance/_predicate.py#L1130-L1134
