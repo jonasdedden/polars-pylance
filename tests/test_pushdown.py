@@ -7,6 +7,7 @@ the other direction a filter pushed so far that rows go missing.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from typing import TYPE_CHECKING, Literal
 
 import lance
@@ -278,10 +279,23 @@ def test_scan_matches_an_eager_read(
     assert_frame_equal(got, want)
 
 
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        pl.col("val") > 0.999,
+        pl.col("val") <= 0.001,
+        pl.col("val").eq_missing(0.5),
+        pl.col("val").ne_missing(0.5),
+    ],
+    ids=["above", "at most", "eq_missing", "ne_missing"],
+)
 def test_an_indexed_column_keeps_its_index(
-    tmp_path: Path, rich_frame: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
+    predicate: pl.Expr,
+    tmp_path: Path,
+    rich_frame: pl.DataFrame,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A `CAST` around an indexed column costs the index, so it must not appear."""
+    """A `CAST` or `IS TRUE` around an indexed column costs the index."""
     uri = str(tmp_path / "indexed.lance")
     lance.write_dataset(rich_frame.to_arrow(), uri)
     dataset = lance.dataset(uri)
@@ -296,16 +310,34 @@ def test_an_indexed_column_keeps_its_index(
             filters.append(call.filter)
 
     spy_on_scanner(monkeypatch, record)
-    got = (
-        scan_lance(uri)
-        .filter(pl.col("val") > 0.999)
-        .select(pl.len())
-        .collect(engine="streaming")
-    )
+    got = scan_lance(uri).filter(predicate).select(pl.len()).collect(engine="streaming")
 
-    assert filters == ["((`val` > 0.999) OR `val` < CAST('-inf' AS double))"]
+    assert len(filters) == 1
     assert "ScalarIndexQuery" in dataset.scanner(filter=filters[0]).explain_plan()
-    assert got.item() == rich_frame.filter(pl.col("val") > 0.999).height
+    assert got.item() == rich_frame.filter(predicate).height
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        pl.col("x") > 1.0,
+        pl.col("x") >= 1.0,
+        ~(pl.col("x") < 1.0),
+        ~(pl.col("x") <= 1.0),
+    ],
+    ids=[">", ">=", "not <", "not <="],
+)
+def test_a_zone_map_keeps_zones_of_nan(predicate: pl.Expr, tmp_path: Path) -> None:
+    """Below pylance 15, a zone map skips a zone holding only positive NaNs."""
+    nans = [math.nan] * 4 + [math.copysign(math.nan, -1.0)] * 4
+    frame = pl.DataFrame({"x": [*nans, 0.5, 2.0, None, -1.0]})
+    uri = str(tmp_path / "zones.lance")
+    lance.write_dataset(frame.to_arrow(), uri, max_rows_per_file=4)
+    lance.dataset(uri).create_scalar_index("x", index_type="ZONEMAP")
+
+    got = scan_lance(uri).filter(predicate).collect(engine="streaming")
+
+    assert_frame_equal(got, frame.filter(predicate), check_row_order=False)
 
 
 @pytest.mark.parametrize("engine", ["streaming", "in-memory"])

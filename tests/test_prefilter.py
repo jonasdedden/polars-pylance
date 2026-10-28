@@ -366,7 +366,8 @@ def test_expression_prefilter_is_lowered_with_the_schema(
     assert searches
     assert all(c.prefilter for c in searches)
     assert all(
-        c.filter == "((`score` > 1.0) OR `score` < CAST('-inf' AS double))"
+        c.filter == "((`score` > 1.0) OR `score` < CAST('-inf' AS double)"
+        " OR `score` = CAST('NaN' AS double))"
         for c in searches
     )
 

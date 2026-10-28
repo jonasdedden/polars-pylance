@@ -110,7 +110,7 @@ Rather than return wrong rows quickly, these decline and run in Polars. Those ma
 | --- | --- |
 | `round` | Polars breaks ties to even, Lance away from zero |
 | `log` to a base other than e, `ln` of a Float32 | Lance is an ulp off |
-| `a ** b`, fractional exponent over a float | `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance |
+| `a ** b` to an integer, 0.5 or a whole number below 10, or of a Float32 | Polars computes in wrapping integers or in Float32, takes `sqrt`, or multiplies out; Lance's `powf` in Float64 differs |
 | `a ** b`, zero or negative exponent | Lance folds `x ** 0` to 1, dropping nulls; `0 ** -1` is `inf` in Polars and fails the scan in Lance |
 | `str.strip_chars()` with no argument | Polars strips Unicode whitespace, `btrim` strips spaces |
 | `str.replace(..., literal=True)` | SQL's `replace` is literal but replaces every occurrence |
@@ -136,8 +136,10 @@ Everything else translates, including `is_in` of any length (also with `nulls_eq
 Float comparisons translate with a correction for NaN. Lance orders it by IEEE total
 order, so a NaN with its sign bit set, which is what `0 / 0` produces, sorts below
 every number, where Polars puts every NaN above. So `val > 0.5` is sent as
-`((val > 0.5) OR val < CAST('-inf' AS double))`, which still uses a scalar index on
-`val`.
+`((val > 0.5) OR val < CAST('-inf' AS double) OR val = CAST('NaN' AS double))`, and
+`val < 0.5` as `((val < 0.5) AND NOT isnan(val))`. Both still use a scalar index on
+`val`. The `val = NaN` term is for a zone map, which before pylance 15 skips a zone
+holding only positive NaNs.
 
 That needs the column types. `scan_lance` always has them. Called without
 `schema=`, `to_lance_filter` cannot tell an integer column from a float one, or a

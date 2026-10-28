@@ -49,8 +49,12 @@ _COMPARISONS = {
     "GtEq": ">=",
 }
 # `eq_missing` / `ne_missing` against a non-null literal: a null row becomes
-# false / true, so the result stays two-valued under NOT and XOR.
-_NULL_SAFE = {"EqValidity": "IS TRUE", "NotEqValidity": "IS NOT TRUE"}
+# false / true, so the result stays two-valued under NOT and XOR. Not `IS TRUE`,
+# which no scalar index serves.
+_NULL_SAFE = {
+    "EqValidity": "({} AND {} IS NOT NULL)",
+    "NotEqValidity": "(NOT {} OR {} IS NULL)",
+}
 
 _ARITHMETIC = {"Plus": "+", "Minus": "-", "Multiply": "*"}
 
@@ -369,14 +373,14 @@ class _Lowering:
             for value, other in ((rhs, lhs), (lhs, rhs)):
                 if _is_non_null_literal(value):
                     comparison, exact = self._compare("=", other, value)
-                    return f"({comparison} {_NULL_SAFE[op]})", exact
+                    return _NULL_SAFE[op].format(
+                        comparison, self.value(other).sql
+                    ), exact
             return None, False
 
         if op == "Xor":
-            # Not `left != right`: with a boolean column on the left, Lance
-            # converts every literal on the right to Boolean and fails to plan
-            # `flag != (id > 0)`. Both halves of the expansion must be exact,
-            # since it negates each of them.
+            # Not `left != right`, which no scalar index serves; the expansion
+            # reaches one. Both halves must be exact, since it negates each of them.
             left, left_exact = self.predicate(_field(body, "left"))
             right, right_exact = self.predicate(_field(body, "right"))
             if left is None or right is None or not (left_exact and right_exact):
@@ -694,7 +698,7 @@ class _Lowering:
     def _float_modulus(self, a: _Value, b: _Value) -> _Value:
         """`a % b` over floats, Polars' `a - b * floor(a / b)`.
 
-        Lance has no `floor`, so it is `trunc` less one where that rounded up. A
+        `FLOOR(x)` is syntax Lance rejects; quoted, `floor` is a plain call. A
         Float32 is computed as one, which a wider operand would undo, and Polars'
         kernel for a fractional literal divisor disagrees with its own.
         """
@@ -708,10 +712,7 @@ class _Lowering:
                 raise _Decline
             if v.is_float32 and not float32:
                 raise _Decline
-        q, cast = f"({a.sql} / {b.sql})", "float" if float32 else "double"
-        floor = f"(trunc({q}) - CAST(trunc({q}) - {q} > 0.0 AS {cast}))"
-        # `+ 0.0` turns the `-0.0` of an exact multiple into Polars' `0.0`.
-        return _Value(f"(({a.sql} - {b.sql} * {floor}) + 0.0)", dtype=dtype)
+        return _Value(f"({a.sql} - {b.sql} * `floor`({a.sql} / {b.sql}))", dtype=dtype)
 
     def _function_value(self, node: Json) -> _Value:
         name, payload, args = _function(node)
@@ -771,24 +772,25 @@ class _Lowering:
         raise _Decline
 
     def _power(self, args: Sequence[Json]) -> _Value:
-        """`a ** b`, for a positive literal exponent.
+        """`a ** b` where Polars computes `powf` in Float64, as Lance does.
 
-        Lance folds `power(x, 0)` to 1, dropping nulls, and fails the scan on
-        `0 ** -1`, which is `inf` in Polars. A fractional exponent needs an integer
-        base: `(-inf) ** 0.5` is NaN in Polars and `inf` in Lance.
+        Not to an integer exponent (wrapping integer arithmetic), of a Float32, or
+        to 0.5 or a whole exponent below 10, which Polars takes as `sqrt` or
+        multiplies out. Lance folds `power(x, 0)` to 1 and fails on `0 ** -1`.
         """
-        exponent = _literal(args[1])
-        base = self.value(args[0])
-        whole = exponent.dtype is not None and exponent.dtype.is_integer()
-        fractional = isinstance(exponent.dtype, pl.Float64) and (
-            base.dtype is not None and base.dtype.is_integer()
-        )
-        if not (whole or fractional) or float(exponent.sql) <= 0:
+        exponent, base = _literal(args[1]), self.value(args[0])
+        integer = base.dtype is not None and base.dtype.is_integer()
+        typed = isinstance(base.dtype, pl.Float64) or integer
+        if (
+            not isinstance(exponent.dtype, pl.Float64)
+            or exponent.sql == "NULL"
+            or not (typed or (base.untyped and self.types_known_later))
+        ):
             raise _Decline
-        return _Value(
-            f"power({base.sql}, {exponent.sql})",
-            dtype=base.dtype if whole else pl.Float64(),
-        )
+        value = float(exponent.sql)
+        if value <= 0 or value == 0.5 or (value.is_integer() and value < 10):
+            raise _Decline
+        return _Value(f"power({base.sql}, {exponent.sql})", dtype=pl.Float64())
 
     def _root_or_log(self, name: str, args: Sequence[Json]) -> _Value:
         """`sqrt`, `cbrt` and `log` to base e, which Lance computes bit for bit.
@@ -1157,10 +1159,11 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
     against each other.
 
     Against a literal, which is never NaN, the comparison stays on the column so
-    that a scalar index still applies: `x < -inf`, which holds exactly for a
-    negative NaN, is added to or excluded from the ordering comparisons. Each
-    extra test is null whenever `x` is, so nulls propagate as the plain
-    comparison would.
+    that a scalar index still applies. `>` and `>=` add `x < -inf`, true exactly
+    for a negative NaN, and `x = NaN`, without which a zone map below pylance 15
+    skips zones of positive NaNs. `<` and `<=` add `NOT isnan(x)`, which the index
+    leaves to a refining filter. Each extra test is null whenever `x` is, so nulls
+    propagate as the plain comparison would.
 
     Between two float values, `nanvl` gives every NaN the positive sign and the
     pair of zeros is decided explicitly.
@@ -1180,10 +1183,13 @@ def _float_comparison(op: str, lhs: _Value, rhs: _Value) -> str:
         compared = f"({value} {op} {rhs.sql})"
         if not lhs.may_be_nan or op in ("=", "!="):
             return compared
-        neg_inf = "CAST('-inf' AS float)" if lhs.is_float32 else _NEG_INF
-        if op in (">", ">="):
-            return f"({compared} OR {value} < {neg_inf})"
-        return f"({compared} AND {value} >= {neg_inf})"
+        if op in ("<", "<="):
+            return f"({compared} AND NOT isnan({value}))"
+        sql_type = "float" if lhs.is_float32 else "double"
+        return (
+            f"({compared} OR {value} < CAST('-inf' AS {sql_type})"
+            f" OR {value} = CAST('NaN' AS {sql_type}))"
+        )
 
     def positive_nan(value: _Value) -> str:
         if value.may_be_nan:
